@@ -4,8 +4,8 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"github.com/anytypeio/any-sync-controlnode/account"
-	"github.com/anytypeio/any-sync-controlnode/config"
+	"github.com/anytypeio/any-sync-coordinator/account"
+	"github.com/anytypeio/any-sync-coordinator/config"
 	"github.com/anytypeio/any-sync/app"
 	"github.com/anytypeio/any-sync/app/logger"
 	"github.com/anytypeio/any-sync/metric"
@@ -27,7 +27,7 @@ import (
 var log = logger.NewNamed("main")
 
 var (
-	flagConfigFile = flag.String("c", "etc/any-sync-controlnode.yml", "path to config file")
+	flagConfigFile = flag.String("c", "etc/any-sync-coordinator.yml", "path to config file")
 	flagVersion    = flag.Bool("v", false, "show version and exit")
 	flagHelp       = flag.Bool("h", false, "show help and exit")
 )

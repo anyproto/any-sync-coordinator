@@ -1,4 +1,4 @@
-module github.com/anytypeio/any-sync-controlnode
+module github.com/anytypeio/any-sync-coordinator
 
 go 1.19
 

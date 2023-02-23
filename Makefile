@@ -4,7 +4,7 @@ export PATH:=deps:$(PATH)
 
 build:
 	@$(eval FLAGS := $$(shell PATH=$(PATH) govvv -flags -pkg github.com/anytypeio/any-sync/app))
-	go build -v -o bin/any-sync-controlnode -ldflags "$(FLAGS)" github.com/anytypeio/any-sync-controlnode/cmd
+	go build -v -o bin/any-sync-coordinator -ldflags "$(FLAGS)" github.com/anytypeio/any-sync-coordinator/cmd
 
 test:
 	go test ./... --cover
