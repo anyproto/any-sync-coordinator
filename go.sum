@@ -44,6 +44,12 @@ github.com/alecthomas/units v0.0.0-20190717042225-c3de453c63f4/go.mod h1:ybxpYRF
 github.com/alecthomas/units v0.0.0-20190924025748-f65c72e2690d/go.mod h1:rBZYJk541a8SKzHPHnH3zbiI+7dagKZ0cgpgrD7Fyho=
 github.com/anytypeio/any-sync v0.0.11 h1:c5B3ST646Ia7daLJvmoYs5kDia9BGK3LNX3QfK3dqJw=
 github.com/anytypeio/any-sync v0.0.11/go.mod h1:K6JnWYs4KpcX/E/m/sh9UhOplupkV6dM4cwWBZYaHo8=
+github.com/anytypeio/any-sync v0.0.14-0.20230222133529-64d9689be5cd h1:ndOwLnhGBM/+R+Ck1KGfoeM0E0I+0MbPaowIA1dQVew=
+github.com/anytypeio/any-sync v0.0.14-0.20230222133529-64d9689be5cd/go.mod h1:K6JnWYs4KpcX/E/m/sh9UhOplupkV6dM4cwWBZYaHo8=
+github.com/anytypeio/any-sync v0.0.15-0.20230223105829-2a76b81a3248 h1:Yq4ILVbujIkRg7KPMVGW4+6RrAmIRWVHutZOLJTgjSE=
+github.com/anytypeio/any-sync v0.0.15-0.20230223105829-2a76b81a3248/go.mod h1:jUu8YIgJAHUV+YR9bD5IXwM0DgJHr3FeYe84X2XLFkg=
+github.com/anytypeio/any-sync v0.0.15-0.20230223111311-f5f960bd810a h1:UE3qaWKNLDZZn4JxFiR1Aj+hp4oG5s8Jd6r0ySuW0Rc=
+github.com/anytypeio/any-sync v0.0.15-0.20230223111311-f5f960bd810a/go.mod h1:jUu8YIgJAHUV+YR9bD5IXwM0DgJHr3FeYe84X2XLFkg=
 github.com/anytypeio/go-chash v0.0.2 h1:BSpyMC3HXNkf2eosQrHM4svov0DrvxL9tb4gnHbdmbA=
 github.com/anytypeio/go-chash v0.0.2/go.mod h1:G+R6q7jYgNa52NqcRhnNm28pogfWW+cuHtgBktrc2QA=
 github.com/benbjohnson/clock v1.1.0/go.mod h1:J11/hYXuz8f4ySSvYwY0FKfm+ezbsZBKZxNJlLklBHA=
@@ -216,6 +222,8 @@ github.com/multiformats/go-multibase v0.1.1 h1:3ASCDsuLX8+j4kx58qnJ4YFq/JWTJpCyD
 github.com/multiformats/go-multibase v0.1.1/go.mod h1:ZEjHE+IsUrgp5mhlEAYjMtZwK1k4haNkcaPg9aoe1a8=
 github.com/multiformats/go-multicodec v0.7.0 h1:rTUjGOwjlhGHbEMbPoSUJowG1spZTVsITRANCjKTUAQ=
 github.com/multiformats/go-multicodec v0.7.0/go.mod h1:GUC8upxSBE4oG+q3kWZRw/+6yC1BqO550bjhWsJbZlw=
+github.com/multiformats/go-multicodec v0.8.0 h1:evBmgkbSQux+Ds2IgfhkO38Dl2GDtRW8/Rp6YiSHX/Q=
+github.com/multiformats/go-multicodec v0.8.0/go.mod h1:GUC8upxSBE4oG+q3kWZRw/+6yC1BqO550bjhWsJbZlw=
 github.com/multiformats/go-multihash v0.2.1 h1:aem8ZT0VA2nCHHk7bPJ1BjUbHNciqZC/d16Vve9l108=
 github.com/multiformats/go-multihash v0.2.1/go.mod h1:WxoMcYG85AZVQUyRyo9s4wULvW5qrI9vb2Lt6evduFc=
 github.com/multiformats/go-multistream v0.3.3 h1:d5PZpjwRgVlbwfdTDjife7XszfZd8KYWfROYFlGcR8o=
