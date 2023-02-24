@@ -1,6 +1,7 @@
 package account
 
 import (
+	"github.com/anytypeio/any-sync-coordinator/config"
 	commonaccount "github.com/anytypeio/any-sync/accountservice"
 	"github.com/anytypeio/any-sync/app"
 	"github.com/anytypeio/any-sync/commonspace/object/accountdata"
@@ -23,7 +24,7 @@ func New() app.Component {
 }
 
 func (s *service) Init(a *app.App) (err error) {
-	acc := a.MustComponent("config").(commonaccount.ConfigGetter).GetAccount()
+	acc := a.MustComponent(config.CName).(commonaccount.ConfigGetter).GetAccount()
 
 	decodedEncryptionKey, err := keys.DecodeKeyFromString(
 		acc.EncryptionKey,
@@ -59,8 +60,8 @@ func (s *service) Init(a *app.App) (err error) {
 		PeerKey:  decodedPeerKey,
 		SignKey:  decodedSigningKey,
 		EncKey:   decodedEncryptionKey,
+		PeerId:   acc.PeerId,
 	}
-
 	return nil
 }
 
