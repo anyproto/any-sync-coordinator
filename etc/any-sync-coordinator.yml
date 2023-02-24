@@ -6,20 +6,10 @@ account:
 grpcServer:
     server:
         listenAddrs:
-            - 127.0.0.1:4730
+            - 127.0.0.1:4830
     stream:
         timeoutMilliseconds: 1000
         maxMsgSizeMb: 256
-metric:
-    addr: ":7010"
-s3Store:
-    region: eu-central-1
-    profile: default
-    bucket: anytype-test
-    maxThreads: 16
-
-fileDevStore:
-    path: db
 
 nodes:
     - peerId: 12D3KooWKnXTtbveMDUFfeSqR5dt9a4JW66tZQXG7C7PdDh3vqGu

@@ -50,6 +50,8 @@ github.com/anytypeio/any-sync v0.0.15-0.20230223105829-2a76b81a3248 h1:Yq4ILVbuj
 github.com/anytypeio/any-sync v0.0.15-0.20230223105829-2a76b81a3248/go.mod h1:jUu8YIgJAHUV+YR9bD5IXwM0DgJHr3FeYe84X2XLFkg=
 github.com/anytypeio/any-sync v0.0.15-0.20230223111311-f5f960bd810a h1:UE3qaWKNLDZZn4JxFiR1Aj+hp4oG5s8Jd6r0ySuW0Rc=
 github.com/anytypeio/any-sync v0.0.15-0.20230223111311-f5f960bd810a/go.mod h1:jUu8YIgJAHUV+YR9bD5IXwM0DgJHr3FeYe84X2XLFkg=
+github.com/anytypeio/any-sync v0.0.15-0.20230223135510-c708fbd98480 h1:bB2Az4Hq+H09P3I1hzsyEOFWRLMfSys9Dm7I3AkRVfw=
+github.com/anytypeio/any-sync v0.0.15-0.20230223135510-c708fbd98480/go.mod h1:jUu8YIgJAHUV+YR9bD5IXwM0DgJHr3FeYe84X2XLFkg=
 github.com/anytypeio/go-chash v0.0.2 h1:BSpyMC3HXNkf2eosQrHM4svov0DrvxL9tb4gnHbdmbA=
 github.com/anytypeio/go-chash v0.0.2/go.mod h1:G+R6q7jYgNa52NqcRhnNm28pogfWW+cuHtgBktrc2QA=
 github.com/benbjohnson/clock v1.1.0/go.mod h1:J11/hYXuz8f4ySSvYwY0FKfm+ezbsZBKZxNJlLklBHA=

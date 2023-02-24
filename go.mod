@@ -4,7 +4,7 @@ go 1.19
 
 require (
 	github.com/ahmetb/govvv v0.3.0
-	github.com/anytypeio/any-sync v0.0.15-0.20230223111311-f5f960bd810a
+	github.com/anytypeio/any-sync v0.0.15-0.20230223135510-c708fbd98480
 	go.uber.org/zap v1.24.0
 	gopkg.in/yaml.v3 v3.0.1
 )
