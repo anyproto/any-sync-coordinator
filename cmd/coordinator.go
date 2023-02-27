@@ -7,6 +7,7 @@ import (
 	"github.com/anytypeio/any-sync-coordinator/account"
 	"github.com/anytypeio/any-sync-coordinator/config"
 	"github.com/anytypeio/any-sync-coordinator/coordinator"
+	"github.com/anytypeio/any-sync-coordinator/db"
 	"github.com/anytypeio/any-sync/app"
 	"github.com/anytypeio/any-sync/app/logger"
 	"github.com/anytypeio/any-sync/metric"
@@ -94,5 +95,6 @@ func Bootstrap(a *app.App) {
 		Register(secureservice.New()).
 		Register(server.New()).
 		Register(metric.New()).
+		Register(db.New()).
 		Register(coordinator.New())
 }

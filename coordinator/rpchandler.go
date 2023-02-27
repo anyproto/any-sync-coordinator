@@ -9,6 +9,16 @@ type rpcHandler struct {
 	c *coordinator
 }
 
+func (r *rpcHandler) SpaceStatusCheck(ctx context.Context, request *coordinatorproto.SpaceStatusCheckRequest) (*coordinatorproto.SpaceStatusCheckResponse, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (r *rpcHandler) SpaceStatusChange(ctx context.Context, request *coordinatorproto.SpaceStatusChangeRequest) (*coordinatorproto.SpaceStatusChangeResponse, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
 func (r *rpcHandler) SpaceSign(ctx context.Context, req *coordinatorproto.SpaceSignRequest) (*coordinatorproto.SpaceSignResponse, error) {
 	receipt, err := r.c.SpaceSign(ctx, req.SpaceId)
 	if err != nil {

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"github.com/anytypeio/any-sync-coordinator/db"
 	commonaccount "github.com/anytypeio/any-sync/accountservice"
 	"github.com/anytypeio/any-sync/app"
 	"github.com/anytypeio/any-sync/metric"
@@ -29,6 +30,7 @@ type Config struct {
 	GrpcServer net.Config            `yaml:"grpcServer"`
 	Metric     metric.Config         `yaml:"metric"`
 	Nodes      []nodeconf.NodeConfig `yaml:"nodes"`
+	Mongo      db.Mongo              `yaml:"mongo"`
 }
 
 func (c *Config) Init(a *app.App) (err error) {
@@ -53,4 +55,8 @@ func (c Config) GetMetric() metric.Config {
 
 func (c Config) GetNodes() []nodeconf.NodeConfig {
 	return c.Nodes
+}
+
+func (c Config) GetMongo() db.Mongo {
+	return c.Mongo
 }
