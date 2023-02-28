@@ -2,7 +2,6 @@ package db
 
 import (
 	"context"
-	"github.com/anytypeio/any-sync-coordinator/config"
 	"github.com/anytypeio/any-sync/app"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -29,7 +28,7 @@ type database struct {
 }
 
 func (d *database) Init(a *app.App) (err error) {
-	d.conf = a.MustComponent(config.CName).(mongoProvider).GetMongo()
+	d.conf = a.MustComponent("config").(mongoProvider).GetMongo()
 	return
 }
 
