@@ -80,8 +80,61 @@ func (d *delayedDeleter) Close() {
 	d.SpaceDeleter.Close()
 }
 
-func TestSpaceStatus_ChangeStatus(t *testing.T) {
-	t.Run("change status created to pending", func(t *testing.T) {
+func TestSpaceStatus_NewAndChangeStatusAndStatus(t *testing.T) {
+	t.Run("new status", func(t *testing.T) {
+		fx := newFixture(t)
+		fx.Run()
+		fx.verifier.result = true
+		defer fx.Finish(t)
+		spaceId := "spaceId"
+		identity := []byte("identity")
+
+		err := fx.NewStatus(context.Background(), spaceId, identity)
+		require.NoError(t, err)
+		res, err := fx.Status(ctx, spaceId, identity)
+		require.NoError(t, err)
+		require.Equal(t, StatusEntry{
+			SpaceId:      spaceId,
+			Identity:     identity,
+			DeletionDate: time.Time{},
+			Status:       SpaceStatusCreated,
+		}, res)
+	})
+	t.Run("pending status", func(t *testing.T) {
+		fx := newFixture(t)
+		fx.Run()
+		fx.verifier.result = true
+		defer fx.Finish(t)
+		spaceId := "spaceId"
+		identity := []byte("identity")
+
+		err := fx.NewStatus(context.Background(), spaceId, identity)
+		require.NoError(t, err)
+		raw := &treechangeproto.RawTreeChangeWithId{
+			RawChange: []byte{1},
+			Id:        "id",
+		}
+		marshalled, _ := raw.Marshal()
+		err = fx.ChangeStatus(context.Background(), spaceId, StatusChange{
+			DeletionPayload: raw,
+			Identity:        identity,
+			Status:          SpaceStatusDeletionPending,
+		})
+		require.NoError(t, err)
+		res, err := fx.Status(ctx, spaceId, identity)
+		require.NoError(t, err)
+		if time.Now().Sub(res.DeletionDate).Seconds() > 10 {
+			t.Fatal("incorrect deletion date")
+		}
+		res.DeletionDate = time.Time{}
+		require.Equal(t, StatusEntry{
+			SpaceId:         spaceId,
+			Identity:        identity,
+			DeletionPayload: marshalled,
+			Status:          SpaceStatusDeletionPending,
+		}, res)
+	})
+	t.Run("change status pending to created", func(t *testing.T) {
 		fx := newFixture(t)
 		fx.Run()
 		fx.verifier.result = true
@@ -96,11 +149,24 @@ func TestSpaceStatus_ChangeStatus(t *testing.T) {
 			Id:        "id",
 		}
 		err = fx.ChangeStatus(context.Background(), spaceId, StatusChange{
-			DeletePayload: raw,
-			Identity:      identity,
-			Status:        SpaceStatusDeletionPending,
+			DeletionPayload: raw,
+			Identity:        identity,
+			Status:          SpaceStatusDeletionPending,
 		})
 		require.NoError(t, err)
+		err = fx.ChangeStatus(context.Background(), spaceId, StatusChange{
+			Identity: identity,
+			Status:   SpaceStatusCreated,
+		})
+		require.NoError(t, err)
+		res, err := fx.Status(ctx, spaceId, identity)
+		require.NoError(t, err)
+		require.Equal(t, StatusEntry{
+			SpaceId:      spaceId,
+			Identity:     identity,
+			DeletionDate: time.Time{},
+			Status:       SpaceStatusCreated,
+		}, res)
 	})
 	t.Run("failed to verify change", func(t *testing.T) {
 		fx := newFixture(t)
@@ -117,22 +183,58 @@ func TestSpaceStatus_ChangeStatus(t *testing.T) {
 			Id:        "id",
 		}
 		err = fx.ChangeStatus(context.Background(), spaceId, StatusChange{
-			DeletePayload: raw,
-			Identity:      identity,
-			Status:        SpaceStatusDeletionPending,
+			DeletionPayload: raw,
+			Identity:        identity,
+			Status:          SpaceStatusDeletionPending,
 		})
 		require.Error(t, err)
 	})
-	t.Run("can't create new two times", func(t *testing.T) {
+	t.Run("set incorrect status change", func(t *testing.T) {
 		fx := newFixture(t)
 		fx.Run()
+		fx.verifier.result = false
 		defer fx.Finish(t)
 		spaceId := "spaceId"
 		identity := []byte("identity")
 
 		err := fx.NewStatus(context.Background(), spaceId, identity)
 		require.NoError(t, err)
-		err = fx.NewStatus(context.Background(), spaceId, identity)
+		raw := &treechangeproto.RawTreeChangeWithId{
+			RawChange: []byte{1},
+			Id:        "id",
+		}
+		err = fx.ChangeStatus(context.Background(), spaceId, StatusChange{
+			DeletionPayload: raw,
+			Identity:        identity,
+			Status:          SpaceStatusDeletionStarted,
+		})
+		require.Error(t, err)
+		err = fx.ChangeStatus(context.Background(), spaceId, StatusChange{
+			DeletionPayload: raw,
+			Identity:        identity,
+			Status:          SpaceStatusDeleted,
+		})
+		require.Error(t, err)
+	})
+	t.Run("set wrong identity", func(t *testing.T) {
+		fx := newFixture(t)
+		fx.Run()
+		fx.verifier.result = false
+		defer fx.Finish(t)
+		spaceId := "spaceId"
+		identity := []byte("identity")
+
+		err := fx.NewStatus(context.Background(), spaceId, identity)
+		require.NoError(t, err)
+		raw := &treechangeproto.RawTreeChangeWithId{
+			RawChange: []byte{1},
+			Id:        "id",
+		}
+		err = fx.ChangeStatus(context.Background(), spaceId, StatusChange{
+			DeletionPayload: raw,
+			Identity:        []byte("other"),
+			Status:          SpaceStatusDeletionPending,
+		})
 		require.Error(t, err)
 	})
 }

@@ -34,8 +34,9 @@ func (d pendingSpacesQuery) toMap() bson.M {
 type StatusEntry struct {
 	SpaceId         string    `bson:"_id"`
 	Identity        []byte    `bson:"identity"`
-	DeletionPayload []byte    `bson:"deletionChange"`
+	DeletionPayload []byte    `bson:"deletionPayload"`
 	DeletionDate    time.Time `bson:"deletionDate"`
+	Status          int       `bson:"status"`
 }
 
 type spaceDeleter struct {
@@ -96,9 +97,10 @@ func (s *spaceDeleter) processEntry(ctx context.Context, cur *mongo.Cursor) (err
 	op.Set.DeletionPayload = entry.DeletionPayload
 	op.Set.Status = SpaceStatusDeletionStarted
 	op.Set.DeletionDate = entry.DeletionDate
+	status := SpaceStatusDeletionPending
 	res := s.spaces.FindOneAndUpdate(ctx, findStatusQuery{
 		SpaceId:  entry.SpaceId,
-		Status:   SpaceStatusDeletionPending,
+		Status:   &status,
 		Identity: entry.Identity,
 	}, op)
 	if res.Err() != nil {
@@ -114,9 +116,10 @@ func (s *spaceDeleter) processEntry(ctx context.Context, cur *mongo.Cursor) (err
 	} else {
 		op.Set.Status = SpaceStatusDeleted
 	}
+	status = SpaceStatusDeletionStarted
 	s.spaces.FindOneAndUpdate(ctx, findStatusQuery{
 		SpaceId:  entry.SpaceId,
-		Status:   SpaceStatusDeletionStarted,
+		Status:   &status,
 		Identity: entry.Identity,
 	}, op)
 	return nil

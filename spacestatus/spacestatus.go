@@ -18,10 +18,10 @@ const CName = "coordinator.spacestatus"
 var log = logger.NewNamed(CName)
 
 type StatusChange struct {
-	DeletePayload *treechangeproto.RawTreeChangeWithId
-	Identity      []byte
-	Status        int
-	PeerId        string
+	DeletionPayload *treechangeproto.RawTreeChangeWithId
+	Identity        []byte
+	Status          int
+	PeerId          string
 }
 
 var (
@@ -62,7 +62,7 @@ type spaceStatus struct {
 
 type findStatusQuery struct {
 	SpaceId  string `bson:"_id"`
-	Status   int    `bson:"status"`
+	Status   *int   `bson:"status,omitempty"`
 	Identity []byte `bson:"identity"`
 }
 
@@ -88,7 +88,7 @@ func (s *spaceStatus) ChangeStatus(ctx context.Context, spaceId string, change S
 		op.Set.DeletionDate = t
 		res := s.spaces.FindOneAndUpdate(ctx, findStatusQuery{
 			SpaceId:  spaceId,
-			Status:   oldStatus,
+			Status:   &oldStatus,
 			Identity: change.Identity,
 		}, op)
 		return res.Err()
@@ -97,12 +97,12 @@ func (s *spaceStatus) ChangeStatus(ctx context.Context, spaceId string, change S
 	case SpaceStatusCreated:
 		return modify(SpaceStatusDeletionPending, SpaceStatusCreated, nil, time.Time{})
 	case SpaceStatusDeletionPending:
-		err = s.verifier.Verify(change.DeletePayload, change.Identity, change.PeerId)
+		err = s.verifier.Verify(change.DeletionPayload, change.Identity, change.PeerId)
 		if err != nil {
 			log.Debug("failed to verify payload", zap.Error(err))
 			return ErrIncorrectDeletePayload
 		}
-		res, err := change.DeletePayload.Marshal()
+		res, err := change.DeletionPayload.Marshal()
 		if err != nil {
 			return err
 		}
@@ -121,7 +121,7 @@ func (s *spaceStatus) Status(ctx context.Context, spaceId string, identity []byt
 		err = res.Err()
 		return
 	}
-	err = res.Decode(entry)
+	err = res.Decode(&entry)
 	return
 }
 
