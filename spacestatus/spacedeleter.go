@@ -25,10 +25,13 @@ type pendingSpacesQuery struct {
 
 func (d pendingSpacesQuery) toMap() bson.M {
 	return bson.M{"$and": bson.A{
-		bson.D{{"status", SpaceStatusDeletionPending}},
-		bson.D{{"deletion_date", bson.M{
-			"$gt":  time.Time{},
-			"$lte": time.Now().Add(-d.deletionPeriod)}}}}}
+		bson.D{{"status",
+			bson.M{
+				"$eq": SpaceStatusDeletionPending}}},
+		bson.D{{"deletionDate",
+			bson.M{
+				"$gt":  time.Time{},
+				"$lte": time.Now().Add(-d.deletionPeriod)}}}}}
 }
 
 type StatusEntry struct {
@@ -59,17 +62,13 @@ func newSpaceDeleter(runSeconds int, deletionPeriod time.Duration) SpaceDeleter 
 func (s *spaceDeleter) Run(spaces *mongo.Collection, delSender DelSender) {
 	s.delSender = delSender
 	s.spaces = spaces
-	s.loop = periodicsync.NewPeriodicSync(s.runSeconds, time.Second*10, s.delete, log)
+	s.loop = periodicsync.NewPeriodicSync(s.runSeconds, time.Second*100, s.delete, log)
 	s.loop.Run()
 }
 
 func (s *spaceDeleter) delete(ctx context.Context) (err error) {
 	query := pendingSpacesQuery{s.deletionPeriod}.toMap()
 	cur, err := s.spaces.Find(ctx, query)
-	if err != nil {
-		return
-	}
-	err = s.processEntry(ctx, cur)
 	if err != nil {
 		return
 	}
