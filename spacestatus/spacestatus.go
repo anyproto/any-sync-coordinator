@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/anytypeio/any-sync-coordinator/db"
+	"github.com/anytypeio/any-sync-coordinator/nodeservice"
 	"github.com/anytypeio/any-sync/app"
 	"github.com/anytypeio/any-sync/app/logger"
 	"github.com/anytypeio/any-sync/commonspace/object/tree/treechangeproto"
@@ -19,7 +20,7 @@ var log = logger.NewNamed(CName)
 type StatusChange struct {
 	DeletePayload *treechangeproto.RawTreeChangeWithId
 	Identity      []byte
-	Status        string
+	Status        int
 	PeerId        string
 }
 
@@ -29,11 +30,15 @@ var (
 )
 
 const (
-	SpaceStatusCreated         = "created"
-	SpaceStatusDeletionPending = "pending"
-	SpaceStatusDeletionStarted = "deletionStarted"
-	SpaceStatusDeleted         = "deleted"
+	SpaceStatusCreated = iota
+	SpaceStatusDeletionPending
+	SpaceStatusDeletionStarted
+	SpaceStatusDeleted
 )
+
+type configProvider interface {
+	GetSpaceStatus() Config
+}
 
 type SpaceStatus interface {
 	NewStatus(ctx context.Context, spaceId string, identity []byte) (err error)
@@ -47,36 +52,35 @@ func New() SpaceStatus {
 
 type spaceStatus struct {
 	db       db.Database
+	conf     Config
 	spaces   *mongo.Collection
 	verifier ChangeVerifier
+	deleter  *spaceDeleter
+	sender   DelSender
 }
 
 type findStatusQuery struct {
 	SpaceId  string `bson:"_id"`
-	Status   string `bson:"status"`
+	Status   int    `bson:"status"`
 	Identity []byte `bson:"identity"`
 }
 
 type modifyStatusOp struct {
 	Set struct {
-		Status          string    `bson:"status"`
+		Status          int       `bson:"status"`
 		DeletionPayload []byte    `bson:"deletionPayload"`
 		DeletionDate    time.Time `bson:"deletionDate"`
 	} `bson:"$set"`
 }
 
-type insertNewSpaceQuery struct {
-	SpaceId string `bson:"_id"`
-}
-
 type insertNewSpaceOp struct {
 	Identity []byte `bson:"identity"`
-	Status   string `bson:"status"`
+	Status   int    `bson:"status"`
 	SpaceId  string `bson:"_id"`
 }
 
 func (s *spaceStatus) ChangeStatus(ctx context.Context, spaceId string, change StatusChange) (err error) {
-	modify := func(oldStatus, newStatus string, deletionChange []byte, t time.Time) error {
+	modify := func(oldStatus, newStatus int, deletionChange []byte, t time.Time) error {
 		op := modifyStatusOp{}
 		op.Set.DeletionPayload = deletionChange
 		op.Set.Status = newStatus
@@ -118,7 +122,10 @@ func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity []
 
 func (s *spaceStatus) Init(a *app.App) (err error) {
 	s.db = a.MustComponent(db.CName).(db.Database)
+	s.sender = a.MustComponent(nodeservice.CName).(DelSender)
 	s.verifier = &changeVerifier{}
+	s.conf = a.MustComponent("config").(configProvider).GetSpaceStatus()
+	s.deleter = newSpaceDeleter(s.conf.RunSeconds, time.Duration(s.conf.DeletionPeriodDays*24)*time.Hour)
 	return
 }
 
@@ -128,9 +135,11 @@ func (s *spaceStatus) Name() (name string) {
 
 func (s *spaceStatus) Run(ctx context.Context) (err error) {
 	s.spaces = s.db.SpacesCollection()
+	s.deleter.Run(s.spaces, s.sender)
 	return
 }
 
 func (s *spaceStatus) Close(ctx context.Context) (err error) {
+	s.deleter.Close()
 	return
 }

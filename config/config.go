@@ -2,6 +2,7 @@ package config
 
 import (
 	"github.com/anytypeio/any-sync-coordinator/db"
+	"github.com/anytypeio/any-sync-coordinator/spacestatus"
 	commonaccount "github.com/anytypeio/any-sync/accountservice"
 	"github.com/anytypeio/any-sync/app"
 	"github.com/anytypeio/any-sync/metric"
@@ -26,11 +27,12 @@ func NewFromFile(path string) (c *Config, err error) {
 }
 
 type Config struct {
-	Account    commonaccount.Config  `yaml:"account"`
-	GrpcServer net.Config            `yaml:"grpcServer"`
-	Metric     metric.Config         `yaml:"metric"`
-	Nodes      []nodeconf.NodeConfig `yaml:"nodes"`
-	Mongo      db.Mongo              `yaml:"mongo"`
+	Account     commonaccount.Config  `yaml:"account"`
+	GrpcServer  net.Config            `yaml:"grpcServer"`
+	Metric      metric.Config         `yaml:"metric"`
+	Nodes       []nodeconf.NodeConfig `yaml:"nodes"`
+	Mongo       db.Mongo              `yaml:"mongo"`
+	SpaceStatus spacestatus.Config    `yaml:"spaceStatus"`
 }
 
 func (c *Config) Init(a *app.App) (err error) {
@@ -59,4 +61,8 @@ func (c Config) GetNodes() []nodeconf.NodeConfig {
 
 func (c Config) GetMongo() db.Mongo {
 	return c.Mongo
+}
+
+func (c Config) GetSpaceStatus() spacestatus.Config {
+	return c.SpaceStatus
 }
