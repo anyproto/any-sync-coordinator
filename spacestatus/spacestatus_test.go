@@ -17,11 +17,11 @@ import (
 var ctx = context.Background()
 
 type mockVerifier struct {
-	result bool
+	verify bool
 }
 
 func (m *mockVerifier) Verify(rawDelete *treechangeproto.RawTreeChangeWithId, identity []byte, peerId string) (err error) {
-	if m.result {
+	if m.verify {
 		return nil
 	} else {
 		return fmt.Errorf("failed to verify")
@@ -29,10 +29,15 @@ func (m *mockVerifier) Verify(rawDelete *treechangeproto.RawTreeChangeWithId, id
 }
 
 type mockDelSender struct {
+	send bool
 }
 
 func (m *mockDelSender) Delete(ctx context.Context, spaceId string, raw *treechangeproto.RawTreeChangeWithId) (err error) {
-	return nil
+	if m.send {
+		return nil
+	} else {
+		return fmt.Errorf("cannot send")
+	}
 }
 
 func (m *mockDelSender) Init(a *app.App) (err error) {
@@ -80,11 +85,11 @@ func (d *delayedDeleter) Close() {
 	d.SpaceDeleter.Close()
 }
 
-func TestSpaceStatus_NewAndChangeStatusAndStatus(t *testing.T) {
+func TestSpaceStatus_StatusOperations(t *testing.T) {
 	t.Run("new status", func(t *testing.T) {
 		fx := newFixture(t, 1)
 		fx.Run()
-		fx.verifier.result = true
+		fx.verifier.verify = true
 		defer fx.Finish(t)
 		spaceId := "spaceId"
 		identity := []byte("identity")
@@ -103,7 +108,7 @@ func TestSpaceStatus_NewAndChangeStatusAndStatus(t *testing.T) {
 	t.Run("pending status", func(t *testing.T) {
 		fx := newFixture(t, 1)
 		fx.Run()
-		fx.verifier.result = true
+		fx.verifier.verify = true
 		defer fx.Finish(t)
 		spaceId := "spaceId"
 		identity := []byte("identity")
@@ -137,7 +142,7 @@ func TestSpaceStatus_NewAndChangeStatusAndStatus(t *testing.T) {
 	t.Run("change status pending to created", func(t *testing.T) {
 		fx := newFixture(t, 1)
 		fx.Run()
-		fx.verifier.result = true
+		fx.verifier.verify = true
 		defer fx.Finish(t)
 		spaceId := "spaceId"
 		identity := []byte("identity")
@@ -171,7 +176,7 @@ func TestSpaceStatus_NewAndChangeStatusAndStatus(t *testing.T) {
 	t.Run("failed to verify change", func(t *testing.T) {
 		fx := newFixture(t, 1)
 		fx.Run()
-		fx.verifier.result = false
+		fx.verifier.verify = false
 		defer fx.Finish(t)
 		spaceId := "spaceId"
 		identity := []byte("identity")
@@ -192,7 +197,7 @@ func TestSpaceStatus_NewAndChangeStatusAndStatus(t *testing.T) {
 	t.Run("set incorrect status change", func(t *testing.T) {
 		fx := newFixture(t, 1)
 		fx.Run()
-		fx.verifier.result = false
+		fx.verifier.verify = false
 		defer fx.Finish(t)
 		spaceId := "spaceId"
 		identity := []byte("identity")
@@ -219,7 +224,7 @@ func TestSpaceStatus_NewAndChangeStatusAndStatus(t *testing.T) {
 	t.Run("set wrong identity", func(t *testing.T) {
 		fx := newFixture(t, 1)
 		fx.Run()
-		fx.verifier.result = false
+		fx.verifier.verify = false
 		defer fx.Finish(t)
 		spaceId := "spaceId"
 		identity := []byte("identity")
@@ -290,19 +295,42 @@ func TestSpaceStatus_Run(t *testing.T) {
 	t.Run("test run errors", func(t *testing.T) {
 		fx := newFixture(t, 0)
 		defer fx.Finish(t)
-		new := 10
+		fx.sender.send = false
 		pending := 10
-		generateIds(ctx, fx, new, pending)
+		generateIds(ctx, fx, 0, pending)
 		fx.Run()
 		time.Sleep(1 * time.Second)
-		for i := 0; i < new; i++ {
+		for i := 0; i < pending; i++ {
 			status := getStatus(ctx, fx, i)
-			if status.Status != SpaceStatusCreated {
-				t.Fatalf("should get status created for new ids")
+			if status.Status != SpaceStatusDeletionPending {
+				t.Fatalf("should get status pending for pending ids")
 			}
 		}
-		for i := new; i < new+pending; i++ {
-			status := getStatus(ctx, fx, i)
+	})
+	t.Run("test run parallel", func(t *testing.T) {
+		var otherFx *fixture
+		mainFx := newFixture(t, 0)
+		defer mainFx.Finish(t)
+		pending := 10
+		generateIds(ctx, mainFx, 0, pending)
+		startCh := make(chan struct{})
+		stopCh := make(chan struct{})
+
+		go func() {
+			otherFx = newFixture(t, 0)
+			otherFx.deleteColl = false
+			defer otherFx.Finish(t)
+			close(startCh)
+			<-stopCh
+		}()
+
+		<-startCh
+		mainFx.Run()
+		otherFx.Run()
+		time.Sleep(1 * time.Second)
+		close(stopCh)
+		for i := 0; i < pending; i++ {
+			status := getStatus(ctx, mainFx, i)
 			if status.Status != SpaceStatusDeleted {
 				t.Fatalf("should get status deleted for pending ids")
 			}
@@ -312,11 +340,12 @@ func TestSpaceStatus_Run(t *testing.T) {
 
 type fixture struct {
 	SpaceStatus
-	a        *app.App
-	cancel   context.CancelFunc
-	verifier *mockVerifier
-	sender   *mockDelSender
-	delayed  *delayedDeleter
+	a          *app.App
+	cancel     context.CancelFunc
+	verifier   *mockVerifier
+	sender     *mockDelSender
+	delayed    *delayedDeleter
+	deleteColl bool
 }
 
 func newFixture(t *testing.T, deletionPeriod int) *fixture {
@@ -324,8 +353,9 @@ func newFixture(t *testing.T, deletionPeriod int) *fixture {
 	fx := fixture{
 		SpaceStatus: New(),
 		verifier:    &mockVerifier{true},
-		sender:      &mockDelSender{},
+		sender:      &mockDelSender{true},
 		cancel:      cancel,
+		deleteColl:  true,
 		a:           new(app.App),
 	}
 	getChangeVerifier = func() ChangeVerifier {
@@ -366,7 +396,9 @@ func (fx *fixture) Finish(t *testing.T) {
 	if fx.cancel != nil {
 		fx.cancel()
 	}
-	coll := fx.SpaceStatus.(*spaceStatus).spaces
-	t.Log(coll.Drop(ctx))
+	if fx.deleteColl {
+		coll := fx.SpaceStatus.(*spaceStatus).spaces
+		t.Log(coll.Drop(ctx))
+	}
 	assert.NoError(t, fx.a.Close(ctx))
 }

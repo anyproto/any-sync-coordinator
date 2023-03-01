@@ -7,8 +7,11 @@ import (
 	"github.com/golang/protobuf/proto"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.uber.org/zap"
 	"time"
 )
+
+const deletionTimeout = time.Second * 100
 
 type DelSender interface {
 	Delete(ctx context.Context, spaceId string, raw *treechangeproto.RawTreeChangeWithId) (err error)
@@ -62,7 +65,7 @@ func newSpaceDeleter(runSeconds int, deletionPeriod time.Duration) SpaceDeleter 
 func (s *spaceDeleter) Run(spaces *mongo.Collection, delSender DelSender) {
 	s.delSender = delSender
 	s.spaces = spaces
-	s.loop = periodicsync.NewPeriodicSync(s.runSeconds, time.Second*100, s.delete, log)
+	s.loop = periodicsync.NewPeriodicSync(s.runSeconds, deletionTimeout, s.delete, log)
 	s.loop.Run()
 }
 
@@ -75,7 +78,8 @@ func (s *spaceDeleter) delete(ctx context.Context) (err error) {
 	for cur.Next(ctx) {
 		err = s.processEntry(ctx, cur)
 		if err != nil {
-			return
+			log.Debug("failed to process entry", zap.Error(err))
+			continue
 		}
 	}
 	return
@@ -116,12 +120,12 @@ func (s *spaceDeleter) processEntry(ctx context.Context, cur *mongo.Cursor) (err
 		op.Set.Status = SpaceStatusDeleted
 	}
 	status = SpaceStatusDeletionStarted
-	s.spaces.FindOneAndUpdate(ctx, findStatusQuery{
+	res = s.spaces.FindOneAndUpdate(ctx, findStatusQuery{
 		SpaceId:  entry.SpaceId,
 		Status:   &status,
 		Identity: entry.Identity,
 	}, op)
-	return nil
+	return res.Err()
 }
 
 func (s *spaceDeleter) Close() {
