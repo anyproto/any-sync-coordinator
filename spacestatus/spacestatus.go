@@ -43,6 +43,7 @@ type configProvider interface {
 type SpaceStatus interface {
 	NewStatus(ctx context.Context, spaceId string, identity []byte) (err error)
 	ChangeStatus(ctx context.Context, spaceId string, change StatusChange) (err error)
+	Status(ctx context.Context, spaceId string, identity []byte) (entry StatusEntry, err error)
 	app.ComponentRunnable
 }
 
@@ -55,7 +56,7 @@ type spaceStatus struct {
 	conf     Config
 	spaces   *mongo.Collection
 	verifier ChangeVerifier
-	deleter  *spaceDeleter
+	deleter  SpaceDeleter
 	sender   DelSender
 }
 
@@ -111,6 +112,19 @@ func (s *spaceStatus) ChangeStatus(ctx context.Context, spaceId string, change S
 	}
 }
 
+func (s *spaceStatus) Status(ctx context.Context, spaceId string, identity []byte) (entry StatusEntry, err error) {
+	res := s.spaces.FindOne(ctx, findStatusQuery{
+		SpaceId:  spaceId,
+		Identity: identity,
+	})
+	if res.Err() != nil {
+		err = res.Err()
+		return
+	}
+	err = res.Decode(entry)
+	return
+}
+
 func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity []byte) (err error) {
 	_, err = s.spaces.InsertOne(ctx, insertNewSpaceOp{
 		Identity: identity,
@@ -123,9 +137,9 @@ func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity []
 func (s *spaceStatus) Init(a *app.App) (err error) {
 	s.db = a.MustComponent(db.CName).(db.Database)
 	s.sender = a.MustComponent(nodeservice.CName).(DelSender)
-	s.verifier = &changeVerifier{}
+	s.verifier = getChangeVerifier()
 	s.conf = a.MustComponent("config").(configProvider).GetSpaceStatus()
-	s.deleter = newSpaceDeleter(s.conf.RunSeconds, time.Duration(s.conf.DeletionPeriodDays*24)*time.Hour)
+	s.deleter = getSpaceDeleter(s.conf.RunSeconds, time.Duration(s.conf.DeletionPeriodDays*24)*time.Hour)
 	return
 }
 

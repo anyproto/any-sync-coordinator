@@ -6,6 +6,12 @@ type ChangeVerifier interface {
 	Verify(rawDelete *treechangeproto.RawTreeChangeWithId, identity []byte, peerId string) (err error)
 }
 
+var getChangeVerifier = newChangeVerifier
+
+func newChangeVerifier() ChangeVerifier {
+	return &changeVerifier{}
+}
+
 type changeVerifier struct {
 }
 

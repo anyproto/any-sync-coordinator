@@ -3,12 +3,13 @@ package spacestatus
 import (
 	"context"
 	"fmt"
-	"github.com/anytypeio/any-sync-coordinator/config"
 	"github.com/anytypeio/any-sync-coordinator/db"
+	"github.com/anytypeio/any-sync-coordinator/nodeservice"
 	"github.com/anytypeio/any-sync/app"
 	"github.com/anytypeio/any-sync/commonspace/object/tree/treechangeproto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.mongodb.org/mongo-driver/mongo"
 	"testing"
 	"time"
 )
@@ -27,9 +28,62 @@ func (m *mockVerifier) Verify(rawDelete *treechangeproto.RawTreeChangeWithId, id
 	}
 }
 
+type mockDelSender struct {
+}
+
+func (m *mockDelSender) Delete(ctx context.Context, spaceId string, raw *treechangeproto.RawTreeChangeWithId) (err error) {
+	return nil
+}
+
+func (m *mockDelSender) Init(a *app.App) (err error) {
+	return
+}
+
+func (m *mockDelSender) Name() (name string) {
+	return nodeservice.CName
+}
+
+type mockConfig struct {
+	db.Mongo
+	Config
+}
+
+func (c mockConfig) GetMongo() db.Mongo {
+	return c.Mongo
+}
+
+func (c mockConfig) GetSpaceStatus() Config {
+	return c.Config
+}
+
+func (c mockConfig) Init(a *app.App) (err error) {
+	return
+}
+
+func (c mockConfig) Name() (name string) {
+	return "config"
+}
+
+type delayedDeleter struct {
+	runCh chan struct{}
+	SpaceDeleter
+}
+
+func (d *delayedDeleter) Run(spaces *mongo.Collection, delSender DelSender) {
+	go func() {
+		<-d.runCh
+		d.SpaceDeleter.Run(spaces, delSender)
+	}()
+}
+
+func (d *delayedDeleter) Close() {
+	d.SpaceDeleter.Close()
+}
+
 func TestSpaceStatus_ChangeStatus(t *testing.T) {
 	t.Run("change status created to pending", func(t *testing.T) {
 		fx := newFixture(t)
+		fx.Run()
 		fx.verifier.result = true
 		defer fx.Finish(t)
 		spaceId := "spaceId"
@@ -50,6 +104,7 @@ func TestSpaceStatus_ChangeStatus(t *testing.T) {
 	})
 	t.Run("failed to verify change", func(t *testing.T) {
 		fx := newFixture(t)
+		fx.Run()
 		fx.verifier.result = false
 		defer fx.Finish(t)
 		spaceId := "spaceId"
@@ -70,6 +125,7 @@ func TestSpaceStatus_ChangeStatus(t *testing.T) {
 	})
 	t.Run("can't create new two times", func(t *testing.T) {
 		fx := newFixture(t)
+		fx.Run()
 		defer fx.Finish(t)
 		spaceId := "spaceId"
 		identity := []byte("identity")
@@ -86,6 +142,8 @@ type fixture struct {
 	a        *app.App
 	cancel   context.CancelFunc
 	verifier *mockVerifier
+	sender   *mockDelSender
+	delayed  *delayedDeleter
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -93,25 +151,42 @@ func newFixture(t *testing.T) *fixture {
 	fx := fixture{
 		SpaceStatus: New(),
 		verifier:    &mockVerifier{true},
+		sender:      &mockDelSender{},
 		cancel:      cancel,
 		a:           new(app.App),
 	}
-	fx.a.Register(&config.Config{
+	getChangeVerifier = func() ChangeVerifier {
+		return fx.verifier
+	}
+	getSpaceDeleter = func(runSeconds int, deletionPeriod time.Duration) SpaceDeleter {
+		del := newSpaceDeleter(runSeconds, deletionPeriod)
+		fx.delayed = &delayedDeleter{make(chan struct{}), del}
+		return fx.delayed
+	}
+	fx.a.Register(mockConfig{
 		Mongo: db.Mongo{
 			Connect:          "mongodb://localhost:27017",
 			Database:         "coordinator_test",
 			SpacesCollection: "spaces",
 		},
+		Config: Config{
+			RunSeconds:         100,
+			DeletionPeriodDays: 1,
+		},
 	})
 	fx.a.Register(db.New())
+	fx.a.Register(fx.sender)
 	fx.a.Register(fx.SpaceStatus)
 	err := fx.a.Start(ctx)
 	if err != nil {
 		fx.cancel()
 	}
-	fx.SpaceStatus.(*spaceStatus).verifier = fx.verifier
 	require.NoError(t, err)
 	return &fx
+}
+
+func (fx *fixture) Run() {
+	close(fx.delayed.runCh)
 }
 
 func (fx *fixture) Finish(t *testing.T) {

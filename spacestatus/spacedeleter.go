@@ -14,6 +14,11 @@ type DelSender interface {
 	Delete(ctx context.Context, spaceId string, raw *treechangeproto.RawTreeChangeWithId) (err error)
 }
 
+type SpaceDeleter interface {
+	Run(spaces *mongo.Collection, delSender DelSender)
+	Close()
+}
+
 type pendingSpacesQuery struct {
 	deletionPeriod time.Duration
 }
@@ -26,7 +31,7 @@ func (d pendingSpacesQuery) toMap() bson.M {
 			"$lte": time.Now().Add(-d.deletionPeriod)}}}}}
 }
 
-type statusEntry struct {
+type StatusEntry struct {
 	SpaceId         string    `bson:"_id"`
 	Identity        []byte    `bson:"identity"`
 	DeletionPayload []byte    `bson:"deletionChange"`
@@ -41,7 +46,9 @@ type spaceDeleter struct {
 	delSender      DelSender
 }
 
-func newSpaceDeleter(runSeconds int, deletionPeriod time.Duration) *spaceDeleter {
+var getSpaceDeleter = newSpaceDeleter
+
+func newSpaceDeleter(runSeconds int, deletionPeriod time.Duration) SpaceDeleter {
 	return &spaceDeleter{
 		deletionPeriod: deletionPeriod,
 		runSeconds:     runSeconds,
@@ -75,7 +82,7 @@ func (s *spaceDeleter) delete(ctx context.Context) (err error) {
 }
 
 func (s *spaceDeleter) processEntry(ctx context.Context, cur *mongo.Cursor) (err error) {
-	entry := &statusEntry{}
+	entry := &StatusEntry{}
 	err = cur.Decode(entry)
 	if err != nil {
 		return
