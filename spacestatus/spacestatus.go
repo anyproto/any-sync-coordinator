@@ -5,21 +5,27 @@ import (
 	"errors"
 	"github.com/anytypeio/any-sync-coordinator/db"
 	"github.com/anytypeio/any-sync/app"
+	"github.com/anytypeio/any-sync/app/logger"
+	"github.com/anytypeio/any-sync/commonspace/object/tree/treechangeproto"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.uber.org/zap"
 	"time"
 )
 
 const CName = "coordinator.spacestatus"
 
+var log = logger.NewNamed(CName)
+
 type StatusChange struct {
-	DeletePayload []byte
+	DeletePayload *treechangeproto.RawTreeChangeWithId
 	Identity      []byte
 	Status        string
+	PeerId        string
 }
 
 var (
-	ErrDeletePayloadIsEmpty  = errors.New("delete payload is empty")
-	ErrIncorrectStatusChange = errors.New("incorrect status change")
+	ErrIncorrectDeletePayload = errors.New("delete payload is incorrect")
+	ErrIncorrectStatusChange  = errors.New("incorrect status change")
 )
 
 const (
@@ -40,8 +46,9 @@ func New() SpaceStatus {
 }
 
 type spaceStatus struct {
-	db     db.Database
-	spaces *mongo.Collection
+	db       db.Database
+	spaces   *mongo.Collection
+	verifier ChangeVerifier
 }
 
 type findStatusQuery struct {
@@ -85,10 +92,16 @@ func (s *spaceStatus) ChangeStatus(ctx context.Context, spaceId string, change S
 	case SpaceStatusCreated:
 		return modify(SpaceStatusDeletionPending, SpaceStatusCreated, nil, time.Time{})
 	case SpaceStatusDeletionPending:
-		if change.DeletePayload == nil {
-			return ErrDeletePayloadIsEmpty
+		err = s.verifier.Verify(change.DeletePayload, change.Identity, change.PeerId)
+		if err != nil {
+			log.Debug("failed to verify payload", zap.Error(err))
+			return ErrIncorrectDeletePayload
 		}
-		return modify(SpaceStatusCreated, SpaceStatusDeletionPending, change.DeletePayload, time.Now())
+		res, err := change.DeletePayload.Marshal()
+		if err != nil {
+			return err
+		}
+		return modify(SpaceStatusCreated, SpaceStatusDeletionPending, res, time.Now())
 	default:
 		return ErrIncorrectStatusChange
 	}
@@ -105,6 +118,7 @@ func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity []
 
 func (s *spaceStatus) Init(a *app.App) (err error) {
 	s.db = a.MustComponent(db.CName).(db.Database)
+	s.verifier = &changeVerifier{}
 	return
 }
 
