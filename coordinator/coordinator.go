@@ -95,6 +95,7 @@ func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader
 		return
 	}
 	defer func() {
+		log.Debug("finished signing space", zap.Error(err), zap.String("spaceId", spaceId))
 		if err != nil {
 			return
 		}
