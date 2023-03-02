@@ -11,9 +11,13 @@ grpcServer:
         timeoutMilliseconds: 1000
         maxMsgSizeMb: 256
 mongo:
-    connect: mongodb://localhost:27017/?w=majority
-    database: coordinator
+    connect: mongodb://localhost:27017
+    database: coordinator_test
     spacesCollection: spaces
+    logCollection: log
+spaceStatus:
+    runSeconds: 20
+    deletionPeriodDays: 0
 nodes:
   - peerId: 12D3KooWKnXTtbveMDUFfeSqR5dt9a4JW66tZQXG7C7PdDh3vqGu
     address:

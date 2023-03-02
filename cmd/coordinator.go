@@ -7,10 +7,15 @@ import (
 	"github.com/anytypeio/any-sync-coordinator/account"
 	"github.com/anytypeio/any-sync-coordinator/config"
 	"github.com/anytypeio/any-sync-coordinator/coordinator"
+	"github.com/anytypeio/any-sync-coordinator/coordinatorlog"
 	"github.com/anytypeio/any-sync-coordinator/db"
+	"github.com/anytypeio/any-sync-coordinator/nodeservice"
+	"github.com/anytypeio/any-sync-coordinator/spacestatus"
 	"github.com/anytypeio/any-sync/app"
 	"github.com/anytypeio/any-sync/app/logger"
 	"github.com/anytypeio/any-sync/metric"
+	"github.com/anytypeio/any-sync/net/dialer"
+	"github.com/anytypeio/any-sync/net/pool"
 	"github.com/anytypeio/any-sync/net/rpc/server"
 	"github.com/anytypeio/any-sync/net/secureservice"
 	"github.com/anytypeio/any-sync/nodeconf"
@@ -92,9 +97,14 @@ func main() {
 func Bootstrap(a *app.App) {
 	a.Register(account.New()).
 		Register(nodeconf.New()).
+		Register(dialer.New()).
 		Register(secureservice.New()).
+		Register(pool.New()).
 		Register(server.New()).
 		Register(metric.New()).
 		Register(db.New()).
+		Register(coordinatorlog.New()).
+		Register(nodeservice.New()).
+		Register(spacestatus.New()).
 		Register(coordinator.New())
 }

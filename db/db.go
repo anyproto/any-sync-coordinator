@@ -12,6 +12,7 @@ const CName = "coordinator.db"
 type Database interface {
 	app.ComponentRunnable
 	SpacesCollection() *mongo.Collection
+	LogCollection() *mongo.Collection
 }
 
 func New() Database {
@@ -25,6 +26,7 @@ type mongoProvider interface {
 type database struct {
 	conf   Mongo
 	spaces *mongo.Collection
+	log    *mongo.Collection
 }
 
 func (d *database) Init(a *app.App) (err error) {
@@ -43,6 +45,7 @@ func (d *database) Run(ctx context.Context) (err error) {
 	}
 	db := d.conf.Database
 	d.spaces = client.Database(db).Collection(d.conf.SpacesCollection)
+	d.log = client.Database(db).Collection(d.conf.LogCollection)
 	return
 }
 
@@ -52,4 +55,8 @@ func (d *database) Close(ctx context.Context) (err error) {
 
 func (d *database) SpacesCollection() *mongo.Collection {
 	return d.spaces
+}
+
+func (d *database) LogCollection() *mongo.Collection {
+	return d.log
 }

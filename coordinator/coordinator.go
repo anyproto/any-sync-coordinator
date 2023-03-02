@@ -2,14 +2,18 @@ package coordinator
 
 import (
 	"context"
+	"github.com/anytypeio/any-sync-coordinator/coordinatorlog"
+	"github.com/anytypeio/any-sync-coordinator/spacestatus"
 	"github.com/anytypeio/any-sync/accountservice"
 	"github.com/anytypeio/any-sync/app"
 	"github.com/anytypeio/any-sync/app/logger"
 	"github.com/anytypeio/any-sync/commonspace/object/accountdata"
+	"github.com/anytypeio/any-sync/commonspace/spacestorage"
 	"github.com/anytypeio/any-sync/coordinator/coordinatorproto"
 	"github.com/anytypeio/any-sync/net/peer"
 	"github.com/anytypeio/any-sync/net/rpc/server"
 	"github.com/anytypeio/any-sync/nodeconf"
+	"go.uber.org/zap"
 	"storj.io/drpc"
 	"time"
 )
@@ -32,14 +36,18 @@ type Coordinator interface {
 }
 
 type coordinator struct {
-	account  *accountdata.AccountData
-	nodeConf nodeconf.Service
+	account        *accountdata.AccountData
+	nodeConf       nodeconf.Service
+	spaceStatus    spacestatus.SpaceStatus
+	coordinatorLog coordinatorlog.CoordinatorLog
 }
 
 func (c *coordinator) Init(a *app.App) (err error) {
 	c.nodeConf = a.MustComponent(nodeconf.CName).(nodeconf.Service)
 	h := &rpcHandler{c: c}
 	c.account = a.MustComponent(accountservice.CName).(accountservice.Service).Account()
+	c.spaceStatus = a.MustComponent(spacestatus.CName).(spacestatus.SpaceStatus)
+	c.coordinatorLog = a.MustComponent(coordinatorlog.CName).(coordinatorlog.CoordinatorLog)
 	return coordinatorproto.DRPCRegisterCoordinator(a.MustComponent(server.CName).(drpc.Mux), h)
 }
 
@@ -47,7 +55,7 @@ func (c *coordinator) Name() (name string) {
 	return CName
 }
 
-func (c *coordinator) SpaceSign(ctx context.Context, spaceId string) (signedReceipt *coordinatorproto.SpaceReceiptWithSignature, err error) {
+func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader []byte) (signedReceipt *coordinatorproto.SpaceReceiptWithSignature, err error) {
 	accountIdentity, err := peer.CtxIdentity(ctx)
 	if err != nil {
 		return
@@ -56,8 +64,32 @@ func (c *coordinator) SpaceSign(ctx context.Context, spaceId string) (signedRece
 	if err != nil {
 		return
 	}
-
-	// TODO: do security check here
+	defer func() {
+		if err != nil {
+			return
+		}
+		marshalledReceipt, err := signedReceipt.Marshal()
+		if err != nil {
+			return
+		}
+		err = c.coordinatorLog.SpaceReceipt(ctx, coordinatorlog.SpaceReceiptEntry{
+			SignedSpaceReceipt: marshalledReceipt,
+			SpaceId:            spaceId,
+			PeerId:             peerId,
+			Identity:           accountIdentity,
+		})
+		if err != nil {
+			log.Debug("failed to add space receipt log entry", zap.Error(err))
+		}
+	}()
+	err = spacestorage.ValidateSpaceHeader(spaceId, spaceHeader, accountIdentity)
+	if err != nil {
+		return
+	}
+	err = c.spaceStatus.NewStatus(ctx, spaceId, accountIdentity)
+	if err != nil {
+		return
+	}
 
 	receipt := &coordinatorproto.SpaceReceipt{
 		SpaceId:             spaceId,
