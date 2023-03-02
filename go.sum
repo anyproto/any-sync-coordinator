@@ -54,6 +54,8 @@ github.com/anytypeio/any-sync v0.0.17-0.20230302122708-1ed8f162aed4 h1:ZhlMMs0Ww
 github.com/anytypeio/any-sync v0.0.17-0.20230302122708-1ed8f162aed4/go.mod h1:jUu8YIgJAHUV+YR9bD5IXwM0DgJHr3FeYe84X2XLFkg=
 github.com/anytypeio/any-sync v0.0.17-0.20230302131932-9979a820d342 h1:NCxtUrBF3LUvdrlAOYLHRKYKOD0UhDCCy6581rxGnUg=
 github.com/anytypeio/any-sync v0.0.17-0.20230302131932-9979a820d342/go.mod h1:jUu8YIgJAHUV+YR9bD5IXwM0DgJHr3FeYe84X2XLFkg=
+github.com/anytypeio/any-sync v0.0.17-0.20230302200814-5218eea8add9 h1:q8RvIBfbSKISEJz0Tot8KqOYWIc4EneGBuBfoxT4rT4=
+github.com/anytypeio/any-sync v0.0.17-0.20230302200814-5218eea8add9/go.mod h1:jUu8YIgJAHUV+YR9bD5IXwM0DgJHr3FeYe84X2XLFkg=
 github.com/anytypeio/any-sync-node v0.0.19 h1:TLoAj6grK1GbH3/zDE/BDdDRvwzTkoywM7RotdDYjYo=
 github.com/anytypeio/any-sync-node v0.0.19/go.mod h1:+SahKik/bMimFhU386blITf/M201Tys0cv475PhL+10=
 github.com/anytypeio/go-chash v0.0.2 h1:BSpyMC3HXNkf2eosQrHM4svov0DrvxL9tb4gnHbdmbA=
