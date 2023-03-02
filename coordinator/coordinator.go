@@ -8,6 +8,7 @@ import (
 	"github.com/anytypeio/any-sync/app"
 	"github.com/anytypeio/any-sync/app/logger"
 	"github.com/anytypeio/any-sync/commonspace/object/accountdata"
+	"github.com/anytypeio/any-sync/commonspace/object/tree/treechangeproto"
 	"github.com/anytypeio/any-sync/commonspace/spacestorage"
 	"github.com/anytypeio/any-sync/coordinator/coordinatorproto"
 	"github.com/anytypeio/any-sync/net/peer"
@@ -53,6 +54,35 @@ func (c *coordinator) Init(a *app.App) (err error) {
 
 func (c *coordinator) Name() (name string) {
 	return CName
+}
+
+func (c *coordinator) StatusCheck(ctx context.Context, spaceId string) (status spacestatus.StatusEntry, err error) {
+	accountIdentity, err := peer.CtxIdentity(ctx)
+	if err != nil {
+		return
+	}
+	return c.spaceStatus.Status(ctx, spaceId, accountIdentity)
+}
+
+func (c *coordinator) StatusChange(ctx context.Context, spaceId string, raw *treechangeproto.RawTreeChangeWithId) (err error) {
+	accountIdentity, err := peer.CtxIdentity(ctx)
+	if err != nil {
+		return
+	}
+	peerId, err := peer.CtxPeerId(ctx)
+	if err != nil {
+		return
+	}
+	status := spacestatus.SpaceStatusCreated
+	if raw != nil {
+		status = spacestatus.SpaceStatusDeletionPending
+	}
+	return c.spaceStatus.ChangeStatus(ctx, spaceId, spacestatus.StatusChange{
+		DeletionPayload: raw,
+		Identity:        accountIdentity,
+		Status:          status,
+		PeerId:          peerId,
+	})
 }
 
 func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader []byte) (signedReceipt *coordinatorproto.SpaceReceiptWithSignature, err error) {
