@@ -14,7 +14,7 @@ type rpcHandler struct {
 func (r *rpcHandler) convertStatus(status spacestatus.StatusEntry) *coordinatorproto.SpaceStatusPayload {
 	return &coordinatorproto.SpaceStatusPayload{
 		Status:            coordinatorproto.SpaceStatus(status.Status),
-		DeletionTimestamp: status.DeletionDate.UnixNano(),
+		DeletionTimestamp: status.DeletionDate.Add(r.c.deletionPeriod).UnixNano(),
 	}
 }
 

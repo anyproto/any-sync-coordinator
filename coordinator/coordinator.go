@@ -2,6 +2,7 @@ package coordinator
 
 import (
 	"context"
+	"github.com/anytypeio/any-sync-coordinator/config"
 	"github.com/anytypeio/any-sync-coordinator/coordinatorlog"
 	"github.com/anytypeio/any-sync-coordinator/spacestatus"
 	"github.com/anytypeio/any-sync/accountservice"
@@ -41,10 +42,13 @@ type coordinator struct {
 	nodeConf       nodeconf.Service
 	spaceStatus    spacestatus.SpaceStatus
 	coordinatorLog coordinatorlog.CoordinatorLog
+	deletionPeriod time.Duration
 }
 
 func (c *coordinator) Init(a *app.App) (err error) {
 	c.nodeConf = a.MustComponent(nodeconf.CName).(nodeconf.Service)
+	delDays := a.MustComponent(config.CName).(*config.Config).SpaceStatus.DeletionPeriodDays
+	c.deletionPeriod = time.Duration(delDays*24) * time.Hour
 	h := &rpcHandler{c: c}
 	c.account = a.MustComponent(accountservice.CName).(accountservice.Service).Account()
 	c.spaceStatus = a.MustComponent(spacestatus.CName).(spacestatus.SpaceStatus)
