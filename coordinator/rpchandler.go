@@ -2,6 +2,7 @@ package coordinator
 
 import (
 	"context"
+	"github.com/anytypeio/any-sync-coordinator/spacestatus"
 	"github.com/anytypeio/any-sync/commonspace/object/tree/treechangeproto"
 	"github.com/anytypeio/any-sync/coordinator/coordinatorproto"
 )
@@ -10,14 +11,20 @@ type rpcHandler struct {
 	c *coordinator
 }
 
+func (r *rpcHandler) convertStatus(status spacestatus.StatusEntry) *coordinatorproto.SpaceStatusPayload {
+	return &coordinatorproto.SpaceStatusPayload{
+		Status:            coordinatorproto.SpaceStatus(status.Status),
+		DeletionTimestamp: status.DeletionDate.UnixNano(),
+	}
+}
+
 func (r *rpcHandler) SpaceStatusCheck(ctx context.Context, request *coordinatorproto.SpaceStatusCheckRequest) (*coordinatorproto.SpaceStatusCheckResponse, error) {
 	status, err := r.c.StatusCheck(ctx, request.SpaceId)
 	if err != nil {
 		return nil, err
 	}
 	return &coordinatorproto.SpaceStatusCheckResponse{
-		Status:            coordinatorproto.SpaceStatus(status.Status),
-		DeletionTimestamp: status.DeletionDate.UnixNano(),
+		Payload: r.convertStatus(status),
 	}, nil
 }
 
@@ -29,11 +36,13 @@ func (r *rpcHandler) SpaceStatusChange(ctx context.Context, request *coordinator
 			Id:        request.DeletionChangeId,
 		}
 	}
-	err := r.c.StatusChange(ctx, request.SpaceId, raw)
+	status, err := r.c.StatusChange(ctx, request.SpaceId, raw)
 	if err != nil {
 		return nil, err
 	}
-	return &coordinatorproto.SpaceStatusChangeResponse{}, nil
+	return &coordinatorproto.SpaceStatusChangeResponse{
+		Payload: r.convertStatus(status),
+	}, nil
 }
 
 func (r *rpcHandler) SpaceSign(ctx context.Context, req *coordinatorproto.SpaceSignRequest) (*coordinatorproto.SpaceSignResponse, error) {

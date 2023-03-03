@@ -64,7 +64,7 @@ func (c *coordinator) StatusCheck(ctx context.Context, spaceId string) (status s
 	return c.spaceStatus.Status(ctx, spaceId, accountIdentity)
 }
 
-func (c *coordinator) StatusChange(ctx context.Context, spaceId string, raw *treechangeproto.RawTreeChangeWithId) (err error) {
+func (c *coordinator) StatusChange(ctx context.Context, spaceId string, raw *treechangeproto.RawTreeChangeWithId) (entry spacestatus.StatusEntry, err error) {
 	defer func() {
 		log.Debug("finished changing status", zap.Error(err), zap.String("spaceId", spaceId), zap.Bool("isDelete", raw != nil))
 	}()

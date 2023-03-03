@@ -9,6 +9,7 @@ import (
 	"github.com/anytypeio/any-sync/app/logger"
 	"github.com/anytypeio/any-sync/commonspace/object/tree/treechangeproto"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.uber.org/zap"
 	"time"
 )
@@ -42,7 +43,7 @@ type configProvider interface {
 
 type SpaceStatus interface {
 	NewStatus(ctx context.Context, spaceId string, identity []byte) (err error)
-	ChangeStatus(ctx context.Context, spaceId string, change StatusChange) (err error)
+	ChangeStatus(ctx context.Context, spaceId string, change StatusChange) (entry StatusEntry, err error)
 	Status(ctx context.Context, spaceId string, identity []byte) (entry StatusEntry, err error)
 	app.ComponentRunnable
 }
@@ -80,8 +81,8 @@ type insertNewSpaceOp struct {
 	SpaceId  string `bson:"_id"`
 }
 
-func (s *spaceStatus) ChangeStatus(ctx context.Context, spaceId string, change StatusChange) (err error) {
-	modify := func(oldStatus, newStatus int, deletionChange []byte, t time.Time) error {
+func (s *spaceStatus) ChangeStatus(ctx context.Context, spaceId string, change StatusChange) (entry StatusEntry, err error) {
+	modify := func(oldStatus, newStatus int, deletionChange []byte, t time.Time) (entry StatusEntry, err error) {
 		op := modifyStatusOp{}
 		op.Set.DeletionPayload = deletionChange
 		op.Set.Status = newStatus
@@ -90,8 +91,13 @@ func (s *spaceStatus) ChangeStatus(ctx context.Context, spaceId string, change S
 			SpaceId:  spaceId,
 			Status:   &oldStatus,
 			Identity: change.Identity,
-		}, op)
-		return res.Err()
+		}, op, options.FindOneAndUpdate().SetReturnDocument(options.After))
+		if res.Err() != nil {
+			err = res.Err()
+			return
+		}
+		err = res.Decode(&entry)
+		return
 	}
 	switch change.Status {
 	case SpaceStatusCreated:
@@ -100,15 +106,15 @@ func (s *spaceStatus) ChangeStatus(ctx context.Context, spaceId string, change S
 		err = s.verifier.Verify(change.DeletionPayload, change.Identity, change.PeerId)
 		if err != nil {
 			log.Debug("failed to verify payload", zap.Error(err))
-			return ErrIncorrectDeletePayload
+			return StatusEntry{}, ErrIncorrectDeletePayload
 		}
 		res, err := change.DeletionPayload.Marshal()
 		if err != nil {
-			return err
+			return StatusEntry{}, err
 		}
 		return modify(SpaceStatusCreated, SpaceStatusDeletionPending, res, time.Now())
 	default:
-		return ErrIncorrectStatusChange
+		return StatusEntry{}, ErrIncorrectStatusChange
 	}
 }
 
