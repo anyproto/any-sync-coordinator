@@ -65,6 +65,9 @@ func (c *coordinator) StatusCheck(ctx context.Context, spaceId string) (status s
 }
 
 func (c *coordinator) StatusChange(ctx context.Context, spaceId string, raw *treechangeproto.RawTreeChangeWithId) (err error) {
+	defer func() {
+		log.Debug("finished changing status", zap.Error(err), zap.String("spaceId", spaceId), zap.Bool("isDelete", raw != nil))
+	}()
 	accountIdentity, err := peer.CtxIdentity(ctx)
 	if err != nil {
 		return
