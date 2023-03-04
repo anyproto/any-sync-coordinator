@@ -2,12 +2,12 @@ package spacestatus
 
 import (
 	"context"
-	"errors"
 	"github.com/anytypeio/any-sync-coordinator/db"
 	"github.com/anytypeio/any-sync-coordinator/nodeservice"
 	"github.com/anytypeio/any-sync/app"
 	"github.com/anytypeio/any-sync/app/logger"
 	"github.com/anytypeio/any-sync/commonspace/object/tree/treechangeproto"
+	"github.com/anytypeio/any-sync/coordinator/coordinatorproto"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.uber.org/zap"
@@ -24,11 +24,6 @@ type StatusChange struct {
 	Status          int
 	PeerId          string
 }
-
-var (
-	ErrIncorrectDeletePayload = errors.New("delete payload is incorrect")
-	ErrIncorrectStatusChange  = errors.New("incorrect status change")
-)
 
 const (
 	SpaceStatusCreated = iota
@@ -82,40 +77,56 @@ type insertNewSpaceOp struct {
 }
 
 func (s *spaceStatus) ChangeStatus(ctx context.Context, spaceId string, change StatusChange) (entry StatusEntry, err error) {
-	modify := func(oldStatus, newStatus int, deletionChange []byte, t time.Time) (entry StatusEntry, err error) {
-		op := modifyStatusOp{}
-		op.Set.DeletionPayload = deletionChange
-		op.Set.Status = newStatus
-		op.Set.DeletionDate = t
-		res := s.spaces.FindOneAndUpdate(ctx, findStatusQuery{
-			SpaceId:  spaceId,
-			Status:   &oldStatus,
-			Identity: change.Identity,
-		}, op, options.FindOneAndUpdate().SetReturnDocument(options.After))
-		if res.Err() != nil {
-			err = res.Err()
-			return
-		}
-		err = res.Decode(&entry)
-		return
-	}
 	switch change.Status {
 	case SpaceStatusCreated:
-		return modify(SpaceStatusDeletionPending, SpaceStatusCreated, nil, time.Time{})
+		return s.modifyStatus(ctx, spaceId, SpaceStatusDeletionPending, SpaceStatusCreated, nil, change.Identity, time.Time{})
 	case SpaceStatusDeletionPending:
 		err = s.verifier.Verify(change.DeletionPayload, change.Identity, change.PeerId)
 		if err != nil {
 			log.Debug("failed to verify payload", zap.Error(err))
-			return StatusEntry{}, ErrIncorrectDeletePayload
+			return StatusEntry{}, coordinatorproto.ErrUnexpected
 		}
 		res, err := change.DeletionPayload.Marshal()
 		if err != nil {
-			return StatusEntry{}, err
+			log.Debug("failed to marshal payload", zap.Error(err))
+			return StatusEntry{}, coordinatorproto.ErrUnexpected
 		}
-		return modify(SpaceStatusCreated, SpaceStatusDeletionPending, res, time.Now())
+		return s.modifyStatus(ctx, spaceId, SpaceStatusCreated, SpaceStatusDeletionPending, res, change.Identity, time.Now())
 	default:
-		return StatusEntry{}, ErrIncorrectStatusChange
+		return StatusEntry{}, coordinatorproto.ErrUnexpected
 	}
+}
+
+func (s *spaceStatus) modifyStatus(
+	ctx context.Context,
+	spaceId string,
+	oldStatus,
+	newStatus int,
+	deletionChange,
+	identity []byte,
+	t time.Time) (entry StatusEntry, err error) {
+	op := modifyStatusOp{}
+	op.Set.DeletionPayload = deletionChange
+	op.Set.Status = newStatus
+	op.Set.DeletionDate = t
+	res := s.spaces.FindOneAndUpdate(ctx, findStatusQuery{
+		SpaceId:  spaceId,
+		Status:   &oldStatus,
+		Identity: identity,
+	}, op, options.FindOneAndUpdate().SetReturnDocument(options.After))
+	if res.Err() != nil {
+		curStatus, err := s.Status(ctx, spaceId, identity)
+		if err != nil {
+			return StatusEntry{}, notFoundOrUnexpected(err)
+		}
+		return StatusEntry{}, incorrectStatusError(curStatus.Status)
+	}
+	err = res.Decode(&entry)
+	if err != nil {
+		log.Debug("failed to decode entry", zap.Error(err))
+		err = coordinatorproto.ErrUnexpected
+	}
+	return
 }
 
 func (s *spaceStatus) Status(ctx context.Context, spaceId string, identity []byte) (entry StatusEntry, err error) {
@@ -124,8 +135,7 @@ func (s *spaceStatus) Status(ctx context.Context, spaceId string, identity []byt
 		Identity: identity,
 	})
 	if res.Err() != nil {
-		err = res.Err()
-		return
+		return StatusEntry{}, notFoundOrUnexpected(res.Err())
 	}
 	err = res.Decode(&entry)
 	return
@@ -162,4 +172,23 @@ func (s *spaceStatus) Run(ctx context.Context) (err error) {
 func (s *spaceStatus) Close(ctx context.Context) (err error) {
 	s.deleter.Close()
 	return
+}
+
+func notFoundOrUnexpected(err error) error {
+	if err == mongo.ErrNoDocuments {
+		return coordinatorproto.ErrSpaceNotExists
+	} else {
+		return coordinatorproto.ErrUnexpected
+	}
+}
+
+func incorrectStatusError(curStatus int) (err error) {
+	switch curStatus {
+	case SpaceStatusCreated:
+		return coordinatorproto.ErrSpaceIsCreated
+	case SpaceStatusDeletionPending:
+		return coordinatorproto.ErrSpaceDeletionPending
+	default:
+		return coordinatorproto.ErrSpaceIsDeleted
+	}
 }

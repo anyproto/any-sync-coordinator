@@ -7,6 +7,7 @@ import (
 	"github.com/anytypeio/any-sync-coordinator/nodeservice"
 	"github.com/anytypeio/any-sync/app"
 	"github.com/anytypeio/any-sync/commonspace/object/tree/treechangeproto"
+	"github.com/anytypeio/any-sync/coordinator/coordinatorproto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -198,29 +199,53 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 	t.Run("set incorrect status change", func(t *testing.T) {
 		fx := newFixture(t, 1)
 		fx.Run()
-		fx.verifier.verify = false
+		fx.verifier.verify = true
 		defer fx.Finish(t)
 		spaceId := "spaceId"
 		identity := []byte("identity")
 
 		err := fx.NewStatus(ctx, spaceId, identity)
 		require.NoError(t, err)
+		_, err = fx.ChangeStatus(ctx, spaceId, StatusChange{
+			Identity: identity,
+			Status:   SpaceStatusCreated,
+		})
+		require.Equal(t, err, coordinatorproto.ErrSpaceIsCreated)
 		raw := &treechangeproto.RawTreeChangeWithId{
 			RawChange: []byte{1},
 			Id:        "id",
 		}
 		_, err = fx.ChangeStatus(ctx, spaceId, StatusChange{
+			Identity:        identity,
+			DeletionPayload: raw,
+			Status:          SpaceStatusDeletionPending,
+		})
+		require.NoError(t, err)
+		_, err = fx.ChangeStatus(ctx, spaceId, StatusChange{
+			Identity:        identity,
+			DeletionPayload: raw,
+			Status:          SpaceStatusDeletionPending,
+		})
+		require.Equal(t, err, coordinatorproto.ErrSpaceDeletionPending)
+		_, err = fx.ChangeStatus(ctx, spaceId, StatusChange{
 			DeletionPayload: raw,
 			Identity:        identity,
 			Status:          SpaceStatusDeletionStarted,
 		})
-		require.Error(t, err)
+		require.Equal(t, err, coordinatorproto.ErrUnexpected)
 		_, err = fx.ChangeStatus(ctx, spaceId, StatusChange{
 			DeletionPayload: raw,
 			Identity:        identity,
 			Status:          SpaceStatusDeleted,
 		})
-		require.Error(t, err)
+		require.Equal(t, err, coordinatorproto.ErrUnexpected)
+		_, err = fx.SpaceStatus.(*spaceStatus).modifyStatus(ctx, spaceId, SpaceStatusDeletionPending, SpaceStatusDeleted, []byte{1}, identity, time.Now())
+		require.NoError(t, err)
+		_, err = fx.ChangeStatus(ctx, spaceId, StatusChange{
+			Identity: identity,
+			Status:   SpaceStatusCreated,
+		})
+		require.Equal(t, err, coordinatorproto.ErrSpaceIsDeleted)
 	})
 	t.Run("set wrong identity", func(t *testing.T) {
 		fx := newFixture(t, 1)
@@ -241,7 +266,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 			Identity:        []byte("other"),
 			Status:          SpaceStatusDeletionPending,
 		})
-		require.Error(t, err)
+		require.Equal(t, err, coordinatorproto.ErrUnexpected)
 	})
 }
 
