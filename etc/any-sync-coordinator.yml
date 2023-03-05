@@ -13,8 +13,8 @@ grpcServer:
 mongo:
     connect: mongodb://localhost:27017
     database: coordinator_test
-    spacesCollection: spaces
-    logCollection: log
+    spaces: spaces
+    log: log
 spaceStatus:
     runSeconds: 20
     deletionPeriodDays: 0
