@@ -147,6 +147,9 @@ func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity []
 		Status:   SpaceStatusCreated,
 		SpaceId:  spaceId,
 	})
+	if mongo.IsDuplicateKeyError(err) {
+		err = nil
+	}
 	return
 }
 
