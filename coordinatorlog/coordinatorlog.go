@@ -5,6 +5,7 @@ import (
 	"github.com/anytypeio/any-sync-coordinator/db"
 	"github.com/anytypeio/any-sync/app"
 	"go.mongodb.org/mongo-driver/mongo"
+	"time"
 )
 
 const CName = "coordinator.coordinatorlog"
@@ -14,6 +15,7 @@ type SpaceReceiptEntry struct {
 	SpaceId            string `bson:"spaceId"`
 	PeerId             string `bson:"peerId"`
 	Identity           string `bson:"identity"`
+	Timestamp          int64  `bson:"timestamp"`
 }
 
 type CoordinatorLog interface {
@@ -49,6 +51,7 @@ func (c *coordinatorLog) Close(ctx context.Context) (err error) {
 }
 
 func (c *coordinatorLog) SpaceReceipt(ctx context.Context, entry SpaceReceiptEntry) (err error) {
+	entry.Timestamp = time.Now().Unix()
 	_, err = c.logColl.InsertOne(ctx, entry)
 	return
 }
