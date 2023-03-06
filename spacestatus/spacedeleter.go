@@ -31,18 +31,18 @@ func (d pendingSpacesQuery) toMap() bson.M {
 		bson.D{{"status",
 			bson.M{
 				"$eq": SpaceStatusDeletionPending}}},
-		bson.D{{"deletionDate",
+		bson.D{{"deletionTimestamp",
 			bson.M{
-				"$gt":  time.Time{},
-				"$lte": time.Now().Add(-d.deletionPeriod)}}}}}
+				"$gt":  0,
+				"$lte": time.Now().Add(-d.deletionPeriod).Unix()}}}}}
 }
 
 type StatusEntry struct {
-	SpaceId         string    `bson:"_id"`
-	Identity        []byte    `bson:"identity"`
-	DeletionPayload []byte    `bson:"deletionPayload"`
-	DeletionDate    time.Time `bson:"deletionDate"`
-	Status          int       `bson:"status"`
+	SpaceId           string `bson:"_id"`
+	Identity          string `bson:"identity"`
+	DeletionPayload   []byte `bson:"deletionPayload"`
+	DeletionTimestamp int64  `bson:"deletionTimestamp"`
+	Status            int    `bson:"status"`
 }
 
 type spaceDeleter struct {
@@ -99,7 +99,7 @@ func (s *spaceDeleter) processEntry(ctx context.Context, cur *mongo.Cursor) (err
 	op := modifyStatusOp{}
 	op.Set.DeletionPayload = entry.DeletionPayload
 	op.Set.Status = SpaceStatusDeletionStarted
-	op.Set.DeletionDate = entry.DeletionDate
+	op.Set.DeletionTimestamp = entry.DeletionTimestamp
 	status := SpaceStatusDeletionPending
 	res := s.spaces.FindOneAndUpdate(ctx, findStatusQuery{
 		SpaceId:  entry.SpaceId,

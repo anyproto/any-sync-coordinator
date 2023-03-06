@@ -87,23 +87,24 @@ func (d *delayedDeleter) Close() {
 }
 
 func TestSpaceStatus_StatusOperations(t *testing.T) {
+	identity := []byte("identity")
+	encoded, _ := db.EncodeIdentity(identity)
 	t.Run("new status", func(t *testing.T) {
 		fx := newFixture(t, 1)
 		fx.Run()
 		fx.verifier.verify = true
 		defer fx.Finish(t)
 		spaceId := "spaceId"
-		identity := []byte("identity")
 
 		err := fx.NewStatus(ctx, spaceId, identity)
 		require.NoError(t, err)
 		res, err := fx.Status(ctx, spaceId, identity)
 		require.NoError(t, err)
 		require.Equal(t, StatusEntry{
-			SpaceId:      spaceId,
-			Identity:     identity,
-			DeletionDate: time.Time{},
-			Status:       SpaceStatusCreated,
+			SpaceId:           spaceId,
+			Identity:          encoded,
+			DeletionTimestamp: 0,
+			Status:            SpaceStatusCreated,
 		}, res)
 	})
 	t.Run("pending status", func(t *testing.T) {
@@ -112,7 +113,6 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		fx.verifier.verify = true
 		defer fx.Finish(t)
 		spaceId := "spaceId"
-		identity := []byte("identity")
 
 		err := fx.NewStatus(ctx, spaceId, identity)
 		require.NoError(t, err)
@@ -123,13 +123,13 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		marshalled, _ := raw.Marshal()
 		checkStatus := func(res StatusEntry, err error) {
 			require.NoError(t, err)
-			if time.Now().Sub(res.DeletionDate).Seconds() > 10 {
+			if time.Now().Unix()-res.DeletionTimestamp > 10*int64(time.Second) {
 				t.Fatal("incorrect deletion date")
 			}
-			res.DeletionDate = time.Time{}
+			res.DeletionTimestamp = 0
 			require.Equal(t, StatusEntry{
 				SpaceId:         spaceId,
-				Identity:        identity,
+				Identity:        encoded,
 				DeletionPayload: marshalled,
 				Status:          SpaceStatusDeletionPending,
 			}, res)
@@ -149,7 +149,6 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		fx.verifier.verify = true
 		defer fx.Finish(t)
 		spaceId := "spaceId"
-		identity := []byte("identity")
 
 		err := fx.NewStatus(ctx, spaceId, identity)
 		require.NoError(t, err)
@@ -169,10 +168,10 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.Equal(t, StatusEntry{
-			SpaceId:      spaceId,
-			Identity:     identity,
-			DeletionDate: time.Time{},
-			Status:       SpaceStatusCreated,
+			SpaceId:           spaceId,
+			Identity:          encoded,
+			DeletionTimestamp: 0,
+			Status:            SpaceStatusCreated,
 		}, res)
 	})
 	t.Run("failed to verify change", func(t *testing.T) {
@@ -181,7 +180,6 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		fx.verifier.verify = false
 		defer fx.Finish(t)
 		spaceId := "spaceId"
-		identity := []byte("identity")
 
 		err := fx.NewStatus(ctx, spaceId, identity)
 		require.NoError(t, err)
@@ -202,7 +200,6 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		fx.verifier.verify = true
 		defer fx.Finish(t)
 		spaceId := "spaceId"
-		identity := []byte("identity")
 
 		err := fx.NewStatus(ctx, spaceId, identity)
 		require.NoError(t, err)
@@ -239,7 +236,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 			Status:          SpaceStatusDeleted,
 		})
 		require.Equal(t, err, coordinatorproto.ErrUnexpected)
-		_, err = fx.SpaceStatus.(*spaceStatus).modifyStatus(ctx, spaceId, SpaceStatusDeletionPending, SpaceStatusDeleted, []byte{1}, identity, time.Now())
+		_, err = fx.SpaceStatus.(*spaceStatus).modifyStatus(ctx, spaceId, SpaceStatusDeletionPending, SpaceStatusDeleted, []byte{1}, identity, time.Now().Unix())
 		require.NoError(t, err)
 		_, err = fx.ChangeStatus(ctx, spaceId, StatusChange{
 			Identity: identity,
@@ -253,7 +250,6 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		fx.verifier.verify = false
 		defer fx.Finish(t)
 		spaceId := "spaceId"
-		identity := []byte("identity")
 
 		err := fx.NewStatus(ctx, spaceId, identity)
 		require.NoError(t, err)

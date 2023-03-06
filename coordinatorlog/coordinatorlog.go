@@ -13,7 +13,7 @@ type SpaceReceiptEntry struct {
 	SignedSpaceReceipt []byte `bson:"receipt"`
 	SpaceId            string `bson:"spaceId"`
 	PeerId             string `bson:"peerId"`
-	Identity           []byte `bson:"identity"`
+	Identity           string `bson:"identity"`
 }
 
 type CoordinatorLog interface {

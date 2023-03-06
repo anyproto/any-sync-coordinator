@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/anytypeio/any-sync-coordinator/config"
 	"github.com/anytypeio/any-sync-coordinator/coordinatorlog"
+	"github.com/anytypeio/any-sync-coordinator/db"
 	"github.com/anytypeio/any-sync-coordinator/spacestatus"
 	"github.com/anytypeio/any-sync/accountservice"
 	"github.com/anytypeio/any-sync/app"
@@ -114,11 +115,15 @@ func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader
 		if err != nil {
 			return
 		}
+		encodedId, err := db.EncodeIdentity(accountIdentity)
+		if err != nil {
+			return
+		}
 		err = c.coordinatorLog.SpaceReceipt(ctx, coordinatorlog.SpaceReceiptEntry{
 			SignedSpaceReceipt: marshalledReceipt,
 			SpaceId:            spaceId,
 			PeerId:             peerId,
-			Identity:           accountIdentity,
+			Identity:           encodedId,
 		})
 		if err != nil {
 			log.Debug("failed to add space receipt log entry", zap.Error(err))

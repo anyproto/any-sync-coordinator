@@ -3,11 +3,17 @@ package db
 import (
 	"context"
 	"github.com/anytypeio/any-sync/app"
+	"github.com/anytypeio/any-sync/app/logger"
+	"github.com/anytypeio/any-sync/coordinator/coordinatorproto"
+	"github.com/anytypeio/any-sync/util/strkey"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.uber.org/zap"
 )
 
 const CName = "coordinator.db"
+
+var log = logger.NewNamed(CName)
 
 type Database interface {
 	app.ComponentRunnable
@@ -59,4 +65,14 @@ func (d *database) SpacesCollection() *mongo.Collection {
 
 func (d *database) LogCollection() *mongo.Collection {
 	return d.log
+}
+
+func EncodeIdentity(identity []byte) (stringId string, err error) {
+	// TODO: maybe move to any-sync
+	encodedIdentity, err := strkey.Encode(strkey.AccountAddressVersionByte, identity)
+	if err != nil {
+		log.Debug("failed to encode payload", zap.Error(err))
+		return "", coordinatorproto.ErrUnexpected
+	}
+	return encodedIdentity, nil
 }

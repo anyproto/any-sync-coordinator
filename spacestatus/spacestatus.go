@@ -59,19 +59,19 @@ type spaceStatus struct {
 type findStatusQuery struct {
 	SpaceId  string `bson:"_id"`
 	Status   *int   `bson:"status,omitempty"`
-	Identity []byte `bson:"identity"`
+	Identity string `bson:"identity"`
 }
 
 type modifyStatusOp struct {
 	Set struct {
-		Status          int       `bson:"status"`
-		DeletionPayload []byte    `bson:"deletionPayload"`
-		DeletionDate    time.Time `bson:"deletionDate"`
+		Status            int    `bson:"status"`
+		DeletionPayload   []byte `bson:"deletionPayload"`
+		DeletionTimestamp int64  `bson:"deletionTimestamp"`
 	} `bson:"$set"`
 }
 
 type insertNewSpaceOp struct {
-	Identity []byte `bson:"identity"`
+	Identity string `bson:"identity"`
 	Status   int    `bson:"status"`
 	SpaceId  string `bson:"_id"`
 }
@@ -79,7 +79,7 @@ type insertNewSpaceOp struct {
 func (s *spaceStatus) ChangeStatus(ctx context.Context, spaceId string, change StatusChange) (entry StatusEntry, err error) {
 	switch change.Status {
 	case SpaceStatusCreated:
-		return s.modifyStatus(ctx, spaceId, SpaceStatusDeletionPending, SpaceStatusCreated, nil, change.Identity, time.Time{})
+		return s.modifyStatus(ctx, spaceId, SpaceStatusDeletionPending, SpaceStatusCreated, nil, change.Identity, 0)
 	case SpaceStatusDeletionPending:
 		err = s.verifier.Verify(change.DeletionPayload, change.Identity, change.PeerId)
 		if err != nil {
@@ -91,7 +91,7 @@ func (s *spaceStatus) ChangeStatus(ctx context.Context, spaceId string, change S
 			log.Debug("failed to marshal payload", zap.Error(err))
 			return StatusEntry{}, coordinatorproto.ErrUnexpected
 		}
-		return s.modifyStatus(ctx, spaceId, SpaceStatusCreated, SpaceStatusDeletionPending, res, change.Identity, time.Now())
+		return s.modifyStatus(ctx, spaceId, SpaceStatusCreated, SpaceStatusDeletionPending, res, change.Identity, time.Now().Unix())
 	default:
 		return StatusEntry{}, coordinatorproto.ErrUnexpected
 	}
@@ -102,17 +102,21 @@ func (s *spaceStatus) modifyStatus(
 	spaceId string,
 	oldStatus,
 	newStatus int,
-	deletionChange,
+	deletionChange []byte,
 	identity []byte,
-	t time.Time) (entry StatusEntry, err error) {
+	timestamp int64) (entry StatusEntry, err error) {
+	encodedIdentity, err := db.EncodeIdentity(identity)
+	if err != nil {
+		return
+	}
 	op := modifyStatusOp{}
 	op.Set.DeletionPayload = deletionChange
 	op.Set.Status = newStatus
-	op.Set.DeletionDate = t
+	op.Set.DeletionTimestamp = timestamp
 	res := s.spaces.FindOneAndUpdate(ctx, findStatusQuery{
 		SpaceId:  spaceId,
 		Status:   &oldStatus,
-		Identity: identity,
+		Identity: encodedIdentity,
 	}, op, options.FindOneAndUpdate().SetReturnDocument(options.After))
 	if res.Err() != nil {
 		curStatus, err := s.Status(ctx, spaceId, identity)
@@ -130,9 +134,13 @@ func (s *spaceStatus) modifyStatus(
 }
 
 func (s *spaceStatus) Status(ctx context.Context, spaceId string, identity []byte) (entry StatusEntry, err error) {
+	encodedIdentity, err := db.EncodeIdentity(identity)
+	if err != nil {
+		return
+	}
 	res := s.spaces.FindOne(ctx, findStatusQuery{
 		SpaceId:  spaceId,
-		Identity: identity,
+		Identity: encodedIdentity,
 	})
 	if res.Err() != nil {
 		return StatusEntry{}, notFoundOrUnexpected(res.Err())
@@ -142,8 +150,12 @@ func (s *spaceStatus) Status(ctx context.Context, spaceId string, identity []byt
 }
 
 func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity []byte) (err error) {
+	encodedIdentity, err := db.EncodeIdentity(identity)
+	if err != nil {
+		return
+	}
 	_, err = s.spaces.InsertOne(ctx, insertNewSpaceOp{
-		Identity: identity,
+		Identity: encodedIdentity,
 		Status:   SpaceStatusCreated,
 		SpaceId:  spaceId,
 	})
