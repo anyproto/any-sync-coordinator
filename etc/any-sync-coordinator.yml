@@ -17,7 +17,7 @@ mongo:
     log: log
 spaceStatus:
     runSeconds: 20
-    deletionPeriodDays: 0
+    deletionPeriodDays: 1
 nodes:
   - peerId: 12D3KooWKnXTtbveMDUFfeSqR5dt9a4JW66tZQXG7C7PdDh3vqGu
     address:
