@@ -5,6 +5,7 @@ import (
 	"github.com/anytypeio/any-sync-coordinator/spacestatus"
 	"github.com/anytypeio/any-sync/commonspace/object/tree/treechangeproto"
 	"github.com/anytypeio/any-sync/coordinator/coordinatorproto"
+	"time"
 )
 
 type rpcHandler struct {
@@ -12,9 +13,13 @@ type rpcHandler struct {
 }
 
 func (r *rpcHandler) convertStatus(status spacestatus.StatusEntry) *coordinatorproto.SpaceStatusPayload {
+	var timestamp int64
+	if status.Status != spacestatus.SpaceStatusCreated {
+		timestamp = time.Unix(status.DeletionTimestamp, 0).Add(r.c.deletionPeriod).Unix()
+	}
 	return &coordinatorproto.SpaceStatusPayload{
 		Status:            coordinatorproto.SpaceStatus(status.Status),
-		DeletionTimestamp: status.DeletionTimestamp + int64(r.c.deletionPeriod),
+		DeletionTimestamp: timestamp,
 	}
 }
 
