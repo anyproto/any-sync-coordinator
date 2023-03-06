@@ -61,11 +61,15 @@ func (c *coordinator) Name() (name string) {
 }
 
 func (c *coordinator) StatusCheck(ctx context.Context, spaceId string) (status spacestatus.StatusEntry, err error) {
+	defer func() {
+		log.Debug("finished checking status", zap.Error(err), zap.String("spaceId", spaceId), zap.Error(err))
+	}()
 	accountIdentity, err := peer.CtxIdentity(ctx)
 	if err != nil {
 		return
 	}
-	return c.spaceStatus.Status(ctx, spaceId, accountIdentity)
+	status, err = c.spaceStatus.Status(ctx, spaceId, accountIdentity)
+	return
 }
 
 func (c *coordinator) StatusChange(ctx context.Context, spaceId string, raw *treechangeproto.RawTreeChangeWithId) (entry spacestatus.StatusEntry, err error) {
