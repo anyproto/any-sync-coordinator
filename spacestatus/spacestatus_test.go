@@ -8,6 +8,7 @@ import (
 	"github.com/anytypeio/any-sync/app"
 	"github.com/anytypeio/any-sync/commonspace/object/tree/treechangeproto"
 	"github.com/anytypeio/any-sync/coordinator/coordinatorproto"
+	"github.com/anytypeio/any-sync/util/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -21,7 +22,7 @@ type mockVerifier struct {
 	verify bool
 }
 
-func (m *mockVerifier) Verify(rawDelete *treechangeproto.RawTreeChangeWithId, identity []byte, peerId string) (err error) {
+func (m *mockVerifier) Verify(rawDelete *treechangeproto.RawTreeChangeWithId, identity crypto.PubKey, peerId string) (err error) {
 	if m.verify {
 		return nil
 	} else {
@@ -87,8 +88,9 @@ func (d *delayedDeleter) Close() {
 }
 
 func TestSpaceStatus_StatusOperations(t *testing.T) {
-	identity := []byte("identity")
-	encoded, _ := db.EncodeIdentity(identity)
+	_, identity, err := crypto.GenerateRandomEd25519KeyPair()
+	require.NoError(t, err)
+	encoded := identity.Account()
 	t.Run("new status", func(t *testing.T) {
 		fx := newFixture(t, 1)
 		fx.Run()
@@ -250,8 +252,10 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		fx.verifier.verify = false
 		defer fx.Finish(t)
 		spaceId := "spaceId"
+		_, other, err := crypto.GenerateRandomEd25519KeyPair()
+		require.NoError(t, err)
 
-		err := fx.NewStatus(ctx, spaceId, identity)
+		err = fx.NewStatus(ctx, spaceId, identity)
 		require.NoError(t, err)
 		raw := &treechangeproto.RawTreeChangeWithId{
 			RawChange: []byte{1},
@@ -259,7 +263,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		}
 		_, err = fx.ChangeStatus(ctx, spaceId, StatusChange{
 			DeletionPayload: raw,
-			Identity:        []byte("other"),
+			Identity:        other,
 			Status:          SpaceStatusDeletionPending,
 		})
 		require.Equal(t, err, coordinatorproto.ErrUnexpected)
@@ -267,7 +271,8 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 }
 
 func TestSpaceStatus_Run(t *testing.T) {
-	identity := []byte("identity")
+	_, identity, err := crypto.GenerateRandomEd25519KeyPair()
+	require.NoError(t, err)
 	generateIds := func(ctx context.Context, fx *fixture, new int, pending int) {
 		for i := 0; i < new+pending; i++ {
 			spaceId := fmt.Sprintf("space%d", i)

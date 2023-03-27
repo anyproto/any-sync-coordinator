@@ -8,6 +8,7 @@ import (
 	"github.com/anytypeio/any-sync/app/logger"
 	"github.com/anytypeio/any-sync/commonspace/object/tree/treechangeproto"
 	"github.com/anytypeio/any-sync/coordinator/coordinatorproto"
+	"github.com/anytypeio/any-sync/util/crypto"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.uber.org/zap"
@@ -20,7 +21,7 @@ var log = logger.NewNamed(CName)
 
 type StatusChange struct {
 	DeletionPayload *treechangeproto.RawTreeChangeWithId
-	Identity        []byte
+	Identity        crypto.PubKey
 	Status          int
 	PeerId          string
 }
@@ -37,9 +38,9 @@ type configProvider interface {
 }
 
 type SpaceStatus interface {
-	NewStatus(ctx context.Context, spaceId string, identity []byte) (err error)
+	NewStatus(ctx context.Context, spaceId string, pubKey crypto.PubKey) (err error)
 	ChangeStatus(ctx context.Context, spaceId string, change StatusChange) (entry StatusEntry, err error)
-	Status(ctx context.Context, spaceId string, identity []byte) (entry StatusEntry, err error)
+	Status(ctx context.Context, spaceId string, pubKey crypto.PubKey) (entry StatusEntry, err error)
 	app.ComponentRunnable
 }
 
@@ -103,12 +104,9 @@ func (s *spaceStatus) modifyStatus(
 	oldStatus,
 	newStatus int,
 	deletionChange []byte,
-	identity []byte,
+	identity crypto.PubKey,
 	timestamp int64) (entry StatusEntry, err error) {
-	encodedIdentity, err := db.EncodeIdentity(identity)
-	if err != nil {
-		return
-	}
+	encodedIdentity := identity.Account()
 	op := modifyStatusOp{}
 	op.Set.DeletionPayload = deletionChange
 	op.Set.Status = newStatus
@@ -133,14 +131,10 @@ func (s *spaceStatus) modifyStatus(
 	return
 }
 
-func (s *spaceStatus) Status(ctx context.Context, spaceId string, identity []byte) (entry StatusEntry, err error) {
-	encodedIdentity, err := db.EncodeIdentity(identity)
-	if err != nil {
-		return
-	}
+func (s *spaceStatus) Status(ctx context.Context, spaceId string, identity crypto.PubKey) (entry StatusEntry, err error) {
 	res := s.spaces.FindOne(ctx, findStatusQuery{
 		SpaceId:  spaceId,
-		Identity: encodedIdentity,
+		Identity: identity.Account(),
 	})
 	if res.Err() != nil {
 		return StatusEntry{}, notFoundOrUnexpected(res.Err())
@@ -149,13 +143,9 @@ func (s *spaceStatus) Status(ctx context.Context, spaceId string, identity []byt
 	return
 }
 
-func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity []byte) (err error) {
-	encodedIdentity, err := db.EncodeIdentity(identity)
-	if err != nil {
-		return
-	}
+func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity crypto.PubKey) (err error) {
 	_, err = s.spaces.InsertOne(ctx, insertNewSpaceOp{
-		Identity: encodedIdentity,
+		Identity: identity.Account(),
 		Status:   SpaceStatusCreated,
 		SpaceId:  spaceId,
 	})

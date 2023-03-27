@@ -4,7 +4,6 @@ import (
 	"context"
 	"github.com/anytypeio/any-sync-coordinator/config"
 	"github.com/anytypeio/any-sync-coordinator/coordinatorlog"
-	"github.com/anytypeio/any-sync-coordinator/db"
 	"github.com/anytypeio/any-sync-coordinator/spacestatus"
 	"github.com/anytypeio/any-sync/accountservice"
 	"github.com/anytypeio/any-sync/app"
@@ -39,7 +38,7 @@ type Coordinator interface {
 }
 
 type coordinator struct {
-	account        *accountdata.AccountData
+	account        *accountdata.AccountKeys
 	nodeConf       nodeconf.Service
 	spaceStatus    spacestatus.SpaceStatus
 	coordinatorLog coordinatorlog.CoordinatorLog
@@ -65,11 +64,11 @@ func (c *coordinator) StatusCheck(ctx context.Context, spaceId string) (status s
 	defer func() {
 		log.Debug("finished checking status", zap.Error(err), zap.String("spaceId", spaceId), zap.Error(err))
 	}()
-	accountIdentity, err := peer.CtxIdentity(ctx)
+	accountPubKey, err := peer.CtxPubKey(ctx)
 	if err != nil {
 		return
 	}
-	status, err = c.spaceStatus.Status(ctx, spaceId, accountIdentity)
+	status, err = c.spaceStatus.Status(ctx, spaceId, accountPubKey)
 	return
 }
 
@@ -77,7 +76,7 @@ func (c *coordinator) StatusChange(ctx context.Context, spaceId string, raw *tre
 	defer func() {
 		log.Debug("finished changing status", zap.Error(err), zap.String("spaceId", spaceId), zap.Bool("isDelete", raw != nil))
 	}()
-	accountIdentity, err := peer.CtxIdentity(ctx)
+	accountPubKey, err := peer.CtxPubKey(ctx)
 	if err != nil {
 		return
 	}
@@ -91,14 +90,14 @@ func (c *coordinator) StatusChange(ctx context.Context, spaceId string, raw *tre
 	}
 	return c.spaceStatus.ChangeStatus(ctx, spaceId, spacestatus.StatusChange{
 		DeletionPayload: raw,
-		Identity:        accountIdentity,
+		Identity:        accountPubKey,
 		Status:          status,
 		PeerId:          peerId,
 	})
 }
 
 func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader []byte) (signedReceipt *coordinatorproto.SpaceReceiptWithSignature, err error) {
-	accountIdentity, err := peer.CtxIdentity(ctx)
+	accountPubKey, err := peer.CtxPubKey(ctx)
 	if err != nil {
 		return
 	}
@@ -115,34 +114,38 @@ func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader
 		if err != nil {
 			return
 		}
-		encodedId, err := db.EncodeIdentity(accountIdentity)
-		if err != nil {
-			return
-		}
 		err = c.coordinatorLog.SpaceReceipt(ctx, coordinatorlog.SpaceReceiptEntry{
 			SignedSpaceReceipt: marshalledReceipt,
 			SpaceId:            spaceId,
 			PeerId:             peerId,
-			Identity:           encodedId,
+			Identity:           accountPubKey.Account(),
 		})
 		if err != nil {
 			log.Debug("failed to add space receipt log entry", zap.Error(err))
 		}
 	}()
-	err = spacestorage.ValidateSpaceHeader(spaceId, spaceHeader, accountIdentity)
+	err = spacestorage.ValidateSpaceHeader(spaceId, spaceHeader, accountPubKey)
 	if err != nil {
 		return
 	}
-	err = c.spaceStatus.NewStatus(ctx, spaceId, accountIdentity)
+	err = c.spaceStatus.NewStatus(ctx, spaceId, accountPubKey)
 	if err != nil {
 		return
 	}
-
+	marshalledAccount, err := accountPubKey.Marshall()
+	if err != nil {
+		return
+	}
+	// TODO: cache this somewhere (any-sync?)
+	marshalledNode, err := c.account.SignKey.GetPublic().Marshall()
+	if err != nil {
+		return
+	}
 	receipt := &coordinatorproto.SpaceReceipt{
 		SpaceId:             spaceId,
 		PeerId:              peerId,
-		AccountIdentity:     accountIdentity,
-		ControlNodeIdentity: c.account.Identity,
+		AccountIdentity:     marshalledAccount,
+		ControlNodeIdentity: marshalledNode,
 		ValidUntil:          uint64(time.Now().Add(spaceReceiptValidPeriod).Unix()),
 	}
 	receiptData, err := receipt.Marshal()
