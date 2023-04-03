@@ -51,7 +51,7 @@ func (r *rpcHandler) SpaceStatusChange(ctx context.Context, request *coordinator
 }
 
 func (r *rpcHandler) SpaceSign(ctx context.Context, req *coordinatorproto.SpaceSignRequest) (*coordinatorproto.SpaceSignResponse, error) {
-	receipt, err := r.c.SpaceSign(ctx, req.SpaceId, req.Header)
+	receipt, err := r.c.SpaceSign(ctx, req.SpaceId, req.Header, req.OldIdentity, req.NewIdentitySignature)
 	if err != nil {
 		return nil, err
 	}

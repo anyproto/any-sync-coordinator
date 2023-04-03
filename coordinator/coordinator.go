@@ -2,6 +2,7 @@ package coordinator
 
 import (
 	"context"
+	"errors"
 	"github.com/anytypeio/any-sync-coordinator/config"
 	"github.com/anytypeio/any-sync-coordinator/coordinatorlog"
 	"github.com/anytypeio/any-sync-coordinator/spacestatus"
@@ -15,6 +16,7 @@ import (
 	"github.com/anytypeio/any-sync/net/peer"
 	"github.com/anytypeio/any-sync/net/rpc/server"
 	"github.com/anytypeio/any-sync/nodeconf"
+	"github.com/anytypeio/any-sync/util/crypto"
 	"go.uber.org/zap"
 	"storj.io/drpc"
 	"time"
@@ -28,6 +30,8 @@ var (
 const CName = "coordinator.coordinator"
 
 var log = logger.NewNamed(CName)
+
+var ErrIncorrectAccountSignature = errors.New("incorrect account signature")
 
 func New() Coordinator {
 	return new(coordinator)
@@ -96,7 +100,7 @@ func (c *coordinator) StatusChange(ctx context.Context, spaceId string, raw *tre
 	})
 }
 
-func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader []byte) (signedReceipt *coordinatorproto.SpaceReceiptWithSignature, err error) {
+func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader, oldIdentity, signature []byte) (signedReceipt *coordinatorproto.SpaceReceiptWithSignature, err error) {
 	accountPubKey, err := peer.CtxPubKey(ctx)
 	if err != nil {
 		return
@@ -105,38 +109,55 @@ func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader
 	if err != nil {
 		return
 	}
-	defer func() {
-		log.Debug("finished signing space", zap.Error(err), zap.String("spaceId", spaceId))
-		if err != nil {
-			return
-		}
-		marshalledReceipt, err := signedReceipt.Marshal()
-		if err != nil {
-			return
-		}
-		err = c.coordinatorLog.SpaceReceipt(ctx, coordinatorlog.SpaceReceiptEntry{
-			SignedSpaceReceipt: marshalledReceipt,
-			SpaceId:            spaceId,
-			PeerId:             peerId,
-			Identity:           accountPubKey.Account(),
-		})
-		if err != nil {
-			log.Debug("failed to add space receipt log entry", zap.Error(err))
-		}
-	}()
+	oldPubKey, err := crypto.UnmarshalEd25519PublicKeyProto(oldIdentity)
+	if err != nil {
+		return
+	}
+	err = c.verifyOldAccount(accountPubKey, oldPubKey, signature)
+	if err != nil {
+		return
+	}
 	err = spacestorage.ValidateSpaceHeader(spaceId, spaceHeader, accountPubKey)
 	if err != nil {
 		return
 	}
-	err = c.spaceStatus.NewStatus(ctx, spaceId, accountPubKey)
+	err = c.spaceStatus.NewStatus(ctx, spaceId, accountPubKey, oldPubKey)
 	if err != nil {
 		return
 	}
+	signedReceipt, err = c.prepareSpaceReceipt(spaceId, peerId, accountPubKey)
+	if err != nil {
+		return
+	}
+	c.addCoordinatorLog(ctx, spaceId, peerId, accountPubKey, signedReceipt)
+	return
+}
+
+func (c *coordinator) FileLimitCheck(ctx context.Context, identity []byte, spaceId string) (limit uint64, err error) {
+	// TODO: check identity and space here
+	return defaultFileLimit, nil
+}
+
+func (c *coordinator) verifyOldAccount(newAccountKey, oldAccountKey crypto.PubKey, signature []byte) (err error) {
+	rawPub, err := newAccountKey.Raw()
+	if err != nil {
+		return
+	}
+	verify, err := oldAccountKey.Verify(rawPub, signature)
+	if err != nil {
+		return
+	}
+	if !verify {
+		return ErrIncorrectAccountSignature
+	}
+	return
+}
+
+func (c *coordinator) prepareSpaceReceipt(spaceId, peerId string, accountPubKey crypto.PubKey) (signedReceipt *coordinatorproto.SpaceReceiptWithSignature, err error) {
 	marshalledAccount, err := accountPubKey.Marshall()
 	if err != nil {
 		return
 	}
-	// TODO: cache this somewhere (any-sync?)
 	marshalledNode, err := c.account.SignKey.GetPublic().Marshall()
 	if err != nil {
 		return
@@ -162,7 +183,22 @@ func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader
 	}, nil
 }
 
-func (c *coordinator) FileLimitCheck(ctx context.Context, identity []byte, spaceId string) (limit uint64, err error) {
-	// TODO: check identity and space here
-	return defaultFileLimit, nil
+func (c *coordinator) addCoordinatorLog(ctx context.Context, spaceId, peerId string, accountPubKey crypto.PubKey, signedReceipt *coordinatorproto.SpaceReceiptWithSignature) {
+	var err error
+	defer func() {
+		if err != nil {
+			log.Debug("failed to add space receipt log entry", zap.Error(err))
+		}
+	}()
+	marshalledReceipt, err := signedReceipt.Marshal()
+	if err != nil {
+		return
+	}
+	err = c.coordinatorLog.SpaceReceipt(ctx, coordinatorlog.SpaceReceiptEntry{
+		SignedSpaceReceipt: marshalledReceipt,
+		SpaceId:            spaceId,
+		PeerId:             peerId,
+		Identity:           accountPubKey.Account(),
+	})
+	return
 }

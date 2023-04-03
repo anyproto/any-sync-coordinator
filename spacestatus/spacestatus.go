@@ -38,7 +38,7 @@ type configProvider interface {
 }
 
 type SpaceStatus interface {
-	NewStatus(ctx context.Context, spaceId string, pubKey crypto.PubKey) (err error)
+	NewStatus(ctx context.Context, spaceId string, identity, oldIdentity crypto.PubKey) (err error)
 	ChangeStatus(ctx context.Context, spaceId string, change StatusChange) (entry StatusEntry, err error)
 	Status(ctx context.Context, spaceId string, pubKey crypto.PubKey) (entry StatusEntry, err error)
 	app.ComponentRunnable
@@ -72,9 +72,10 @@ type modifyStatusOp struct {
 }
 
 type insertNewSpaceOp struct {
-	Identity string `bson:"identity"`
-	Status   int    `bson:"status"`
-	SpaceId  string `bson:"_id"`
+	Identity    string `bson:"identity"`
+	OldIdentity string `bson:"oldIdentity"`
+	Status      int    `bson:"status"`
+	SpaceId     string `bson:"_id"`
 }
 
 func (s *spaceStatus) ChangeStatus(ctx context.Context, spaceId string, change StatusChange) (entry StatusEntry, err error) {
@@ -143,11 +144,12 @@ func (s *spaceStatus) Status(ctx context.Context, spaceId string, identity crypt
 	return
 }
 
-func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity crypto.PubKey) (err error) {
+func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity, oldIdentity crypto.PubKey) (err error) {
 	_, err = s.spaces.InsertOne(ctx, insertNewSpaceOp{
-		Identity: identity.Account(),
-		Status:   SpaceStatusCreated,
-		SpaceId:  spaceId,
+		Identity:    identity.Account(),
+		OldIdentity: oldIdentity.Account(),
+		Status:      SpaceStatusCreated,
+		SpaceId:     spaceId,
 	})
 	if mongo.IsDuplicateKeyError(err) {
 		err = nil

@@ -90,7 +90,10 @@ func (d *delayedDeleter) Close() {
 func TestSpaceStatus_StatusOperations(t *testing.T) {
 	_, identity, err := crypto.GenerateRandomEd25519KeyPair()
 	require.NoError(t, err)
+	_, oldIdentity, err := crypto.GenerateRandomEd25519KeyPair()
+	require.NoError(t, err)
 	encoded := identity.Account()
+	oldEncoded := oldIdentity.Account()
 	t.Run("new status", func(t *testing.T) {
 		fx := newFixture(t, 1)
 		fx.Run()
@@ -98,13 +101,14 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		defer fx.Finish(t)
 		spaceId := "spaceId"
 
-		err := fx.NewStatus(ctx, spaceId, identity)
+		err := fx.NewStatus(ctx, spaceId, identity, oldIdentity)
 		require.NoError(t, err)
 		res, err := fx.Status(ctx, spaceId, identity)
 		require.NoError(t, err)
 		require.Equal(t, StatusEntry{
 			SpaceId:           spaceId,
 			Identity:          encoded,
+			OldIdentity:       oldEncoded,
 			DeletionTimestamp: 0,
 			Status:            SpaceStatusCreated,
 		}, res)
@@ -116,7 +120,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		defer fx.Finish(t)
 		spaceId := "spaceId"
 
-		err := fx.NewStatus(ctx, spaceId, identity)
+		err := fx.NewStatus(ctx, spaceId, identity, oldIdentity)
 		require.NoError(t, err)
 		raw := &treechangeproto.RawTreeChangeWithId{
 			RawChange: []byte{1},
@@ -132,6 +136,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 			require.Equal(t, StatusEntry{
 				SpaceId:         spaceId,
 				Identity:        encoded,
+				OldIdentity:     oldEncoded,
 				DeletionPayload: marshalled,
 				Status:          SpaceStatusDeletionPending,
 			}, res)
@@ -152,7 +157,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		defer fx.Finish(t)
 		spaceId := "spaceId"
 
-		err := fx.NewStatus(ctx, spaceId, identity)
+		err := fx.NewStatus(ctx, spaceId, identity, oldIdentity)
 		require.NoError(t, err)
 		raw := &treechangeproto.RawTreeChangeWithId{
 			RawChange: []byte{1},
@@ -172,6 +177,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		require.Equal(t, StatusEntry{
 			SpaceId:           spaceId,
 			Identity:          encoded,
+			OldIdentity:       oldEncoded,
 			DeletionTimestamp: 0,
 			Status:            SpaceStatusCreated,
 		}, res)
@@ -183,7 +189,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		defer fx.Finish(t)
 		spaceId := "spaceId"
 
-		err := fx.NewStatus(ctx, spaceId, identity)
+		err := fx.NewStatus(ctx, spaceId, identity, oldIdentity)
 		require.NoError(t, err)
 		raw := &treechangeproto.RawTreeChangeWithId{
 			RawChange: []byte{1},
@@ -203,7 +209,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		defer fx.Finish(t)
 		spaceId := "spaceId"
 
-		err := fx.NewStatus(ctx, spaceId, identity)
+		err := fx.NewStatus(ctx, spaceId, identity, oldIdentity)
 		require.NoError(t, err)
 		_, err = fx.ChangeStatus(ctx, spaceId, StatusChange{
 			Identity: identity,
@@ -255,7 +261,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		_, other, err := crypto.GenerateRandomEd25519KeyPair()
 		require.NoError(t, err)
 
-		err = fx.NewStatus(ctx, spaceId, identity)
+		err = fx.NewStatus(ctx, spaceId, identity, oldIdentity)
 		require.NoError(t, err)
 		raw := &treechangeproto.RawTreeChangeWithId{
 			RawChange: []byte{1},
@@ -273,10 +279,13 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 func TestSpaceStatus_Run(t *testing.T) {
 	_, identity, err := crypto.GenerateRandomEd25519KeyPair()
 	require.NoError(t, err)
+	_, oldIdentity, err := crypto.GenerateRandomEd25519KeyPair()
+	require.NoError(t, err)
+
 	generateIds := func(ctx context.Context, fx *fixture, new int, pending int) {
 		for i := 0; i < new+pending; i++ {
 			spaceId := fmt.Sprintf("space%d", i)
-			err := fx.NewStatus(ctx, spaceId, identity)
+			err := fx.NewStatus(ctx, spaceId, identity, oldIdentity)
 			require.NoError(t, err)
 		}
 		for i := new; i < new+pending; i++ {
