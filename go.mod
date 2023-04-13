@@ -4,7 +4,7 @@ go 1.19
 
 require (
 	github.com/ahmetb/govvv v0.3.0
-	github.com/anytypeio/any-sync v0.0.32
+	github.com/anytypeio/any-sync v0.28.1-0.20230413184753-f7cc1f4b5d34
 	github.com/anytypeio/any-sync-node v0.0.19
 	github.com/golang/protobuf v1.5.2
 	github.com/stretchr/testify v1.8.2
@@ -35,13 +35,11 @@ require (
 	github.com/ipfs/go-log/v2 v2.5.1 // indirect
 	github.com/jbenet/go-temp-err-catcher v0.1.0 // indirect
 	github.com/klauspost/compress v1.15.12 // indirect
-	github.com/klauspost/cpuid/v2 v2.2.2 // indirect
+	github.com/klauspost/cpuid/v2 v2.2.3 // indirect
 	github.com/kr/pretty v0.3.0 // indirect
 	github.com/libp2p/go-buffer-pool v0.1.0 // indirect
-	github.com/libp2p/go-libp2p v0.24.1 // indirect
-	github.com/libp2p/go-openssl v0.1.0 // indirect
+	github.com/libp2p/go-libp2p v0.25.1 // indirect
 	github.com/mattn/go-isatty v0.0.17 // indirect
-	github.com/mattn/go-pointer v0.0.1 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.4 // indirect
 	github.com/minio/sha256-simd v1.0.0 // indirect
 	github.com/montanaflynn/stats v0.0.0-20171201202039-1bf9dbcd8cbe // indirect
@@ -52,7 +50,7 @@ require (
 	github.com/multiformats/go-multibase v0.2.0 // indirect
 	github.com/multiformats/go-multicodec v0.8.0 // indirect
 	github.com/multiformats/go-multihash v0.2.1 // indirect
-	github.com/multiformats/go-multistream v0.3.3 // indirect
+	github.com/multiformats/go-multistream v0.4.1 // indirect
 	github.com/multiformats/go-varint v0.0.7 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
@@ -60,7 +58,6 @@ require (
 	github.com/prometheus/client_model v0.3.0 // indirect
 	github.com/prometheus/common v0.39.0 // indirect
 	github.com/prometheus/procfs v0.9.0 // indirect
-	github.com/spacemonkeygo/spacelog v0.0.0-20180420211403-2296661a0572 // indirect
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
 	github.com/tyler-smith/go-bip39 v1.1.0 // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect

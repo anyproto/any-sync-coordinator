@@ -1,7 +1,7 @@
 account:
   peerId: 12D3KooWKLCajM89S8unbt3tgGbRLgmiWnFZT3adn9A5pQciBSLa
   peerKey: nQgebbzAnB+PgAn+yA4JAwqydQVZohikXPgkWuyS3iaNXcRmYuyCrEJr1WErQ6Vj38gGdo9H5ZdSGIFbuXsyMw==
-  signingKey: nQgebbzAnB+PgAn+yA4JAwqydQVZohikXPgkWuyS3iaNXcRmYuyCrEJr1WErQ6Vj38gGdo9H5ZdSGIFbuXsyMw==
+  signingKey: WfIKFxTYNd87PQ3whACZhIVpGNVd5RAYzjwI8WbF0UMLUFiUFyzO57IUwbRhGkAfWX4SdRPsj4s+j6YdskulOQ==
 grpcServer:
     server:
         listenAddrs:
@@ -12,34 +12,36 @@ grpcServer:
 mongo:
     connect: mongodb://localhost:27017
     database: coordinator_test
-    spaces: spaces
-    log: log
 spaceStatus:
     runSeconds: 20
     deletionPeriodDays: 1
-nodes:
-  - peerId: 12D3KooWKnXTtbveMDUFfeSqR5dt9a4JW66tZQXG7C7PdDh3vqGu
-    address:
-      - 127.0.0.1:4430
-    types:
-      - tree
-  - peerId: 12D3KooWKgVN2kW8xw5Uvm2sLUnkeUNQYAvcWvF58maTzev7FjPi
-    address:
-      - 127.0.0.1:4431
-    types:
-      - tree
-  - peerId: 12D3KooWCUPYuMnQhu9yREJgQyjcz8zWY83rZGmDLwb9YR6QkbZX
-    address:
-      - 127.0.0.1:4432
-    types:
-      - tree
-  - peerId: 12D3KooWQxiZ5a7vcy4DTJa8Gy1eVUmwb5ojN4SrJC9Rjxzigw6C
-    address:
-      - 127.0.0.1:4730
-    types:
-      - file
-  - peerId: 12D3KooWKLCajM89S8unbt3tgGbRLgmiWnFZT3adn9A5pQciBSLa
-    address:
-      - 127.0.0.1:4830
-    types:
-      - coordinator
+netConf:
+  id: 64384a038e697b7fce2f447e
+  networkId: N4N1wDHFpFpovXBqdbq2TDXE9tXdXbtV1eTJFpKJW4YeaJqR
+  nodes:
+    - peerId: 12D3KooWKLCajM89S8unbt3tgGbRLgmiWnFZT3adn9A5pQciBSLa
+      addresses:
+        - "127.0.0.1:4830"
+      types:
+        - coordinator
+    - peerId: 12D3KooWKnXTtbveMDUFfeSqR5dt9a4JW66tZQXG7C7PdDh3vqGu
+      addresses:
+        - 127.0.0.1:4430
+      types:
+        - tree
+    - peerId: 12D3KooWKgVN2kW8xw5Uvm2sLUnkeUNQYAvcWvF58maTzev7FjPi
+      addresses:
+        - 127.0.0.1:4431
+      types:
+        - tree
+    - peerId: 12D3KooWCUPYuMnQhu9yREJgQyjcz8zWY83rZGmDLwb9YR6QkbZX
+      addresses:
+        - 127.0.0.1:4432
+      types:
+        - tree
+    - peerId: 12D3KooWQxiZ5a7vcy4DTJa8Gy1eVUmwb5ojN4SrJC9Rjxzigw6C
+      addresses:
+        - 127.0.0.1:4730
+      types:
+        - file
+  creationTime: 2023-04-13T20:29:23.453806629+02:00

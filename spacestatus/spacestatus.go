@@ -33,6 +33,8 @@ const (
 	SpaceStatusDeleted
 )
 
+const collName = "spaces"
+
 type configProvider interface {
 	GetSpaceStatus() Config
 }
@@ -49,7 +51,6 @@ func New() SpaceStatus {
 }
 
 type spaceStatus struct {
-	db       db.Database
 	conf     Config
 	spaces   *mongo.Collection
 	verifier ChangeVerifier
@@ -158,7 +159,7 @@ func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity, o
 }
 
 func (s *spaceStatus) Init(a *app.App) (err error) {
-	s.db = a.MustComponent(db.CName).(db.Database)
+	s.spaces = a.MustComponent(db.CName).(db.Database).Db().Collection(collName)
 	s.sender = a.MustComponent(nodeservice.CName).(DelSender)
 	s.verifier = getChangeVerifier()
 	s.conf = a.MustComponent("config").(configProvider).GetSpaceStatus()
@@ -171,7 +172,6 @@ func (s *spaceStatus) Name() (name string) {
 }
 
 func (s *spaceStatus) Run(ctx context.Context) (err error) {
-	s.spaces = s.db.SpacesCollection()
 	s.deleter.Run(s.spaces, s.sender)
 	return
 }

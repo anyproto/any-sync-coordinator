@@ -10,6 +10,8 @@ import (
 
 const CName = "coordinator.coordinatorlog"
 
+const collName = "log"
+
 type SpaceReceiptEntry struct {
 	SignedSpaceReceipt []byte `bson:"receipt"`
 	SpaceId            string `bson:"spaceId"`
@@ -19,7 +21,7 @@ type SpaceReceiptEntry struct {
 }
 
 type CoordinatorLog interface {
-	app.ComponentRunnable
+	app.Component
 	SpaceReceipt(ctx context.Context, entry SpaceReceiptEntry) (err error)
 }
 
@@ -28,26 +30,16 @@ func New() CoordinatorLog {
 }
 
 type coordinatorLog struct {
-	db      db.Database
 	logColl *mongo.Collection
 }
 
 func (c *coordinatorLog) Init(a *app.App) (err error) {
-	c.db = a.MustComponent(db.CName).(db.Database)
+	c.logColl = a.MustComponent(db.CName).(db.Database).Db().Collection(collName)
 	return
 }
 
 func (c *coordinatorLog) Name() (name string) {
 	return CName
-}
-
-func (c *coordinatorLog) Run(ctx context.Context) (err error) {
-	c.logColl = c.db.LogCollection()
-	return
-}
-
-func (c *coordinatorLog) Close(ctx context.Context) (err error) {
-	return
 }
 
 func (c *coordinatorLog) SpaceReceipt(ctx context.Context, entry SpaceReceiptEntry) (err error) {

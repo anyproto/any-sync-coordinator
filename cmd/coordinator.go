@@ -9,6 +9,7 @@ import (
 	"github.com/anytypeio/any-sync-coordinator/coordinator"
 	"github.com/anytypeio/any-sync-coordinator/coordinatorlog"
 	"github.com/anytypeio/any-sync-coordinator/db"
+	"github.com/anytypeio/any-sync-coordinator/nodeconfsource"
 	"github.com/anytypeio/any-sync-coordinator/nodeservice"
 	"github.com/anytypeio/any-sync-coordinator/spacestatus"
 	"github.com/anytypeio/any-sync/app"
@@ -19,6 +20,7 @@ import (
 	"github.com/anytypeio/any-sync/net/rpc/server"
 	"github.com/anytypeio/any-sync/net/secureservice"
 	"github.com/anytypeio/any-sync/nodeconf"
+	"github.com/anytypeio/any-sync/nodeconf/nodeconfstore"
 	"go.uber.org/zap"
 	"net/http"
 	_ "net/http/pprof"
@@ -95,14 +97,16 @@ func main() {
 }
 
 func Bootstrap(a *app.App) {
-	a.Register(account.New()).
+	a.Register(db.New()).
+		Register(account.New()).
+		Register(nodeconfstore.New()).
 		Register(nodeconf.New()).
+		Register(nodeconfsource.New()).
 		Register(dialer.New()).
 		Register(secureservice.New()).
 		Register(pool.New()).
 		Register(server.New()).
 		Register(metric.New()).
-		Register(db.New()).
 		Register(coordinatorlog.New()).
 		Register(nodeservice.New()).
 		Register(spacestatus.New()).

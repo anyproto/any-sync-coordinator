@@ -5,6 +5,7 @@ import (
 	"github.com/anytypeio/any-sync-coordinator/spacestatus"
 	"github.com/anytypeio/any-sync/commonspace/object/tree/treechangeproto"
 	"github.com/anytypeio/any-sync/coordinator/coordinatorproto"
+	"github.com/anytypeio/any-sync/nodeconf"
 	"time"
 )
 
@@ -67,5 +68,37 @@ func (r *rpcHandler) FileLimitCheck(ctx context.Context, req *coordinatorproto.F
 	}
 	return &coordinatorproto.FileLimitCheckResponse{
 		Limit: limit,
+	}, nil
+}
+
+func (r *rpcHandler) NetworkConfiguration(ctx context.Context, req *coordinatorproto.NetworkConfigurationRequest) (*coordinatorproto.NetworkConfigurationResponse, error) {
+	last := r.c.nodeConf.Configuration()
+	var nodes []*coordinatorproto.Node
+	if req.CurrentId != last.Id {
+		nodes = make([]*coordinatorproto.Node, 0, len(last.Nodes))
+		for _, n := range last.Nodes {
+			types := make([]coordinatorproto.NodeType, 0, len(n.Types))
+			for _, t := range n.Types {
+				switch t {
+				case nodeconf.NodeTypeCoordinator:
+					types = append(types, coordinatorproto.NodeType_CoordinatorAPI)
+				case nodeconf.NodeTypeFile:
+					types = append(types, coordinatorproto.NodeType_FileAPI)
+				case nodeconf.NodeTypeTree:
+					types = append(types, coordinatorproto.NodeType_TreeAPI)
+				}
+			}
+			nodes = append(nodes, &coordinatorproto.Node{
+				PeerId:    n.PeerId,
+				Addresses: n.Addresses,
+				Types:     types,
+			})
+		}
+	}
+	return &coordinatorproto.NetworkConfigurationResponse{
+		ConfigurationId:  last.Id,
+		NetworkId:        last.NetworkId,
+		Nodes:            nodes,
+		CreationTimeUnix: uint64(last.CreationTime.Unix()),
 	}, nil
 }

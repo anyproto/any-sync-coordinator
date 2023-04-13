@@ -404,9 +404,8 @@ func newFixture(t *testing.T, deletionPeriod int) *fixture {
 	}
 	fx.a.Register(mockConfig{
 		Mongo: db.Mongo{
-			Connect:          "mongodb://localhost:27017",
-			Database:         "coordinator_test",
-			SpacesCollection: "spaces",
+			Connect:  "mongodb://localhost:27017",
+			Database: "coordinator_test",
 		},
 		Config: Config{
 			RunSeconds:         100,

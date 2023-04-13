@@ -44,7 +44,7 @@ func (n *nodeService) Close(ctx context.Context) (err error) {
 }
 
 func (n *nodeService) Delete(ctx context.Context, spaceId string, raw *treechangeproto.RawTreeChangeWithId) (err error) {
-	nodeIds := n.nodes.GetLast().NodeIds(spaceId)
+	nodeIds := n.nodes.NodeIds(spaceId)
 	respPeer, err := n.pool.GetOneOf(ctx, nodeIds)
 	if err != nil {
 		return
