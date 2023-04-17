@@ -15,7 +15,7 @@ mongo:
 spaceStatus:
     runSeconds: 20
     deletionPeriodDays: 1
-netConf:
+network:
   id: 64384a038e697b7fce2f447e
   networkId: N4N1wDHFpFpovXBqdbq2TDXE9tXdXbtV1eTJFpKJW4YeaJqR
   nodes:
