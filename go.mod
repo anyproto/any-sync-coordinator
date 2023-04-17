@@ -4,9 +4,9 @@ go 1.19
 
 require (
 	github.com/ahmetb/govvv v0.3.0
-	github.com/anytypeio/any-sync v0.28.1-0.20230417150035-d3c9fef7b472
+	github.com/anytypeio/any-sync v0.0.34
 	github.com/anytypeio/any-sync-node v0.0.19
-	github.com/golang/protobuf v1.5.2
+	github.com/golang/protobuf v1.5.3
 	github.com/stretchr/testify v1.8.2
 	go.mongodb.org/mongo-driver v1.11.2
 	go.uber.org/zap v1.24.0
@@ -36,7 +36,7 @@ require (
 	github.com/jbenet/go-temp-err-catcher v0.1.0 // indirect
 	github.com/klauspost/compress v1.15.12 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.3 // indirect
-	github.com/kr/pretty v0.3.0 // indirect
+	github.com/kr/text v0.2.0 // indirect
 	github.com/libp2p/go-buffer-pool v0.1.0 // indirect
 	github.com/libp2p/go-libp2p v0.25.1 // indirect
 	github.com/mattn/go-isatty v0.0.17 // indirect
@@ -54,10 +54,11 @@ require (
 	github.com/multiformats/go-varint v0.0.7 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/prometheus/client_golang v1.14.0 // indirect
+	github.com/prometheus/client_golang v1.15.0 // indirect
 	github.com/prometheus/client_model v0.3.0 // indirect
-	github.com/prometheus/common v0.39.0 // indirect
+	github.com/prometheus/common v0.42.0 // indirect
 	github.com/prometheus/procfs v0.9.0 // indirect
+	github.com/rogpeppe/go-internal v1.9.0 // indirect
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
 	github.com/tyler-smith/go-bip39 v1.1.0 // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
@@ -73,6 +74,6 @@ require (
 	golang.org/x/sync v0.1.0 // indirect
 	golang.org/x/sys v0.7.0 // indirect
 	golang.org/x/text v0.9.0 // indirect
-	google.golang.org/protobuf v1.28.1 // indirect
+	google.golang.org/protobuf v1.30.0 // indirect
 	lukechampine.com/blake3 v1.1.7 // indirect
 )
