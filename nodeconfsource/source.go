@@ -2,6 +2,7 @@ package nodeconfsource
 
 import (
 	"context"
+	"fmt"
 	"github.com/anytypeio/any-sync-coordinator/db"
 	"github.com/anytypeio/any-sync/app"
 	"github.com/anytypeio/any-sync/nodeconf"
@@ -21,6 +22,7 @@ func New() NodeConfSource {
 type NodeConfSource interface {
 	nodeconf.Source
 	app.Component
+	Add(conf nodeconf.Configuration, enable bool) (id string, err error)
 }
 
 type ConfModel struct {
@@ -65,4 +67,25 @@ func (n *nodeConfSource) GetLast(ctx context.Context, currentId string) (c nodec
 		Nodes:        model.Nodes,
 		CreationTime: model.CreationTime,
 	}, nil
+}
+
+func (n *nodeConfSource) Add(conf nodeconf.Configuration, enable bool) (id string, err error) {
+	if conf.NetworkId == "" {
+		return "", fmt.Errorf("network id not specified")
+	}
+	if len(conf.Nodes) == 0 {
+		return "", fmt.Errorf("you must provide at leat one node")
+	}
+	m := ConfModel{
+		Id:           primitive.NewObjectID(),
+		NetworkId:    conf.NetworkId,
+		Nodes:        conf.Nodes,
+		CreationTime: time.Now(),
+		Enable:       enable,
+	}
+	ctx := context.Background()
+	if _, err = n.coll.InsertOne(ctx, m); err != nil {
+		return
+	}
+	return m.Id.Hex(), nil
 }

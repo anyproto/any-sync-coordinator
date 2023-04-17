@@ -13,7 +13,8 @@ endif
 
 build:
 	@$(eval FLAGS := $$(shell PATH=$(PATH) govvv -flags -pkg github.com/anytypeio/any-sync/app))
-	go build $(TAGS) -v -o bin/any-sync-coordinator -ldflags "$(FLAGS)" github.com/anytypeio/any-sync-coordinator/cmd
+	go build $(TAGS) -v -o bin/any-sync-coordinator -ldflags "$(FLAGS)" github.com/anytypeio/any-sync-coordinator/cmd/coordinator
+	go build $(TAGS) -v -o bin/any-sync-confapply -ldflags "$(FLAGS)" github.com/anytypeio/any-sync-coordinator/cmd/confapply
 
 test:
 	go test ./... --cover $(TAGS)
