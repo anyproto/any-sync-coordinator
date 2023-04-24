@@ -27,13 +27,14 @@ func NewFromFile(path string) (c *Config, err error) {
 }
 
 type Config struct {
-	Account          commonaccount.Config   `yaml:"account"`
-	GrpcServer       net.Config             `yaml:"grpcServer"`
-	Metric           metric.Config          `yaml:"metric"`
-	Network          nodeconf.Configuration `yaml:"network"`
-	NetworkStorePath string                 `yaml:"networkStorePath"`
-	Mongo            db.Mongo               `yaml:"mongo"`
-	SpaceStatus      spacestatus.Config     `yaml:"spaceStatus"`
+	Account                  commonaccount.Config   `yaml:"account"`
+	GrpcServer               net.Config             `yaml:"grpcServer"`
+	Metric                   metric.Config          `yaml:"metric"`
+	Network                  nodeconf.Configuration `yaml:"network"`
+	NetworkStorePath         string                 `yaml:"networkStorePath"`
+	NetworkUpdateIntervalSec int                    `yaml:"networkUpdateIntervalSec"`
+	Mongo                    db.Mongo               `yaml:"mongo"`
+	SpaceStatus              spacestatus.Config     `yaml:"spaceStatus"`
 }
 
 func (c *Config) Init(a *app.App) (err error) {
@@ -70,4 +71,8 @@ func (c Config) GetSpaceStatus() spacestatus.Config {
 
 func (c Config) GetNodeConfStorePath() string {
 	return c.NetworkStorePath
+}
+
+func (c Config) GetNodeConfUpdateInterval() int {
+	return c.NetworkUpdateIntervalSec
 }
