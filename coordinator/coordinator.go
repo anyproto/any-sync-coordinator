@@ -102,6 +102,9 @@ func (c *coordinator) StatusChange(ctx context.Context, spaceId string, raw *tre
 }
 
 func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader, oldIdentity, signature []byte) (signedReceipt *coordinatorproto.SpaceReceiptWithSignature, err error) {
+	// TODO: Think about how to make it more evident that account.SignKey is actually a network key
+	//  on a coordinator level
+	networkKey := c.account.SignKey
 	accountPubKey, err := peer.CtxPubKey(ctx)
 	if err != nil {
 		return
@@ -126,7 +129,7 @@ func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader
 	if err != nil {
 		return
 	}
-	signedReceipt, err = coordinatorproto.PrepareSpaceReceipt(spaceId, peerId, spaceReceiptValidPeriod, accountPubKey, c.account.SignKey)
+	signedReceipt, err = coordinatorproto.PrepareSpaceReceipt(spaceId, peerId, spaceReceiptValidPeriod, accountPubKey, networkKey)
 	if err != nil {
 		return
 	}
