@@ -126,7 +126,7 @@ func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader
 	if err != nil {
 		return
 	}
-	signedReceipt, err = c.prepareSpaceReceipt(spaceId, peerId, accountPubKey)
+	signedReceipt, err = coordinatorproto.PrepareSpaceReceipt(spaceId, peerId, spaceReceiptValidPeriod, accountPubKey, c.account.SignKey)
 	if err != nil {
 		return
 	}
@@ -152,36 +152,6 @@ func (c *coordinator) verifyOldAccount(newAccountKey, oldAccountKey crypto.PubKe
 		return ErrIncorrectAccountSignature
 	}
 	return
-}
-
-func (c *coordinator) prepareSpaceReceipt(spaceId, peerId string, accountPubKey crypto.PubKey) (signedReceipt *coordinatorproto.SpaceReceiptWithSignature, err error) {
-	marshalledAccount, err := accountPubKey.Marshall()
-	if err != nil {
-		return
-	}
-	marshalledNode, err := c.account.SignKey.GetPublic().Marshall()
-	if err != nil {
-		return
-	}
-	receipt := &coordinatorproto.SpaceReceipt{
-		SpaceId:             spaceId,
-		PeerId:              peerId,
-		AccountIdentity:     marshalledAccount,
-		ControlNodeIdentity: marshalledNode,
-		ValidUntil:          uint64(time.Now().Add(spaceReceiptValidPeriod).Unix()),
-	}
-	receiptData, err := receipt.Marshal()
-	if err != nil {
-		return
-	}
-	sign, err := c.account.SignKey.Sign(receiptData)
-	if err != nil {
-		return
-	}
-	return &coordinatorproto.SpaceReceiptWithSignature{
-		SpaceReceiptPayload: receiptData,
-		Signature:           sign,
-	}, nil
 }
 
 func (c *coordinator) addCoordinatorLog(ctx context.Context, spaceId, peerId string, accountPubKey crypto.PubKey, signedReceipt *coordinatorproto.SpaceReceiptWithSignature) {
