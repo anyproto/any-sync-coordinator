@@ -14,6 +14,7 @@ import (
 	"github.com/anytypeio/any-sync/commonspace/object/tree/treechangeproto"
 	"github.com/anytypeio/any-sync/commonspace/spacesyncproto"
 	"github.com/anytypeio/any-sync/coordinator/coordinatorproto"
+	"github.com/anytypeio/any-sync/metric"
 	"github.com/anytypeio/any-sync/net/peer"
 	"github.com/anytypeio/any-sync/net/rpc/server"
 	"github.com/anytypeio/any-sync/nodeconf"
@@ -48,6 +49,7 @@ type coordinator struct {
 	spaceStatus    spacestatus.SpaceStatus
 	coordinatorLog coordinatorlog.CoordinatorLog
 	deletionPeriod time.Duration
+	metric         metric.Metric
 }
 
 func (c *coordinator) Init(a *app.App) (err error) {
@@ -58,6 +60,7 @@ func (c *coordinator) Init(a *app.App) (err error) {
 	c.account = a.MustComponent(accountservice.CName).(accountservice.Service).Account()
 	c.spaceStatus = a.MustComponent(spacestatus.CName).(spacestatus.SpaceStatus)
 	c.coordinatorLog = a.MustComponent(coordinatorlog.CName).(coordinatorlog.CoordinatorLog)
+	c.metric = a.MustComponent(metric.CName).(metric.Metric)
 	return coordinatorproto.DRPCRegisterCoordinator(a.MustComponent(server.CName).(drpc.Mux), h)
 }
 

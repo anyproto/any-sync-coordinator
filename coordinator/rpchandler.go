@@ -5,7 +5,9 @@ import (
 	"github.com/anytypeio/any-sync-coordinator/spacestatus"
 	"github.com/anytypeio/any-sync/commonspace/object/tree/treechangeproto"
 	"github.com/anytypeio/any-sync/coordinator/coordinatorproto"
+	"github.com/anytypeio/any-sync/metric"
 	"github.com/anytypeio/any-sync/nodeconf"
+	"go.uber.org/zap"
 	"time"
 )
 
@@ -24,8 +26,16 @@ func (r *rpcHandler) convertStatus(status spacestatus.StatusEntry) *coordinatorp
 	}
 }
 
-func (r *rpcHandler) SpaceStatusCheck(ctx context.Context, request *coordinatorproto.SpaceStatusCheckRequest) (*coordinatorproto.SpaceStatusCheckResponse, error) {
-	status, err := r.c.StatusCheck(ctx, request.SpaceId)
+func (r *rpcHandler) SpaceStatusCheck(ctx context.Context, req *coordinatorproto.SpaceStatusCheckRequest) (resp *coordinatorproto.SpaceStatusCheckResponse, err error) {
+	st := time.Now()
+	defer func() {
+		r.c.metric.RequestLog(ctx, "coordinator.spaceStatusCheck",
+			metric.TotalDur(time.Since(st)),
+			metric.SpaceId(req.SpaceId),
+			zap.Error(err),
+		)
+	}()
+	status, err := r.c.StatusCheck(ctx, req.SpaceId)
 	if err != nil {
 		return nil, err
 	}
@@ -34,15 +44,23 @@ func (r *rpcHandler) SpaceStatusCheck(ctx context.Context, request *coordinatorp
 	}, nil
 }
 
-func (r *rpcHandler) SpaceStatusChange(ctx context.Context, request *coordinatorproto.SpaceStatusChangeRequest) (*coordinatorproto.SpaceStatusChangeResponse, error) {
+func (r *rpcHandler) SpaceStatusChange(ctx context.Context, req *coordinatorproto.SpaceStatusChangeRequest) (resp *coordinatorproto.SpaceStatusChangeResponse, err error) {
+	st := time.Now()
+	defer func() {
+		r.c.metric.RequestLog(ctx, "coordinator.spaceStatusChange",
+			metric.TotalDur(time.Since(st)),
+			metric.SpaceId(req.SpaceId),
+			zap.Error(err),
+		)
+	}()
 	var raw *treechangeproto.RawTreeChangeWithId
-	if request.DeletionChangePayload != nil {
+	if req.DeletionChangePayload != nil {
 		raw = &treechangeproto.RawTreeChangeWithId{
-			RawChange: request.DeletionChangePayload,
-			Id:        request.DeletionChangeId,
+			RawChange: req.DeletionChangePayload,
+			Id:        req.DeletionChangeId,
 		}
 	}
-	status, err := r.c.StatusChange(ctx, request.SpaceId, raw)
+	status, err := r.c.StatusChange(ctx, req.SpaceId, raw)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +69,15 @@ func (r *rpcHandler) SpaceStatusChange(ctx context.Context, request *coordinator
 	}, nil
 }
 
-func (r *rpcHandler) SpaceSign(ctx context.Context, req *coordinatorproto.SpaceSignRequest) (*coordinatorproto.SpaceSignResponse, error) {
+func (r *rpcHandler) SpaceSign(ctx context.Context, req *coordinatorproto.SpaceSignRequest) (resp *coordinatorproto.SpaceSignResponse, err error) {
+	st := time.Now()
+	defer func() {
+		r.c.metric.RequestLog(ctx, "coordinator.spaceSign",
+			metric.TotalDur(time.Since(st)),
+			metric.SpaceId(req.SpaceId),
+			zap.Error(err),
+		)
+	}()
 	receipt, err := r.c.SpaceSign(ctx, req.SpaceId, req.Header, req.OldIdentity, req.NewIdentitySignature)
 	if err != nil {
 		return nil, err
@@ -61,7 +87,15 @@ func (r *rpcHandler) SpaceSign(ctx context.Context, req *coordinatorproto.SpaceS
 	}, nil
 }
 
-func (r *rpcHandler) FileLimitCheck(ctx context.Context, req *coordinatorproto.FileLimitCheckRequest) (*coordinatorproto.FileLimitCheckResponse, error) {
+func (r *rpcHandler) FileLimitCheck(ctx context.Context, req *coordinatorproto.FileLimitCheckRequest) (resp *coordinatorproto.FileLimitCheckResponse, err error) {
+	st := time.Now()
+	defer func() {
+		r.c.metric.RequestLog(ctx, "coordinator.fileLimitCheck",
+			metric.TotalDur(time.Since(st)),
+			metric.SpaceId(req.SpaceId),
+			zap.Error(err),
+		)
+	}()
 	limit, err := r.c.FileLimitCheck(ctx, req.AccountIdentity, req.SpaceId)
 	if err != nil {
 		return nil, err
@@ -71,7 +105,14 @@ func (r *rpcHandler) FileLimitCheck(ctx context.Context, req *coordinatorproto.F
 	}, nil
 }
 
-func (r *rpcHandler) NetworkConfiguration(ctx context.Context, req *coordinatorproto.NetworkConfigurationRequest) (*coordinatorproto.NetworkConfigurationResponse, error) {
+func (r *rpcHandler) NetworkConfiguration(ctx context.Context, req *coordinatorproto.NetworkConfigurationRequest) (resp *coordinatorproto.NetworkConfigurationResponse, err error) {
+	st := time.Now()
+	defer func() {
+		r.c.metric.RequestLog(ctx, "coordinator.networkConfiguration",
+			metric.TotalDur(time.Since(st)),
+			zap.Error(err),
+		)
+	}()
 	last := r.c.nodeConf.Configuration()
 	var nodes []*coordinatorproto.Node
 	if req.CurrentId != last.Id {
