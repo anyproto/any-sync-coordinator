@@ -6,6 +6,7 @@ import (
 	"github.com/anytypeio/any-sync/commonspace/object/tree/treechangeproto"
 	"github.com/anytypeio/any-sync/coordinator/coordinatorproto"
 	"github.com/anytypeio/any-sync/metric"
+	"github.com/anytypeio/any-sync/net/peer"
 	"github.com/anytypeio/any-sync/nodeconf"
 	"go.uber.org/zap"
 	"time"
@@ -32,6 +33,7 @@ func (r *rpcHandler) SpaceStatusCheck(ctx context.Context, req *coordinatorproto
 		r.c.metric.RequestLog(ctx, "coordinator.spaceStatusCheck",
 			metric.TotalDur(time.Since(st)),
 			metric.SpaceId(req.SpaceId),
+			zap.String("addr", peer.CtxPeerAddr(ctx)),
 			zap.Error(err),
 		)
 	}()
@@ -50,6 +52,7 @@ func (r *rpcHandler) SpaceStatusChange(ctx context.Context, req *coordinatorprot
 		r.c.metric.RequestLog(ctx, "coordinator.spaceStatusChange",
 			metric.TotalDur(time.Since(st)),
 			metric.SpaceId(req.SpaceId),
+			zap.String("addr", peer.CtxPeerAddr(ctx)),
 			zap.Error(err),
 		)
 	}()
@@ -75,6 +78,7 @@ func (r *rpcHandler) SpaceSign(ctx context.Context, req *coordinatorproto.SpaceS
 		r.c.metric.RequestLog(ctx, "coordinator.spaceSign",
 			metric.TotalDur(time.Since(st)),
 			metric.SpaceId(req.SpaceId),
+			zap.String("addr", peer.CtxPeerAddr(ctx)),
 			zap.Error(err),
 		)
 	}()
@@ -93,6 +97,7 @@ func (r *rpcHandler) FileLimitCheck(ctx context.Context, req *coordinatorproto.F
 		r.c.metric.RequestLog(ctx, "coordinator.fileLimitCheck",
 			metric.TotalDur(time.Since(st)),
 			metric.SpaceId(req.SpaceId),
+			zap.String("addr", peer.CtxPeerAddr(ctx)),
 			zap.Error(err),
 		)
 	}()
@@ -110,6 +115,7 @@ func (r *rpcHandler) NetworkConfiguration(ctx context.Context, req *coordinatorp
 	defer func() {
 		r.c.metric.RequestLog(ctx, "coordinator.networkConfiguration",
 			metric.TotalDur(time.Since(st)),
+			zap.String("addr", peer.CtxPeerAddr(ctx)),
 			zap.Error(err),
 		)
 	}()
