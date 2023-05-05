@@ -4,7 +4,7 @@ go 1.19
 
 require (
 	github.com/ahmetb/govvv v0.3.0
-	github.com/anytypeio/any-sync v0.0.41-0.20230504170441-debbf448db60
+	github.com/anytypeio/any-sync v0.0.43
 	github.com/anytypeio/any-sync-node v0.0.19
 	github.com/golang/protobuf v1.5.3
 	github.com/stretchr/testify v1.8.2
