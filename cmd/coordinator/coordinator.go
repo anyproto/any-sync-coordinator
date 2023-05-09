@@ -9,6 +9,7 @@ import (
 	"github.com/anytypeio/any-sync-coordinator/coordinator"
 	"github.com/anytypeio/any-sync-coordinator/coordinatorlog"
 	"github.com/anytypeio/any-sync-coordinator/db"
+	"github.com/anytypeio/any-sync-coordinator/filelimit"
 	"github.com/anytypeio/any-sync-coordinator/nodeconfsource"
 	"github.com/anytypeio/any-sync-coordinator/nodeservice"
 	"github.com/anytypeio/any-sync-coordinator/spacestatus"
@@ -110,5 +111,6 @@ func Bootstrap(a *app.App) {
 		Register(coordinatorlog.New()).
 		Register(nodeservice.New()).
 		Register(spacestatus.New()).
+		Register(filelimit.New()).
 		Register(coordinator.New())
 }
