@@ -46,6 +46,8 @@ func main() {
 	flag.Parse()
 
 	if *flagVersion {
+		fmt.Println(app.AppName)
+		fmt.Println(app.Version())
 		fmt.Println(app.VersionDescription())
 		return
 	}
@@ -99,6 +101,7 @@ func main() {
 
 func Bootstrap(a *app.App) {
 	a.Register(db.New()).
+		Register(metric.New()).
 		Register(account.New()).
 		Register(nodeconfstore.New()).
 		Register(nodeconf.New()).
@@ -107,7 +110,6 @@ func Bootstrap(a *app.App) {
 		Register(secureservice.New()).
 		Register(pool.New()).
 		Register(server.New()).
-		Register(metric.New()).
 		Register(coordinatorlog.New()).
 		Register(nodeservice.New()).
 		Register(spacestatus.New()).
