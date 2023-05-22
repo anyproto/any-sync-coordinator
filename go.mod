@@ -4,9 +4,8 @@ go 1.19
 
 require (
 	github.com/ahmetb/govvv v0.3.0
-	github.com/anytypeio/any-sync v0.28.1-0.20230522115113-4a7bf3ef461a
+	github.com/anytypeio/any-sync v0.0.48
 	github.com/anytypeio/any-sync-node v0.0.19
-	github.com/golang/mock v1.6.0
 	github.com/golang/protobuf v1.5.3
 	github.com/stretchr/testify v1.8.2
 	go.mongodb.org/mongo-driver v1.11.2
@@ -81,5 +80,3 @@ require (
 	google.golang.org/protobuf v1.30.0 // indirect
 	lukechampine.com/blake3 v1.1.7 // indirect
 )
-
-replace github.com/anytypeio/any-sync => ../any-sync
