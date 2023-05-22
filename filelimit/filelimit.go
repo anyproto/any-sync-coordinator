@@ -2,6 +2,7 @@ package filelimit
 
 import (
 	"context"
+	"errors"
 	"github.com/anytypeio/any-sync-coordinator/db"
 	"github.com/anytypeio/any-sync/app"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -12,6 +13,8 @@ import (
 const CName = "coordinator.filelimit"
 
 const collName = "fileLimit"
+
+var ErrNotFound = errors.New("fileLimit not found")
 
 func New() FileLimit {
 	return new(fileLimit)
@@ -49,6 +52,9 @@ type byIdFilter struct {
 func (f *fileLimit) Get(ctx context.Context, spaceId string) (limit uint64, err error) {
 	var res Limit
 	if err = f.coll.FindOne(ctx, byIdFilter{spaceId}).Decode(&res); err != nil {
+		if err == mongo.ErrNoDocuments {
+			return 0, ErrNotFound
+		}
 		return
 	}
 	return res.Limit, nil

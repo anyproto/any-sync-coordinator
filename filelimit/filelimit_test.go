@@ -2,10 +2,12 @@ package filelimit
 
 import (
 	"context"
+	"fmt"
 	"github.com/anytypeio/any-sync-coordinator/db"
 	"github.com/anytypeio/any-sync/app"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"math/rand"
 	"testing"
 )
 
@@ -22,6 +24,17 @@ func TestFileLimit_Set(t *testing.T) {
 	lim, err = fx.Get(ctx, "spaceId")
 	require.NoError(t, err)
 	assert.Equal(t, uint64(1234), lim)
+}
+
+func TestFileLimit_Get(t *testing.T) {
+	t.Run("not found error", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+		l, e := fx.Get(ctx, fmt.Sprint(rand.Uint64()))
+		assert.Empty(t, l)
+		assert.EqualError(t, e, ErrNotFound.Error())
+	})
+
 }
 
 func newFixture(t *testing.T) *fixture {

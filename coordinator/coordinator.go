@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/anytypeio/any-sync-coordinator/config"
 	"github.com/anytypeio/any-sync-coordinator/coordinatorlog"
+	"github.com/anytypeio/any-sync-coordinator/filelimit"
 	"github.com/anytypeio/any-sync-coordinator/spacestatus"
 	"github.com/anytypeio/any-sync/accountservice"
 	"github.com/anytypeio/any-sync/app"
@@ -50,6 +51,7 @@ type coordinator struct {
 	coordinatorLog coordinatorlog.CoordinatorLog
 	deletionPeriod time.Duration
 	metric         metric.Metric
+	fileLimit      filelimit.FileLimit
 }
 
 func (c *coordinator) Init(a *app.App) (err error) {
@@ -61,6 +63,7 @@ func (c *coordinator) Init(a *app.App) (err error) {
 	c.spaceStatus = a.MustComponent(spacestatus.CName).(spacestatus.SpaceStatus)
 	c.coordinatorLog = a.MustComponent(coordinatorlog.CName).(coordinatorlog.CoordinatorLog)
 	c.metric = a.MustComponent(metric.CName).(metric.Metric)
+	c.fileLimit = a.MustComponent(filelimit.CName).(filelimit.FileLimit)
 	return coordinatorproto.DRPCRegisterCoordinator(a.MustComponent(server.CName).(drpc.Mux), h)
 }
 
@@ -141,8 +144,18 @@ func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader
 }
 
 func (c *coordinator) FileLimitCheck(ctx context.Context, identity []byte, spaceId string) (limit uint64, err error) {
-	// TODO: check identity and space here
-	return defaultFileLimit, nil
+	pk, err := crypto.UnmarshalEd25519PublicKeyProto(identity)
+	if err != nil {
+		return
+	}
+	if _, err = c.spaceStatus.Status(ctx, spaceId, pk); err != nil {
+		return
+	}
+	limit, err = c.fileLimit.Get(ctx, spaceId)
+	if err == filelimit.ErrNotFound {
+		return defaultFileLimit, nil
+	}
+	return
 }
 
 func (c *coordinator) verifyOldAccount(newAccountKey, oldAccountKey crypto.PubKey, signature []byte) (err error) {

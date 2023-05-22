@@ -6,6 +6,7 @@ grpcServer:
     server:
         listenAddrs:
             - 127.0.0.1:4830
+            - 127.1.0.1:4830
     stream:
         timeoutMilliseconds: 1000
         maxMsgSizeMb: 256
