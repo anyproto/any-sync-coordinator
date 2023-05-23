@@ -2,11 +2,11 @@ package nodeservice
 
 import (
 	"context"
-	"github.com/anytypeio/any-sync-node/nodesync/nodesyncproto"
-	"github.com/anytypeio/any-sync/app"
-	"github.com/anytypeio/any-sync/commonspace/object/tree/treechangeproto"
-	"github.com/anytypeio/any-sync/net/pool"
-	"github.com/anytypeio/any-sync/nodeconf"
+	"github.com/anyproto/any-sync-node/nodesync/nodesyncproto"
+	"github.com/anyproto/any-sync/app"
+	"github.com/anyproto/any-sync/commonspace/object/tree/treechangeproto"
+	"github.com/anyproto/any-sync/net/pool"
+	"github.com/anyproto/any-sync/nodeconf"
 )
 
 const CName = "coordinator.nodeservice"

@@ -2,18 +2,18 @@ package coordinator
 
 import (
 	"context"
-	"github.com/anytypeio/any-sync-coordinator/config"
-	"github.com/anytypeio/any-sync-coordinator/coordinatorlog"
-	"github.com/anytypeio/any-sync-coordinator/db"
-	"github.com/anytypeio/any-sync-coordinator/filelimit"
-	"github.com/anytypeio/any-sync-coordinator/nodeservice"
-	"github.com/anytypeio/any-sync-coordinator/spacestatus"
-	"github.com/anytypeio/any-sync/app"
-	"github.com/anytypeio/any-sync/metric"
-	"github.com/anytypeio/any-sync/net/rpc/rpctest"
-	"github.com/anytypeio/any-sync/nodeconf"
-	"github.com/anytypeio/any-sync/nodeconf/mock_nodeconf"
-	"github.com/anytypeio/any-sync/testutil/accounttest"
+	"github.com/anyproto/any-sync-coordinator/config"
+	"github.com/anyproto/any-sync-coordinator/coordinatorlog"
+	"github.com/anyproto/any-sync-coordinator/db"
+	"github.com/anyproto/any-sync-coordinator/filelimit"
+	"github.com/anyproto/any-sync-coordinator/nodeservice"
+	"github.com/anyproto/any-sync-coordinator/spacestatus"
+	"github.com/anyproto/any-sync/app"
+	"github.com/anyproto/any-sync/metric"
+	"github.com/anyproto/any-sync/net/rpc/rpctest"
+	"github.com/anyproto/any-sync/nodeconf"
+	"github.com/anyproto/any-sync/nodeconf/mock_nodeconf"
+	"github.com/anyproto/any-sync/testutil/accounttest"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
 	"testing"
@@ -24,7 +24,7 @@ var ctx = context.Background()
 func TestCoordinator_FileLimitCheck(t *testing.T) {
 	fx := newFixture(t)
 	defer fx.finish(t)
-	
+
 }
 
 func newFixture(t *testing.T) *fixture {

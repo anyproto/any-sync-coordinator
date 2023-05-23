@@ -2,9 +2,9 @@ package nodeconfsource
 
 import (
 	"context"
-	"github.com/anytypeio/any-sync-coordinator/db"
-	"github.com/anytypeio/any-sync/app"
-	"github.com/anytypeio/any-sync/nodeconf"
+	"github.com/anyproto/any-sync-coordinator/db"
+	"github.com/anyproto/any-sync/app"
+	"github.com/anyproto/any-sync/nodeconf"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/bson"

@@ -3,9 +3,9 @@ package nodeconfsource
 import (
 	"context"
 	"fmt"
-	"github.com/anytypeio/any-sync-coordinator/db"
-	"github.com/anytypeio/any-sync/app"
-	"github.com/anytypeio/any-sync/nodeconf"
+	"github.com/anyproto/any-sync-coordinator/db"
+	"github.com/anyproto/any-sync/app"
+	"github.com/anyproto/any-sync/nodeconf"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"

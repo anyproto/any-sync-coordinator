@@ -3,8 +3,8 @@ package filelimit
 import (
 	"context"
 	"errors"
-	"github.com/anytypeio/any-sync-coordinator/db"
-	"github.com/anytypeio/any-sync/app"
+	"github.com/anyproto/any-sync-coordinator/db"
+	"github.com/anyproto/any-sync/app"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"time"

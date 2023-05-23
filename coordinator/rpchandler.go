@@ -2,12 +2,12 @@ package coordinator
 
 import (
 	"context"
-	"github.com/anytypeio/any-sync-coordinator/spacestatus"
-	"github.com/anytypeio/any-sync/commonspace/object/tree/treechangeproto"
-	"github.com/anytypeio/any-sync/coordinator/coordinatorproto"
-	"github.com/anytypeio/any-sync/metric"
-	"github.com/anytypeio/any-sync/net/peer"
-	"github.com/anytypeio/any-sync/nodeconf"
+	"github.com/anyproto/any-sync-coordinator/spacestatus"
+	"github.com/anyproto/any-sync/commonspace/object/tree/treechangeproto"
+	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
+	"github.com/anyproto/any-sync/metric"
+	"github.com/anyproto/any-sync/net/peer"
+	"github.com/anyproto/any-sync/nodeconf"
 	"go.uber.org/zap"
 	"time"
 )
