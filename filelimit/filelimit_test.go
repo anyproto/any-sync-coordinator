@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"math/rand"
 	"testing"
+	"time"
 )
 
 var ctx = context.Background()
@@ -46,6 +47,7 @@ func newFixture(t *testing.T) *fixture {
 	fx.a.Register(config{}).Register(fx.db).Register(fx.FileLimit)
 	require.NoError(t, fx.a.Start(ctx))
 	_ = fx.db.Db().Drop(ctx)
+	time.Sleep(time.Second / 3)
 	return fx
 }
 

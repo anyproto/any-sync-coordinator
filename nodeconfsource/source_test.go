@@ -97,6 +97,7 @@ func newFixture(t *testing.T) *fixture {
 	fx.a.Register(config{}).Register(fx.db).Register(fx.NodeConfSource)
 	require.NoError(t, fx.a.Start(ctx))
 	_ = fx.db.Db().Drop(ctx)
+	time.Sleep(time.Second / 2)
 	return fx
 }
 
