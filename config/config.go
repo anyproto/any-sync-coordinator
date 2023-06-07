@@ -7,6 +7,7 @@ import (
 	"github.com/anyproto/any-sync/app"
 	"github.com/anyproto/any-sync/metric"
 	"github.com/anyproto/any-sync/net"
+	"github.com/anyproto/any-sync/net/transport/yamux"
 	"github.com/anyproto/any-sync/nodeconf"
 	"gopkg.in/yaml.v3"
 	"os"
@@ -35,6 +36,7 @@ type Config struct {
 	NetworkUpdateIntervalSec int                    `yaml:"networkUpdateIntervalSec"`
 	Mongo                    db.Mongo               `yaml:"mongo"`
 	SpaceStatus              spacestatus.Config     `yaml:"spaceStatus"`
+	Yamux                    yamux.Config           `yaml:"yamux"`
 }
 
 func (c *Config) Init(a *app.App) (err error) {
@@ -75,4 +77,8 @@ func (c Config) GetNodeConfStorePath() string {
 
 func (c Config) GetNodeConfUpdateInterval() int {
 	return c.NetworkUpdateIntervalSec
+}
+
+func (c Config) GetYamux() yamux.Config {
+	return c.Yamux
 }

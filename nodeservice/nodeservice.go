@@ -7,6 +7,7 @@ import (
 	"github.com/anyproto/any-sync/commonspace/object/tree/treechangeproto"
 	"github.com/anyproto/any-sync/net/pool"
 	"github.com/anyproto/any-sync/nodeconf"
+	"storj.io/drpc"
 )
 
 const CName = "coordinator.nodeservice"
@@ -49,11 +50,13 @@ func (n *nodeService) Delete(ctx context.Context, spaceId string, raw *treechang
 	if err != nil {
 		return
 	}
-	nodeClient := nodesyncproto.NewDRPCNodeSyncClient(respPeer)
-	_, err = nodeClient.SpaceDelete(ctx, &nodesyncproto.SpaceDeleteRequest{
-		SpaceId:      spaceId,
-		ChangeId:     raw.Id,
-		DeleteChange: raw.RawChange,
+	return respPeer.DoDrpc(ctx, func(conn drpc.Conn) error {
+		nodeClient := nodesyncproto.NewDRPCNodeSyncClient(conn)
+		_, err = nodeClient.SpaceDelete(ctx, &nodesyncproto.SpaceDeleteRequest{
+			SpaceId:      spaceId,
+			ChangeId:     raw.Id,
+			DeleteChange: raw.RawChange,
+		})
+		return err
 	})
-	return
 }

@@ -16,10 +16,11 @@ import (
 	"github.com/anyproto/any-sync/app"
 	"github.com/anyproto/any-sync/app/logger"
 	"github.com/anyproto/any-sync/metric"
-	"github.com/anyproto/any-sync/net/dialer"
+	"github.com/anyproto/any-sync/net/peerservice"
 	"github.com/anyproto/any-sync/net/pool"
 	"github.com/anyproto/any-sync/net/rpc/server"
 	"github.com/anyproto/any-sync/net/secureservice"
+	"github.com/anyproto/any-sync/net/transport/yamux"
 	"github.com/anyproto/any-sync/nodeconf"
 	"github.com/anyproto/any-sync/nodeconf/nodeconfstore"
 	"go.uber.org/zap"
@@ -106,9 +107,10 @@ func Bootstrap(a *app.App) {
 		Register(nodeconfstore.New()).
 		Register(nodeconf.New()).
 		Register(nodeconfsource.New()).
-		Register(dialer.New()).
-		Register(secureservice.New()).
+		Register(peerservice.New()).
+		Register(yamux.New()).
 		Register(pool.New()).
+		Register(secureservice.New()).
 		Register(server.New()).
 		Register(coordinatorlog.New()).
 		Register(nodeservice.New()).
