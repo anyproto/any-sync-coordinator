@@ -15,9 +15,8 @@ spaceStatus:
 yamux:
   listenAddrs:
     - 127.0.0.1:4830
-  writeTimeoutSec: 1
-  dialTimeoutSec: 1
-  maxStreams: 1000
+  writeTimeoutSec: 10
+  dialTimeoutSec: 10
 network:
   id: 64384a038e697b7fce2f447e
   networkId: N4N1wDHFpFpovXBqdbq2TDXE9tXdXbtV1eTJFpKJW4YeaJqR
