@@ -2,9 +2,8 @@ account:
   peerId: 12D3KooWKLCajM89S8unbt3tgGbRLgmiWnFZT3adn9A5pQciBSLa
   peerKey: nQgebbzAnB+PgAn+yA4JAwqydQVZohikXPgkWuyS3iaNXcRmYuyCrEJr1WErQ6Vj38gGdo9H5ZdSGIFbuXsyMw==
   signingKey: WfIKFxTYNd87PQ3whACZhIVpGNVd5RAYzjwI8WbF0UMLUFiUFyzO57IUwbRhGkAfWX4SdRPsj4s+j6YdskulOQ==
-grpcServer:
+drpc:
   stream:
-    timeoutMilliseconds: 1000
     maxMsgSizeMb: 256
 mongo:
   connect: mongodb://localhost:27017
