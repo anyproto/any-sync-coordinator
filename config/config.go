@@ -6,7 +6,8 @@ import (
 	commonaccount "github.com/anyproto/any-sync/accountservice"
 	"github.com/anyproto/any-sync/app"
 	"github.com/anyproto/any-sync/metric"
-	"github.com/anyproto/any-sync/net"
+	"github.com/anyproto/any-sync/net/rpc"
+	"github.com/anyproto/any-sync/net/transport/yamux"
 	"github.com/anyproto/any-sync/nodeconf"
 	"gopkg.in/yaml.v3"
 	"os"
@@ -28,13 +29,14 @@ func NewFromFile(path string) (c *Config, err error) {
 
 type Config struct {
 	Account                  commonaccount.Config   `yaml:"account"`
-	GrpcServer               net.Config             `yaml:"grpcServer"`
+	Drpc                     rpc.Config             `yaml:"drpc"`
 	Metric                   metric.Config          `yaml:"metric"`
 	Network                  nodeconf.Configuration `yaml:"network"`
 	NetworkStorePath         string                 `yaml:"networkStorePath"`
 	NetworkUpdateIntervalSec int                    `yaml:"networkUpdateIntervalSec"`
 	Mongo                    db.Mongo               `yaml:"mongo"`
 	SpaceStatus              spacestatus.Config     `yaml:"spaceStatus"`
+	Yamux                    yamux.Config           `yaml:"yamux"`
 }
 
 func (c *Config) Init(a *app.App) (err error) {
@@ -49,8 +51,8 @@ func (c Config) GetAccount() commonaccount.Config {
 	return c.Account
 }
 
-func (c Config) GetNet() net.Config {
-	return c.GrpcServer
+func (c Config) GetDrpc() rpc.Config {
+	return c.Drpc
 }
 
 func (c Config) GetMetric() metric.Config {
@@ -75,4 +77,8 @@ func (c Config) GetNodeConfStorePath() string {
 
 func (c Config) GetNodeConfUpdateInterval() int {
 	return c.NetworkUpdateIntervalSec
+}
+
+func (c Config) GetYamux() yamux.Config {
+	return c.Yamux
 }

@@ -37,7 +37,7 @@ func newFixture(t *testing.T) *fixture {
 		account:     &accounttest.AccountTestService{},
 		ctrl:        ctrl,
 		db:          db.New(),
-		pool:        rpctest.NewTestPool().WithServer(ts),
+		pool:        rpctest.NewTestPool(),
 	}
 	fx.nodeConf.EXPECT().Name().Return(nodeconf.CName).AnyTimes()
 	fx.nodeConf.EXPECT().Init(gomock.Any()).AnyTimes()
