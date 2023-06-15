@@ -1,6 +1,7 @@
 package config
 
 import (
+	"github.com/anyproto/any-sync-coordinator/cafeapi"
 	"github.com/anyproto/any-sync-coordinator/db"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
 	commonaccount "github.com/anyproto/any-sync/accountservice"
@@ -37,6 +38,7 @@ type Config struct {
 	Mongo                    db.Mongo               `yaml:"mongo"`
 	SpaceStatus              spacestatus.Config     `yaml:"spaceStatus"`
 	Yamux                    yamux.Config           `yaml:"yamux"`
+	CafeApi                  cafeapi.Config         `yaml:"cafeApi"`
 }
 
 func (c *Config) Init(a *app.App) (err error) {
@@ -81,4 +83,8 @@ func (c Config) GetNodeConfUpdateInterval() int {
 
 func (c Config) GetYamux() yamux.Config {
 	return c.Yamux
+}
+
+func (c Config) GetCafeApi() cafeapi.Config {
+	return c.CafeApi
 }

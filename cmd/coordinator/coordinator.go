@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/anyproto/any-sync-coordinator/account"
+	"github.com/anyproto/any-sync-coordinator/cafeapi"
 	"github.com/anyproto/any-sync-coordinator/config"
 	"github.com/anyproto/any-sync-coordinator/coordinator"
 	"github.com/anyproto/any-sync-coordinator/coordinatorlog"
@@ -116,5 +117,6 @@ func Bootstrap(a *app.App) {
 		Register(nodeservice.New()).
 		Register(spacestatus.New()).
 		Register(filelimit.New()).
+		Register(&cafeapi.CafeApi{}).
 		Register(coordinator.New())
 }

@@ -3,6 +3,7 @@ package coordinator
 import (
 	"context"
 	"errors"
+	"github.com/anyproto/any-sync-coordinator/cafeapi"
 	"github.com/anyproto/any-sync-coordinator/config"
 	"github.com/anyproto/any-sync-coordinator/coordinatorlog"
 	"github.com/anyproto/any-sync-coordinator/filelimit"
@@ -26,8 +27,13 @@ import (
 )
 
 var (
-	spaceReceiptValidPeriod        = time.Hour * 6
-	defaultFileLimit        uint64 = 1 << 30 // 1 GiB
+	spaceReceiptValidPeriod = time.Hour * 6
+)
+
+const (
+	defaultFileLimit      uint64 = 1 << 30               // 1 GiB
+	oldUsersFileLimit            = defaultFileLimit * 10 // 10 Gb
+	nightlyUsersFileLimit        = defaultFileLimit * 50 // 10 Gb
 )
 
 const CName = "coordinator.coordinator"
@@ -52,6 +58,7 @@ type coordinator struct {
 	deletionPeriod time.Duration
 	metric         metric.Metric
 	fileLimit      filelimit.FileLimit
+	cafe           *cafeapi.CafeApi
 }
 
 func (c *coordinator) Init(a *app.App) (err error) {
@@ -64,6 +71,7 @@ func (c *coordinator) Init(a *app.App) (err error) {
 	c.coordinatorLog = a.MustComponent(coordinatorlog.CName).(coordinatorlog.CoordinatorLog)
 	c.metric = a.MustComponent(metric.CName).(metric.Metric)
 	c.fileLimit = a.MustComponent(filelimit.CName).(filelimit.FileLimit)
+	c.cafe = a.MustComponent(cafeapi.CName).(*cafeapi.CafeApi)
 	return coordinatorproto.DRPCRegisterCoordinator(a.MustComponent(server.CName).(drpc.Mux), h)
 }
 
@@ -148,12 +156,39 @@ func (c *coordinator) FileLimitCheck(ctx context.Context, identity []byte, space
 	if err != nil {
 		return
 	}
-	if _, err = c.spaceStatus.Status(ctx, spaceId, pk); err != nil {
+	statusEntry, err := c.spaceStatus.Status(ctx, spaceId, pk)
+	if err != nil {
 		return
 	}
-	limit, err = c.fileLimit.Get(ctx, spaceId)
-	if err == filelimit.ErrNotFound {
-		return defaultFileLimit, nil
+	if statusEntry.Status != spacestatus.SpaceStatusCreated {
+		return 0, coordinatorproto.ErrSpaceIsDeleted
+	}
+	cafeCtx, cancel := context.WithTimeout(ctx, time.Second*3)
+	defer cancel()
+
+	limit, err = c.fileLimit.Get(cafeCtx, spaceId)
+	if err != nil {
+		if err == filelimit.ErrNotFound {
+			limit = defaultFileLimit
+		} else {
+			return
+		}
+	}
+
+	userType, cafeErr := c.cafe.CheckCafeUserStatus(ctx, statusEntry.OldIdentity)
+	if cafeErr == nil {
+		switch userType {
+		case cafeapi.UserTypeOld:
+			if limit < oldUsersFileLimit {
+				_ = c.fileLimit.Set(ctx, statusEntry.SpaceId, oldUsersFileLimit)
+				limit = oldUsersFileLimit
+			}
+		case cafeapi.UserTypeNightly:
+			if limit < nightlyUsersFileLimit {
+				_ = c.fileLimit.Set(ctx, statusEntry.SpaceId, nightlyUsersFileLimit)
+				limit = nightlyUsersFileLimit
+			}
+		}
 	}
 	return
 }
