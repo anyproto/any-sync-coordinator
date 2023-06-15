@@ -2,6 +2,7 @@ package coordinator
 
 import (
 	"context"
+	"github.com/anyproto/any-sync-coordinator/cafeapi"
 	"github.com/anyproto/any-sync-coordinator/config"
 	"github.com/anyproto/any-sync-coordinator/coordinatorlog"
 	"github.com/anyproto/any-sync-coordinator/db"
@@ -62,6 +63,7 @@ func newFixture(t *testing.T) *fixture {
 		Register(metric.New()).
 		Register(filelimit.New()).
 		Register(ts).
+		Register(&cafeapi.CafeApi{}).
 		Register(fx.coordinator)
 	require.NoError(t, fx.a.Start(ctx))
 	_ = fx.db.Db().Drop(ctx)
