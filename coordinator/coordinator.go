@@ -170,6 +170,7 @@ func (c *coordinator) FileLimitCheck(ctx context.Context, identity []byte, space
 	if err != nil {
 		if err == filelimit.ErrNotFound {
 			limit = defaultFileLimit
+			err = nil
 		} else {
 			return
 		}
