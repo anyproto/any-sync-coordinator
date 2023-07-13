@@ -2,13 +2,13 @@ package filelimit
 
 import (
 	"context"
-	"fmt"
 	"github.com/anyproto/any-sync-coordinator/cafeapi"
 	"github.com/anyproto/any-sync-coordinator/db"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
 	"github.com/anyproto/any-sync/app"
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/util/crypto"
+	"math"
 	"time"
 )
 
@@ -36,9 +36,6 @@ func (f *fileLimit) Init(a *app.App) (err error) {
 	f.cafeApi = a.MustComponent(cafeapi.CName).(cafeapi.CafeApi)
 	f.spaceStatus = a.MustComponent(spacestatus.CName).(spacestatus.SpaceStatus)
 	f.conf = a.MustComponent("config").(configGetter).GetFileLimit()
-	if f.conf.LimitDefault == 0 {
-		return fmt.Errorf("file limit should be presented in the config")
-	}
 	return
 }
 
@@ -57,6 +54,11 @@ func (f *fileLimit) Get(ctx context.Context, identity []byte, spaceId string) (l
 	}
 	if statusEntry.Status != spacestatus.SpaceStatusCreated {
 		return 0, coordinatorproto.ErrSpaceIsDeleted
+	}
+
+	if f.conf.LimitDefault == 0 {
+		// if not defined - unlimited
+		return math.MaxUint64, nil
 	}
 
 	var shouldCheckCafe bool
