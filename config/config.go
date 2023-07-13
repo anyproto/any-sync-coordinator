@@ -3,6 +3,7 @@ package config
 import (
 	"github.com/anyproto/any-sync-coordinator/cafeapi"
 	"github.com/anyproto/any-sync-coordinator/db"
+	"github.com/anyproto/any-sync-coordinator/filelimit"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
 	commonaccount "github.com/anyproto/any-sync/accountservice"
 	"github.com/anyproto/any-sync/app"
@@ -39,6 +40,7 @@ type Config struct {
 	SpaceStatus              spacestatus.Config     `yaml:"spaceStatus"`
 	Yamux                    yamux.Config           `yaml:"yamux"`
 	CafeApi                  cafeapi.Config         `yaml:"cafeApi"`
+	FileLimit                filelimit.Config       `yaml:"fileLimit"`
 }
 
 func (c *Config) Init(a *app.App) (err error) {
@@ -87,4 +89,8 @@ func (c Config) GetYamux() yamux.Config {
 
 func (c Config) GetCafeApi() cafeapi.Config {
 	return c.CafeApi
+}
+
+func (c Config) GetFileLimit() filelimit.Config {
+	return c.FileLimit
 }

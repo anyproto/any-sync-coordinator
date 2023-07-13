@@ -101,7 +101,7 @@ func (r *rpcHandler) FileLimitCheck(ctx context.Context, req *coordinatorproto.F
 			zap.Error(err),
 		)
 	}()
-	limit, err := r.c.FileLimitCheck(ctx, req.AccountIdentity, req.SpaceId)
+	limit, err := r.c.fileLimit.Get(ctx, req.AccountIdentity, req.SpaceId)
 	if err != nil {
 		return nil, err
 	}

@@ -1,3 +1,4 @@
+//go:generate mockgen -destination mock_spacestatus/mock_spacestatus.go github.com/anyproto/any-sync-coordinator/spacestatus SpaceStatus
 package spacestatus
 
 import (
