@@ -117,6 +117,6 @@ func Bootstrap(a *app.App) {
 		Register(nodeservice.New()).
 		Register(spacestatus.New()).
 		Register(filelimit.New()).
-		Register(&cafeapi.CafeApi{}).
+		Register(cafeapi.New()).
 		Register(coordinator.New())
 }

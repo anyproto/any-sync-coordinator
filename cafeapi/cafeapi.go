@@ -1,3 +1,4 @@
+//go:generate mockgen -destination mock_cafeapi/mock_cafeapi.go github.com/anyproto/any-sync-coordinator/cafeapi CafeApi
 package cafeapi
 
 import (
@@ -10,6 +11,10 @@ import (
 
 const CName = "cafeapi"
 
+func New() CafeApi {
+	return new(cafeApi)
+}
+
 type UserType uint
 
 const (
@@ -18,16 +23,21 @@ const (
 	UserTypeNightly
 )
 
-type CafeApi struct {
+type CafeApi interface {
+	CheckCafeUserStatus(ctx context.Context, oldIdentity string) (userType UserType, err error)
+	app.Component
+}
+
+type cafeApi struct {
 	conf Config
 }
 
-func (c *CafeApi) Init(a *app.App) (err error) {
+func (c *cafeApi) Init(a *app.App) (err error) {
 	c.conf = a.MustComponent("config").(configGetter).GetCafeApi()
 	return
 }
 
-func (c *CafeApi) Name() (name string) {
+func (c *cafeApi) Name() (name string) {
 	return CName
 }
 
@@ -37,7 +47,11 @@ type UserInfo struct {
 	PrereleaseEnabled bool   `json:"prerelease_enabled"`
 }
 
-func (c *CafeApi) CheckCafeUserStatus(ctx context.Context, oldIdentity string) (userType UserType, err error) {
+func (c *cafeApi) CheckCafeUserStatus(ctx context.Context, oldIdentity string) (userType UserType, err error) {
+	if c.conf.Url == "" {
+		// do not check if config is empty
+		return UserTypeNew, nil
+	}
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/admin/user?id=%s", c.conf.Url, oldIdentity), nil)
 	if err != nil {
 		return

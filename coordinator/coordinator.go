@@ -3,7 +3,6 @@ package coordinator
 import (
 	"context"
 	"errors"
-	"github.com/anyproto/any-sync-coordinator/cafeapi"
 	"github.com/anyproto/any-sync-coordinator/config"
 	"github.com/anyproto/any-sync-coordinator/coordinatorlog"
 	"github.com/anyproto/any-sync-coordinator/filelimit"
@@ -58,7 +57,6 @@ type coordinator struct {
 	deletionPeriod time.Duration
 	metric         metric.Metric
 	fileLimit      filelimit.FileLimit
-	cafe           *cafeapi.CafeApi
 }
 
 func (c *coordinator) Init(a *app.App) (err error) {
@@ -71,7 +69,6 @@ func (c *coordinator) Init(a *app.App) (err error) {
 	c.coordinatorLog = a.MustComponent(coordinatorlog.CName).(coordinatorlog.CoordinatorLog)
 	c.metric = a.MustComponent(metric.CName).(metric.Metric)
 	c.fileLimit = a.MustComponent(filelimit.CName).(filelimit.FileLimit)
-	c.cafe = a.MustComponent(cafeapi.CName).(*cafeapi.CafeApi)
 	return coordinatorproto.DRPCRegisterCoordinator(a.MustComponent(server.CName).(drpc.Mux), h)
 }
 
@@ -148,49 +145,6 @@ func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader
 		return
 	}
 	c.addCoordinatorLog(ctx, spaceId, peerId, accountPubKey, signedReceipt)
-	return
-}
-
-func (c *coordinator) FileLimitCheck(ctx context.Context, identity []byte, spaceId string) (limit uint64, err error) {
-	pk, err := crypto.UnmarshalEd25519PublicKeyProto(identity)
-	if err != nil {
-		return
-	}
-	statusEntry, err := c.spaceStatus.Status(ctx, spaceId, pk)
-	if err != nil {
-		return
-	}
-	if statusEntry.Status != spacestatus.SpaceStatusCreated {
-		return 0, coordinatorproto.ErrSpaceIsDeleted
-	}
-	cafeCtx, cancel := context.WithTimeout(ctx, time.Second*3)
-	defer cancel()
-
-	limit, err = c.fileLimit.Get(cafeCtx, spaceId)
-	if err != nil {
-		if err == filelimit.ErrNotFound {
-			limit = defaultFileLimit
-			err = nil
-		} else {
-			return
-		}
-	}
-
-	userType, cafeErr := c.cafe.CheckCafeUserStatus(ctx, statusEntry.OldIdentity)
-	if cafeErr == nil {
-		switch userType {
-		case cafeapi.UserTypeOld:
-			if limit < oldUsersFileLimit {
-				_ = c.fileLimit.Set(ctx, statusEntry.SpaceId, oldUsersFileLimit)
-				limit = oldUsersFileLimit
-			}
-		case cafeapi.UserTypeNightly:
-			if limit < nightlyUsersFileLimit {
-				_ = c.fileLimit.Set(ctx, statusEntry.SpaceId, nightlyUsersFileLimit)
-				limit = nightlyUsersFileLimit
-			}
-		}
-	}
 	return
 }
 

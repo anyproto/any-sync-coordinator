@@ -2,42 +2,40 @@ package filelimit
 
 import (
 	"context"
-	"errors"
+	"github.com/anyproto/any-sync-coordinator/cafeapi"
 	"github.com/anyproto/any-sync-coordinator/db"
+	"github.com/anyproto/any-sync-coordinator/spacestatus"
 	"github.com/anyproto/any-sync/app"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
+	"github.com/anyproto/any-sync/util/crypto"
+	"math"
 	"time"
 )
 
 const CName = "coordinator.filelimit"
 
-const collName = "fileLimit"
-
-var ErrNotFound = errors.New("fileLimit not found")
-
 func New() FileLimit {
-	return new(fileLimit)
+	return &fileLimit{}
 }
 
 type FileLimit interface {
-	Get(ctx context.Context, spaceId string) (limit uint64, err error)
-	Set(ctx context.Context, spaceId string, limit uint64) (err error)
+	Get(ctx context.Context, identity []byte, spaceId string) (limit uint64, err error)
+
 	app.Component
 }
 
-type Limit struct {
-	SpaceId     string `bson:"_id"`
-	Limit       uint64 `bson:"limit"`
-	UpdatedTime int64  `bson:"updatedTime"`
-}
-
 type fileLimit struct {
-	coll *mongo.Collection
+	conf        Config
+	db          *fileLimitDb
+	cafeApi     cafeapi.CafeApi
+	spaceStatus spacestatus.SpaceStatus
 }
 
 func (f *fileLimit) Init(a *app.App) (err error) {
-	f.coll = a.MustComponent(db.CName).(db.Database).Db().Collection(collName)
+	f.db = newDb(a.MustComponent(db.CName).(db.Database))
+	f.cafeApi = a.MustComponent(cafeapi.CName).(cafeapi.CafeApi)
+	f.spaceStatus = a.MustComponent(spacestatus.CName).(spacestatus.SpaceStatus)
+	f.conf = a.MustComponent("config").(configGetter).GetFileLimit()
 	return
 }
 
@@ -45,34 +43,51 @@ func (f *fileLimit) Name() (name string) {
 	return CName
 }
 
-type byIdFilter struct {
-	SpaceId string `bson:"_id"`
-}
+func (f *fileLimit) Get(ctx context.Context, identity []byte, spaceId string) (limit uint64, err error) {
+	pk, err := crypto.UnmarshalEd25519PublicKeyProto(identity)
+	if err != nil {
+		return
+	}
+	statusEntry, err := f.spaceStatus.Status(ctx, spaceId, pk)
+	if err != nil {
+		return
+	}
+	if statusEntry.Status != spacestatus.SpaceStatusCreated {
+		return 0, coordinatorproto.ErrSpaceIsDeleted
+	}
 
-func (f *fileLimit) Get(ctx context.Context, spaceId string) (limit uint64, err error) {
-	var res Limit
-	if err = f.coll.FindOne(ctx, byIdFilter{spaceId}).Decode(&res); err != nil {
-		if err == mongo.ErrNoDocuments {
-			return 0, ErrNotFound
+	if f.conf.LimitDefault == 0 {
+		// if not defined - unlimited
+		return math.MaxUint64, nil
+	}
+
+	var shouldCheckCafe bool
+	limit, err = f.db.Get(ctx, spaceId)
+	if err != nil {
+		if err == ErrNotFound {
+			limit = f.conf.LimitDefault
+			shouldCheckCafe = true
+			err = nil
+		} else {
+			return
 		}
-		return
 	}
-	return res.Limit, nil
-}
 
-type upd struct {
-	Lim Limit `bson:"$set"`
-}
-
-func (f *fileLimit) Set(ctx context.Context, spaceId string, limit uint64) (err error) {
-	var obj = Limit{
-		SpaceId:     spaceId,
-		Limit:       limit,
-		UpdatedTime: time.Now().Unix(),
-	}
-	opts := options.Update().SetUpsert(true)
-	if _, err = f.coll.UpdateOne(ctx, byIdFilter{spaceId}, upd{obj}, opts); err != nil {
-		return
+	if shouldCheckCafe {
+		cafeCtx, cancel := context.WithTimeout(ctx, time.Second*5)
+		defer cancel()
+		userType, cafeErr := f.cafeApi.CheckCafeUserStatus(cafeCtx, statusEntry.OldIdentity)
+		if cafeErr == nil {
+			switch userType {
+			case cafeapi.UserTypeOld:
+				limit = f.conf.LimitAlphaUsers
+			case cafeapi.UserTypeNightly:
+				limit = f.conf.LimitNightlyUsers
+			}
+		}
+		if userType != cafeapi.UserTypeNew {
+			_ = f.db.Set(ctx, statusEntry.SpaceId, limit)
+		}
 	}
 	return
 }
