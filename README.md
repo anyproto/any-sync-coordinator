@@ -13,7 +13,7 @@ To build and run the Any-Sync Coordinator Node on your own server, follow these 
     make deps
     make build
     ```
-4.  If there are no errors, the Any-Sync Coordinator Node will be built and can be found in the `/bin` directory.
+4.  If there are no errors, the Any-Sync Coordinator Node will be built and can be found in the `./bin` directory.
 
 ## Running
 You will need a MongoDB to run Any-Sync Coordinator Node.
