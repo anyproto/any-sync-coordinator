@@ -17,9 +17,9 @@ yamux:
   writeTimeoutSec: 10
   dialTimeoutSec: 10
 fileLimit:
-  defaultUser: 1073741824
-  alphaUser: 10737418240
-  nightlyUser: 53687091200
+  limitDefault: 1073741824
+  limitAlphaUsers: 10737418240
+  limitNightlyUsers: 53687091200
 network:
   id: 64384a038e697b7fce2f447e
   networkId: N4N1wDHFpFpovXBqdbq2TDXE9tXdXbtV1eTJFpKJW4YeaJqR
