@@ -6,7 +6,9 @@ import (
 	"github.com/anyproto/any-sync-coordinator/db"
 	"github.com/anyproto/any-sync/app"
 	"github.com/anyproto/any-sync/app/logger"
+	"github.com/anyproto/any-sync/identityrepo/identityrepoproto"
 	"github.com/anyproto/any-sync/net/peer"
+	"github.com/anyproto/any-sync/net/rpc/server"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -22,6 +24,13 @@ var log = logger.NewNamed(CName)
 var (
 	ErrInvalidIdentity  = errors.New("invalid identity")
 	ErrInvalidSignature = errors.New("invalid signature")
+
+	ErrThresholdReached = errors.New("threshold reached")
+)
+
+const (
+	thresholdDataLen        = 65 * 1024 // 65 kb
+	thresholdIdentityPerReq = 100
 )
 
 func New() IdentityRepo {
@@ -33,43 +42,50 @@ type IdentityRepo interface {
 }
 
 type identityRepo struct {
-	coll *mongo.Collection
+	coll    *mongo.Collection
+	handler *rpcHandler
 }
 
 func (i *identityRepo) Init(a *app.App) (err error) {
 	i.coll = a.MustComponent(db.CName).(db.Database).Db().Collection(collName)
-	return
+	i.handler = &rpcHandler{repo: i}
+	return identityrepoproto.DRPCRegisterIdentityRepo(a.MustComponent(server.CName).(server.DRPCServer), i.handler)
 }
 
 func (i *identityRepo) Name() (name string) {
 	return CName
 }
 
-func (i *identityRepo) Push(ctx context.Context, e Entry) (err error) {
-	if err = i.validateRequest(ctx, e.Id, e); err != nil {
+func (i *identityRepo) Push(ctx context.Context, identity string, data []*identityrepoproto.Data) (err error) {
+	if err = i.validateRequest(ctx, identity, data); err != nil {
 		return
 	}
-	entry, err := i.fetchOne(ctx, e.Id)
-	if err != nil {
-		return err
+	upd := bson.M{}
+	for _, d := range data {
+		upd["data."+d.Kind] = Data{
+			Data:      d.Data,
+			Signature: d.Signature,
+		}
 	}
-	for kind, data := range e.Data {
-		entry.Data[kind] = data
-	}
-	upd := bson.M{"$set": bson.M{
-		"data":    entry.Data,
-		"updated": time.Now(),
-	}}
-	_, err = i.coll.UpdateOne(ctx, byId{entry.Id}, upd, options.Update().SetUpsert(true))
+	upd["updated"] = time.Now()
+	_, err = i.coll.UpdateOne(ctx, byId{identity}, bson.M{"$set": upd}, options.Update().SetUpsert(true))
 	return
 }
 
 type byIdIn struct {
-	Ids []string `bson:"_id.$in"`
+	Id struct {
+		Ids []string `bson:"$in"`
+	} `bson:"_id"`
 }
 
-func (i *identityRepo) Pull(ctx context.Context, identities, kinds []string) (entries []Entry, err error) {
-	cur, err := i.coll.Find(ctx, byIdIn{identities})
+func (i *identityRepo) Pull(ctx context.Context, identities, kinds []string) (res []*identityrepoproto.DataWithIdentity, err error) {
+	if len(identities) > thresholdIdentityPerReq {
+		return nil, ErrThresholdReached
+	}
+
+	var in byIdIn
+	in.Id.Ids = identities
+	cur, err := i.coll.Find(ctx, in)
 	if err != nil {
 		return nil, err
 	}
@@ -81,16 +97,29 @@ func (i *identityRepo) Pull(ctx context.Context, identities, kinds []string) (en
 		if err = cur.Decode(&e); err != nil {
 			return nil, err
 		}
-		entries = append(entries, e.Kinds(kinds))
+		data := make([]*identityrepoproto.Data, 0, len(e.Data))
+		for _, kind := range kinds {
+			if v, ok := e.Data[kind]; ok {
+				data = append(data, &identityrepoproto.Data{
+					Kind:      kind,
+					Data:      v.Data,
+					Signature: v.Signature,
+				})
+			}
+		}
+		res = append(res, &identityrepoproto.DataWithIdentity{
+			Identity: e.Id,
+			Data:     data,
+		})
 	}
 	if cur.Err() != nil {
 		return nil, cur.Err()
 	}
-	return entries, nil
+	return
 }
 
 func (i *identityRepo) Delete(ctx context.Context, identity string, kinds ...string) (err error) {
-	if err = i.validateRequest(ctx, identity, Entry{}); err != nil {
+	if err = i.validateRequest(ctx, identity, nil); err != nil {
 		return
 	}
 	if len(kinds) == 0 {
@@ -100,18 +129,19 @@ func (i *identityRepo) Delete(ctx context.Context, identity string, kinds ...str
 		return
 	}
 
-	entry, err := i.fetchOne(ctx, identity)
-	if err != nil {
-		return err
-	}
+	unset := bson.M{}
 	for _, kind := range kinds {
-		delete(entry.Data, kind)
+		unset["data."+kind] = 1
 	}
-	upd := bson.M{"$set": bson.M{
-		"data":    entry.Data,
-		"updated": time.Now(),
-	}}
-	_, err = i.coll.UpdateOne(ctx, byId{entry.Id}, upd, options.Update().SetUpsert(true))
+
+	upd := bson.M{
+		"$set": bson.M{
+			"updated": time.Now(),
+		},
+		"$unset": unset,
+	}
+
+	_, err = i.coll.UpdateOne(ctx, byId{identity}, upd)
 	return
 }
 
@@ -131,7 +161,7 @@ func (i *identityRepo) fetchOne(ctx context.Context, id string) (e Entry, err er
 	return e, nil
 }
 
-func (i *identityRepo) validateRequest(ctx context.Context, identity string, e Entry) error {
+func (i *identityRepo) validateRequest(ctx context.Context, identity string, data []*identityrepoproto.Data) error {
 	pubKey, err := peer.CtxPubKey(ctx)
 	if err != nil {
 		return err
@@ -139,18 +169,17 @@ func (i *identityRepo) validateRequest(ctx context.Context, identity string, e E
 	if pubKey.Account() != identity {
 		return ErrInvalidIdentity
 	}
-	if e.Id != "" {
-		if e.Id != identity {
-			return ErrInvalidIdentity
+
+	for _, d := range data {
+		if len(d.Data) > thresholdDataLen {
+			return ErrThresholdReached
 		}
-		for _, data := range e.Data {
-			ok, verr := pubKey.Verify(data.Data, data.Signature)
-			if verr != nil {
-				return verr
-			}
-			if !ok {
-				return ErrInvalidSignature
-			}
+		ok, verr := pubKey.Verify(d.Data, d.Signature)
+		if verr != nil {
+			return verr
+		}
+		if !ok {
+			return ErrInvalidSignature
 		}
 	}
 	return nil

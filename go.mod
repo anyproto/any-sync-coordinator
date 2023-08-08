@@ -4,13 +4,13 @@ go 1.19
 
 require (
 	github.com/ahmetb/govvv v0.3.0
-	github.com/anyproto/any-sync v0.2.16-0.20230803121743-59d41386c4d1
+	github.com/anyproto/any-sync v0.2.18-0.20230807175314-0d50b2418c35
 	github.com/anyproto/any-sync-node v0.1.0
 	github.com/golang/protobuf v1.5.3
 	github.com/stretchr/testify v1.8.4
 	go.mongodb.org/mongo-driver v1.12.0
 	go.uber.org/mock v0.2.0
-	go.uber.org/zap v1.24.0
+	go.uber.org/zap v1.25.0
 	gopkg.in/yaml.v3 v3.0.1
 	storj.io/drpc v0.0.33
 )
@@ -41,7 +41,7 @@ require (
 	github.com/klauspost/compress v1.16.7 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.5 // indirect
 	github.com/libp2p/go-buffer-pool v0.1.0 // indirect
-	github.com/libp2p/go-libp2p v0.29.0 // indirect
+	github.com/libp2p/go-libp2p v0.29.1 // indirect
 	github.com/mattn/go-isatty v0.0.19 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.4 // indirect
 	github.com/minio/sha256-simd v1.0.1 // indirect
@@ -71,13 +71,13 @@ require (
 	github.com/zeebo/errs v1.3.0 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/crypto v0.11.0 // indirect
+	golang.org/x/crypto v0.12.0 // indirect
 	golang.org/x/exp v0.0.0-20230713183714-613f0c0eb8a1 // indirect
 	golang.org/x/image v0.6.0 // indirect
-	golang.org/x/net v0.12.0 // indirect
+	golang.org/x/net v0.14.0 // indirect
 	golang.org/x/sync v0.3.0 // indirect
-	golang.org/x/sys v0.10.0 // indirect
-	golang.org/x/text v0.11.0 // indirect
+	golang.org/x/sys v0.11.0 // indirect
+	golang.org/x/text v0.12.0 // indirect
 	google.golang.org/protobuf v1.30.0 // indirect
 	lukechampine.com/blake3 v1.2.1 // indirect
 )
