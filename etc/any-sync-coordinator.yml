@@ -16,6 +16,11 @@ yamux:
     - 127.0.0.1:4830
   writeTimeoutSec: 10
   dialTimeoutSec: 10
+quic:
+  listenAddrs:
+    - 127.0.0.1:5830
+  writeTimeoutSec: 10
+  dialTimeoutSec: 10
 fileLimit:
   limitDefault: 1073741824
   limitAlphaUsers: 10737418240
