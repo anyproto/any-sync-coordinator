@@ -4,6 +4,8 @@ github.com/OneOfOne/xxhash v1.2.2 h1:KMrpdQIwFcEqXDklaen+P1axHaj9BSKzvpUUfnHldSE
 github.com/OneOfOne/xxhash v1.2.2/go.mod h1:HSdplMjZKSmBqAxg5vPj2TmRDmfkzw+cTzAElWljhcU=
 github.com/ahmetb/govvv v0.3.0 h1:YGLGwEyiUwHFy5eh/RUhdupbuaCGBYn5T5GWXp+WJB0=
 github.com/ahmetb/govvv v0.3.0/go.mod h1:4WRFpdWtc/YtKgPFwa1dr5+9hiRY5uKAL08bOlxOR6s=
+github.com/anyproto/any-sync v0.2.18-0.20230816163644-f6470ba54d28 h1:6MnxLzgA+8Uemjz9kK1Yk5XEtK9Qyn4EaJff4jFsq/4=
+github.com/anyproto/any-sync v0.2.18-0.20230816163644-f6470ba54d28/go.mod h1:YNidJgmwctt8lUq9JiL8OOc0ELze+iW33R0cWyi4jjA=
 github.com/anyproto/any-sync v0.2.20 h1:YcNZFB9lgzSwsSlVM0B3TnuUW/pQrxFX9uW3lkCYyjA=
 github.com/anyproto/any-sync v0.2.20/go.mod h1:0YJXL+UC9qXpSyjuN8ovEQLzVE9Sp4PPcA24lToG7ZQ=
 github.com/anyproto/any-sync v0.2.21 h1:gQqABMwLB4Gp4Mqaa1e9FZ8he1sVuF6vrZVBmwMIAik=
