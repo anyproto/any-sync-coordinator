@@ -133,8 +133,11 @@ func (r *rpcHandler) NetworkConfiguration(ctx context.Context, req *coordinatorp
 					types = append(types, coordinatorproto.NodeType_FileAPI)
 				case nodeconf.NodeTypeTree:
 					types = append(types, coordinatorproto.NodeType_TreeAPI)
-				case nodeconf.NodeTypeConsensus:
-					types = append(types, coordinatorproto.NodeType_ConsensusAPI)
+					// TODO: uncomment for any-sync > 0.3.0
+					/*
+						case nodeconf.NodeTypeConsensus:
+							types = append(types, coordinatorproto.NodeType_ConsensusAPI)
+					*/
 				}
 			}
 			nodes = append(nodes, &coordinatorproto.Node{
