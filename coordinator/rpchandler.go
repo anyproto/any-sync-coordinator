@@ -2,6 +2,7 @@ package coordinator
 
 import (
 	"context"
+	"fmt"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/metric"
@@ -164,7 +165,39 @@ func (r *rpcHandler) NetworkConfiguration(ctx context.Context, req *coordinatorp
 	}, nil
 }
 
-func (r *rpcHandler) DeletionLog(ctx context.Context, request *coordinatorproto.DeletionLogRequest) (*coordinatorproto.DeletionLogResponse, error) {
-	//TODO implement me
-	panic("implement me")
+func (r *rpcHandler) DeletionLog(ctx context.Context, req *coordinatorproto.DeletionLogRequest) (resp *coordinatorproto.DeletionLogResponse, err error) {
+	st := time.Now()
+	defer func() {
+		r.c.metric.RequestLog(ctx, "coordinator.deletionLog",
+			metric.TotalDur(time.Since(st)),
+			zap.String("addr", peer.CtxPeerAddr(ctx)),
+			zap.Error(err),
+		)
+	}()
+
+	peerId, err := peer.CtxPeerId(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(r.c.nodeConf.NodeTypes(peerId)) == 0 {
+		return nil, fmt.Errorf("forbidden")
+	}
+
+	recs, hasMore, err := r.c.deletionLog.GetAfter(ctx, req.AfterId, req.Limit)
+	if err != nil {
+		return nil, err
+	}
+	resp = &coordinatorproto.DeletionLogResponse{
+		Records: make([]*coordinatorproto.DeletionLogRecord, 0, len(recs)),
+		HasMore: hasMore,
+	}
+	for _, rec := range recs {
+		resp.Records = append(resp.Records, &coordinatorproto.DeletionLogRecord{
+			Id:        rec.Id.Hex(),
+			SpaceId:   rec.SpaceId,
+			Status:    coordinatorproto.DeletionLogRecordStatus(rec.Status),
+			Timestamp: rec.Id.Timestamp().Unix(),
+		})
+	}
+	return
 }
