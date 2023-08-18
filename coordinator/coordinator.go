@@ -13,7 +13,6 @@ import (
 	"github.com/anyproto/any-sync/app/logger"
 	"github.com/anyproto/any-sync/commonspace"
 	"github.com/anyproto/any-sync/commonspace/object/accountdata"
-	"github.com/anyproto/any-sync/commonspace/object/tree/treechangeproto"
 	"github.com/anyproto/any-sync/commonspace/spacesyncproto"
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/metric"
@@ -91,9 +90,9 @@ func (c *coordinator) StatusCheck(ctx context.Context, spaceId string) (status s
 	return
 }
 
-func (c *coordinator) StatusChange(ctx context.Context, spaceId string, raw *treechangeproto.RawTreeChangeWithId) (entry spacestatus.StatusEntry, err error) {
+func (c *coordinator) StatusChange(ctx context.Context, spaceId string, payloadType coordinatorproto.DeletionPayloadType, payload []byte) (entry spacestatus.StatusEntry, err error) {
 	defer func() {
-		log.Debug("finished changing status", zap.Error(err), zap.String("spaceId", spaceId), zap.Bool("isDelete", raw != nil))
+		log.Debug("finished changing status", zap.Error(err), zap.String("spaceId", spaceId), zap.Bool("isDelete", payload != nil))
 	}()
 	accountPubKey, err := peer.CtxPubKey(ctx)
 	if err != nil {
@@ -104,14 +103,15 @@ func (c *coordinator) StatusChange(ctx context.Context, spaceId string, raw *tre
 		return
 	}
 	status := spacestatus.SpaceStatusCreated
-	if raw != nil {
+	if payload != nil {
 		status = spacestatus.SpaceStatusDeletionPending
 	}
 	return c.spaceStatus.ChangeStatus(ctx, spaceId, spacestatus.StatusChange{
-		DeletionPayload: raw,
-		Identity:        accountPubKey,
-		Status:          status,
-		PeerId:          peerId,
+		DeletionPayloadType: payloadType,
+		DeletionPayload:     payload,
+		Identity:            accountPubKey,
+		Status:              status,
+		PeerId:              peerId,
 	})
 }
 

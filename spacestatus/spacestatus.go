@@ -4,10 +4,10 @@ package spacestatus
 import (
 	"context"
 	"github.com/anyproto/any-sync-coordinator/db"
+	"github.com/anyproto/any-sync-coordinator/deletionlog"
 	"github.com/anyproto/any-sync-coordinator/nodeservice"
 	"github.com/anyproto/any-sync/app"
 	"github.com/anyproto/any-sync/app/logger"
-	"github.com/anyproto/any-sync/commonspace/object/tree/treechangeproto"
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/util/crypto"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -21,10 +21,11 @@ const CName = "coordinator.spacestatus"
 var log = logger.NewNamed(CName)
 
 type StatusChange struct {
-	DeletionPayload *treechangeproto.RawTreeChangeWithId
-	Identity        crypto.PubKey
-	Status          int
-	PeerId          string
+	DeletionPayloadType coordinatorproto.DeletionPayloadType
+	DeletionPayload     []byte
+	Identity            crypto.PubKey
+	Status              int
+	PeerId              string
 }
 
 const (
@@ -52,11 +53,13 @@ func New() SpaceStatus {
 }
 
 type spaceStatus struct {
-	conf     Config
-	spaces   *mongo.Collection
-	verifier ChangeVerifier
-	deleter  SpaceDeleter
-	sender   DelSender
+	conf        Config
+	spaces      *mongo.Collection
+	verifier    ChangeVerifier
+	deleter     SpaceDeleter
+	sender      DelSender
+	db          db.Database
+	deletionLog deletionlog.DeletionLog
 }
 
 type findStatusQuery struct {
@@ -83,22 +86,48 @@ type insertNewSpaceOp struct {
 func (s *spaceStatus) ChangeStatus(ctx context.Context, spaceId string, change StatusChange) (entry StatusEntry, err error) {
 	switch change.Status {
 	case SpaceStatusCreated:
-		return s.modifyStatus(ctx, spaceId, SpaceStatusDeletionPending, SpaceStatusCreated, nil, change.Identity, 0)
+		return s.setStatus(ctx, spaceId, SpaceStatusDeletionPending, SpaceStatusCreated, nil, change.Identity, 0)
 	case SpaceStatusDeletionPending:
-		err = s.verifier.Verify(change.DeletionPayload, change.Identity, change.PeerId)
+		err = s.verifier.Verify(change)
 		if err != nil {
 			log.Debug("failed to verify payload", zap.Error(err))
 			return StatusEntry{}, coordinatorproto.ErrUnexpected
 		}
-		res, err := change.DeletionPayload.Marshal()
-		if err != nil {
-			log.Debug("failed to marshal payload", zap.Error(err))
-			return StatusEntry{}, coordinatorproto.ErrUnexpected
-		}
-		return s.modifyStatus(ctx, spaceId, SpaceStatusCreated, SpaceStatusDeletionPending, res, change.Identity, time.Now().Unix())
+		return s.setStatus(ctx, spaceId, SpaceStatusCreated, SpaceStatusDeletionPending, change.DeletionPayload, change.Identity, time.Now().Unix())
 	default:
 		return StatusEntry{}, coordinatorproto.ErrUnexpected
 	}
+}
+
+func (s *spaceStatus) setStatus(
+	ctx context.Context,
+	spaceId string,
+	oldStatus,
+	newStatus int,
+	deletionChange []byte,
+	identity crypto.PubKey,
+	timestamp int64) (entry StatusEntry, err error) {
+	err = s.db.Tx(ctx, func(txCtx mongo.SessionContext) error {
+		entry, err = s.modifyStatus(txCtx, spaceId, oldStatus, newStatus, deletionChange, identity, timestamp)
+		if err != nil {
+			return err
+		}
+		var status deletionlog.Status
+		switch newStatus {
+		case SpaceStatusDeletionPending:
+			status = deletionlog.StatusRemovePrepare
+		case SpaceStatusCreated:
+			status = deletionlog.StatusOk
+		case SpaceStatusDeleted:
+			status = deletionlog.StatusRemove
+		default:
+			log.Error("unexpected space status", zap.Int("status", newStatus))
+			return coordinatorproto.ErrUnexpected
+		}
+		_, err = s.deletionLog.Add(txCtx, spaceId, status)
+		return err
+	})
+	return
 }
 
 func (s *spaceStatus) modifyStatus(
@@ -160,11 +189,13 @@ func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity, o
 }
 
 func (s *spaceStatus) Init(a *app.App) (err error) {
-	s.spaces = a.MustComponent(db.CName).(db.Database).Db().Collection(collName)
+	s.db = a.MustComponent(db.CName).(db.Database)
+	s.spaces = s.db.Db().Collection(collName)
 	s.sender = a.MustComponent(nodeservice.CName).(DelSender)
 	s.verifier = getChangeVerifier()
 	s.conf = a.MustComponent("config").(configProvider).GetSpaceStatus()
 	s.deleter = getSpaceDeleter(s.conf.RunSeconds, time.Duration(s.conf.DeletionPeriodDays*24)*time.Hour)
+	s.deletionLog = app.MustComponent[deletionlog.DeletionLog](a)
 	return
 }
 

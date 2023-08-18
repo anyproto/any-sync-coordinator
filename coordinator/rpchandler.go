@@ -81,8 +81,13 @@ func (r *rpcHandler) SpaceStatusChange(ctx context.Context, req *coordinatorprot
 			zap.Error(err),
 		)
 	}()
-	// todo:
-	return &coordinatorproto.SpaceStatusChangeResponse{}, nil
+	entry, err := r.c.StatusChange(ctx, req.SpaceId, req.DeletionPayloadType, req.DeletionPayload)
+	if err != nil {
+		return nil, err
+	}
+	return &coordinatorproto.SpaceStatusChangeResponse{
+		Payload: r.convertStatus(entry),
+	}, nil
 }
 
 func (r *rpcHandler) SpaceSign(ctx context.Context, req *coordinatorproto.SpaceSignRequest) (resp *coordinatorproto.SpaceSignResponse, err error) {

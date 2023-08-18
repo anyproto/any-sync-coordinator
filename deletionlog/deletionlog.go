@@ -37,10 +37,6 @@ type Record struct {
 	Status  Status              `bson:"status"`
 }
 
-func (r Record) Timestamp() int64 {
-	return r.Id.Timestamp().Unix()
-}
-
 type Status int32
 
 const (

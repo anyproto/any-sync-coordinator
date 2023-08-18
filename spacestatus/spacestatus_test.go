@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/anyproto/any-sync-coordinator/db"
+	"github.com/anyproto/any-sync-coordinator/deletionlog"
 	"github.com/anyproto/any-sync-coordinator/nodeservice"
 	"github.com/anyproto/any-sync/app"
 	"github.com/anyproto/any-sync/commonspace/object/tree/treechangeproto"
@@ -22,7 +23,7 @@ type mockVerifier struct {
 	verify bool
 }
 
-func (m *mockVerifier) Verify(rawDelete *treechangeproto.RawTreeChangeWithId, identity crypto.PubKey, peerId string) (err error) {
+func (m *mockVerifier) Verify(change StatusChange) (err error) {
 	if m.verify {
 		return nil
 	} else {
@@ -142,9 +143,10 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 			}, res)
 		}
 		res, err := fx.ChangeStatus(ctx, spaceId, StatusChange{
-			DeletionPayload: raw,
-			Identity:        identity,
-			Status:          SpaceStatusDeletionPending,
+			DeletionPayloadType: coordinatorproto.DeletionPayloadType_Tree,
+			DeletionPayload:     marshalled,
+			Identity:            identity,
+			Status:              SpaceStatusDeletionPending,
 		})
 		checkStatus(res, err)
 		res, err = fx.Status(ctx, spaceId, identity)
@@ -163,8 +165,9 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 			RawChange: []byte{1},
 			Id:        "id",
 		}
+		marshaled, _ := raw.Marshal()
 		res, err := fx.ChangeStatus(ctx, spaceId, StatusChange{
-			DeletionPayload: raw,
+			DeletionPayload: marshaled,
 			Identity:        identity,
 			Status:          SpaceStatusDeletionPending,
 		})
@@ -195,8 +198,9 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 			RawChange: []byte{1},
 			Id:        "id",
 		}
+		marshaled, _ := raw.Marshal()
 		_, err = fx.ChangeStatus(ctx, spaceId, StatusChange{
-			DeletionPayload: raw,
+			DeletionPayload: marshaled,
 			Identity:        identity,
 			Status:          SpaceStatusDeletionPending,
 		})
@@ -220,26 +224,27 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 			RawChange: []byte{1},
 			Id:        "id",
 		}
+		marshaled, _ := raw.Marshal()
 		_, err = fx.ChangeStatus(ctx, spaceId, StatusChange{
 			Identity:        identity,
-			DeletionPayload: raw,
+			DeletionPayload: marshaled,
 			Status:          SpaceStatusDeletionPending,
 		})
 		require.NoError(t, err)
 		_, err = fx.ChangeStatus(ctx, spaceId, StatusChange{
 			Identity:        identity,
-			DeletionPayload: raw,
+			DeletionPayload: marshaled,
 			Status:          SpaceStatusDeletionPending,
 		})
 		require.Equal(t, err, coordinatorproto.ErrSpaceDeletionPending)
 		_, err = fx.ChangeStatus(ctx, spaceId, StatusChange{
-			DeletionPayload: raw,
+			DeletionPayload: marshaled,
 			Identity:        identity,
 			Status:          SpaceStatusDeletionStarted,
 		})
 		require.Equal(t, err, coordinatorproto.ErrUnexpected)
 		_, err = fx.ChangeStatus(ctx, spaceId, StatusChange{
-			DeletionPayload: raw,
+			DeletionPayload: marshaled,
 			Identity:        identity,
 			Status:          SpaceStatusDeleted,
 		})
@@ -267,8 +272,9 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 			RawChange: []byte{1},
 			Id:        "id",
 		}
+		marshaled, _ := raw.Marshal()
 		_, err = fx.ChangeStatus(ctx, spaceId, StatusChange{
-			DeletionPayload: raw,
+			DeletionPayload: marshaled,
 			Identity:        other,
 			Status:          SpaceStatusDeletionPending,
 		})
@@ -294,8 +300,9 @@ func TestSpaceStatus_Run(t *testing.T) {
 				RawChange: []byte{1},
 				Id:        "id",
 			}
+			marshaled, _ := raw.Marshal()
 			_, err := fx.ChangeStatus(ctx, spaceId, StatusChange{
-				DeletionPayload: raw,
+				DeletionPayload: marshaled,
 				Identity:        identity,
 				Status:          SpaceStatusDeletionPending,
 			})
@@ -405,7 +412,7 @@ func newFixture(t *testing.T, deletionPeriod int) *fixture {
 	fx.a.Register(mockConfig{
 		Mongo: db.Mongo{
 			Connect:  "mongodb://localhost:27017",
-			Database: "coordinator_test",
+			Database: "coordinator_unittest",
 		},
 		Config: Config{
 			RunSeconds:         100,
@@ -415,6 +422,7 @@ func newFixture(t *testing.T, deletionPeriod int) *fixture {
 	fx.a.Register(db.New())
 	fx.a.Register(fx.sender)
 	fx.a.Register(fx.SpaceStatus)
+	fx.a.Register(deletionlog.New())
 	err := fx.a.Start(ctx)
 	if err != nil {
 		fx.cancel()
