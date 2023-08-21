@@ -1,7 +1,6 @@
 package spacestatus
 
 import (
-	"fmt"
 	"github.com/anyproto/any-sync/commonspace/object/tree/treechangeproto"
 	"github.com/anyproto/any-sync/commonspace/settings"
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
@@ -33,21 +32,7 @@ func (c *changeVerifier) Verify(change StatusChange) (err error) {
 		if err = confirmSig.Unmarshal(change.DeletionPayload); err != nil {
 			return err
 		}
-
-		var ok bool
-		ok, err = change.Identity.Verify(confirmSig.DeletionPayload, confirmSig.Signature)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			return fmt.Errorf("invalid payload signature")
-		}
-		var confirm = new(coordinatorproto.DeletionConfirmPayload)
-		if err = confirm.Unmarshal(confirmSig.DeletionPayload); err != nil {
-			return err
-		}
-
-		// TODO: validate confirm payload
+		return coordinatorproto.ValidateDeleteConfirmation(change.Identity, change.SpaceId, change.NetworkId, confirmSig)
 	}
 	return
 }

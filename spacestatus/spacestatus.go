@@ -26,6 +26,8 @@ type StatusChange struct {
 	Identity            crypto.PubKey
 	Status              int
 	PeerId              string
+	SpaceId             string
+	NetworkId           string
 }
 
 const (

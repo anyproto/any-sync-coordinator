@@ -112,6 +112,8 @@ func (c *coordinator) StatusChange(ctx context.Context, spaceId string, payloadT
 		Identity:            accountPubKey,
 		Status:              status,
 		PeerId:              peerId,
+		SpaceId:             spaceId,
+		NetworkId:           c.nodeConf.Configuration().NetworkId,
 	})
 }
 
