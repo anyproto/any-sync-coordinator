@@ -9,6 +9,7 @@ import (
 	"github.com/anyproto/any-sync/app"
 	"github.com/anyproto/any-sync/metric"
 	"github.com/anyproto/any-sync/net/rpc"
+	"github.com/anyproto/any-sync/net/transport/quic"
 	"github.com/anyproto/any-sync/net/transport/yamux"
 	"github.com/anyproto/any-sync/nodeconf"
 	"gopkg.in/yaml.v3"
@@ -39,6 +40,7 @@ type Config struct {
 	Mongo                    db.Mongo               `yaml:"mongo"`
 	SpaceStatus              spacestatus.Config     `yaml:"spaceStatus"`
 	Yamux                    yamux.Config           `yaml:"yamux"`
+	Quic                     quic.Config            `yaml:"quic"`
 	CafeApi                  cafeapi.Config         `yaml:"cafeApi"`
 	FileLimit                filelimit.Config       `yaml:"fileLimit"`
 }
@@ -85,6 +87,10 @@ func (c Config) GetNodeConfUpdateInterval() int {
 
 func (c Config) GetYamux() yamux.Config {
 	return c.Yamux
+}
+
+func (c Config) GetQuic() quic.Config {
+	return c.Quic
 }
 
 func (c Config) GetCafeApi() cafeapi.Config {
