@@ -38,18 +38,18 @@ func (m *MockSpaceStatus) EXPECT() *MockSpaceStatusMockRecorder {
 }
 
 // ChangeStatus mocks base method.
-func (m *MockSpaceStatus) ChangeStatus(arg0 context.Context, arg1 string, arg2 spacestatus.StatusChange) (spacestatus.StatusEntry, error) {
+func (m *MockSpaceStatus) ChangeStatus(arg0 context.Context, arg1 spacestatus.StatusChange) (spacestatus.StatusEntry, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ChangeStatus", arg0, arg1, arg2)
+	ret := m.ctrl.Call(m, "ChangeStatus", arg0, arg1)
 	ret0, _ := ret[0].(spacestatus.StatusEntry)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ChangeStatus indicates an expected call of ChangeStatus.
-func (mr *MockSpaceStatusMockRecorder) ChangeStatus(arg0, arg1, arg2 interface{}) *gomock.Call {
+func (mr *MockSpaceStatusMockRecorder) ChangeStatus(arg0, arg1 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ChangeStatus", reflect.TypeOf((*MockSpaceStatus)(nil).ChangeStatus), arg0, arg1, arg2)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ChangeStatus", reflect.TypeOf((*MockSpaceStatus)(nil).ChangeStatus), arg0, arg1)
 }
 
 // Close mocks base method.

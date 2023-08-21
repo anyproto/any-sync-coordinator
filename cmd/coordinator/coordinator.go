@@ -13,7 +13,6 @@ import (
 	"github.com/anyproto/any-sync-coordinator/deletionlog"
 	"github.com/anyproto/any-sync-coordinator/filelimit"
 	"github.com/anyproto/any-sync-coordinator/nodeconfsource"
-	"github.com/anyproto/any-sync-coordinator/nodeservice"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
 	"github.com/anyproto/any-sync/app"
 	"github.com/anyproto/any-sync/app/logger"
@@ -121,7 +120,6 @@ func Bootstrap(a *app.App) {
 		Register(secureservice.New()).
 		Register(server.New()).
 		Register(coordinatorlog.New()).
-		Register(nodeservice.New()).
 		Register(spacestatus.New()).
 		Register(filelimit.New()).
 		Register(cafeapi.New()).

@@ -106,7 +106,7 @@ func (c *coordinator) StatusChange(ctx context.Context, spaceId string, payloadT
 	if payload != nil {
 		status = spacestatus.SpaceStatusDeletionPending
 	}
-	return c.spaceStatus.ChangeStatus(ctx, spaceId, spacestatus.StatusChange{
+	return c.spaceStatus.ChangeStatus(ctx, spacestatus.StatusChange{
 		DeletionPayloadType: payloadType,
 		DeletionPayload:     payload,
 		Identity:            accountPubKey,
