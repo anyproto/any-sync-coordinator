@@ -5,8 +5,6 @@ go 1.19
 require (
 	github.com/ahmetb/govvv v0.3.0
 	github.com/anyproto/any-sync v0.2.22-0.20230821084821-4592760ecef3
-	github.com/anyproto/any-sync-node v0.1.0
-	github.com/golang/protobuf v1.5.3
 	github.com/stretchr/testify v1.8.4
 	go.mongodb.org/mongo-driver v1.12.1
 	go.uber.org/mock v0.2.0
@@ -34,6 +32,7 @@ require (
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect
 	github.com/golang/mock v1.6.0 // indirect
+	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/golang/snappy v0.0.1 // indirect
 	github.com/google/pprof v0.0.0-20230816232805-2861d24d8f05 // indirect
 	github.com/hashicorp/yamux v0.1.1 // indirect
