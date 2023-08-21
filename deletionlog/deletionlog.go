@@ -28,7 +28,7 @@ func New() DeletionLog {
 type DeletionLog interface {
 	GetAfter(ctx context.Context, afterId string, limit uint32) (records []Record, hasMore bool, err error)
 	Add(ctx context.Context, spaceId string, status Status) (id string, err error)
-	app.Component
+	app.ComponentRunnable
 }
 
 type Record struct {
@@ -56,6 +56,11 @@ func (d *deletionLog) Init(a *app.App) (err error) {
 
 func (d *deletionLog) Name() (name string) {
 	return CName
+}
+
+func (d *deletionLog) Run(ctx context.Context) error {
+	_ = d.coll.Database().CreateCollection(ctx, collName)
+	return nil
 }
 
 type findIdGt struct {
@@ -116,4 +121,8 @@ func (d *deletionLog) Add(ctx context.Context, spaceId string, status Status) (i
 		return
 	}
 	return res.InsertedID.(primitive.ObjectID).Hex(), nil
+}
+
+func (d *deletionLog) Close(_ context.Context) (err error) {
+	return nil
 }

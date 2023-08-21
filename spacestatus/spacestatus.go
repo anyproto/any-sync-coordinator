@@ -202,6 +202,7 @@ func (s *spaceStatus) Name() (name string) {
 }
 
 func (s *spaceStatus) Run(ctx context.Context) (err error) {
+	_ = s.spaces.Database().CreateCollection(ctx, collName)
 	s.deleter.Run(s.spaces, func(ctx context.Context, spaceId string) error {
 		_, err = s.setStatus(
 			ctx,
@@ -217,7 +218,9 @@ func (s *spaceStatus) Run(ctx context.Context) (err error) {
 }
 
 func (s *spaceStatus) Close(ctx context.Context) (err error) {
-	s.deleter.Close()
+	if s.deleter != nil {
+		s.deleter.Close()
+	}
 	return
 }
 

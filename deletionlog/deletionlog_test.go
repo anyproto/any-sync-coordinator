@@ -95,6 +95,6 @@ func (c config) Name() string                { return "config" }
 func (c config) GetMongo() db.Mongo {
 	return db.Mongo{
 		Connect:  "mongodb://localhost:27017",
-		Database: "coordinator_unittest",
+		Database: "coordinator_unittest_deletionlog",
 	}
 }

@@ -284,7 +284,7 @@ func TestSpaceStatus_Run(t *testing.T) {
 	_, oldIdentity, err := crypto.GenerateRandomEd25519KeyPair()
 	require.NoError(t, err)
 
-	generateIds := func(ctx context.Context, fx *fixture, new int, pending int) {
+	generateIds := func(t *testing.T, fx *fixture, new int, pending int) {
 		for i := 0; i < new+pending; i++ {
 			spaceId := fmt.Sprintf("space%d", i)
 			err := fx.NewStatus(ctx, spaceId, identity, oldIdentity)
@@ -306,7 +306,7 @@ func TestSpaceStatus_Run(t *testing.T) {
 			require.NoError(t, err)
 		}
 	}
-	getStatus := func(ctx context.Context, fx *fixture, index int) (status StatusEntry) {
+	getStatus := func(t *testing.T, fx *fixture, index int) (status StatusEntry) {
 		status, err := fx.Status(ctx, fmt.Sprintf("space%d", index), identity)
 		require.NoError(t, err)
 		return
@@ -316,17 +316,17 @@ func TestSpaceStatus_Run(t *testing.T) {
 		defer fx.Finish(t)
 		new := 10
 		pending := 10
-		generateIds(ctx, fx, new, pending)
+		generateIds(t, fx, new, pending)
 		fx.Run()
 		time.Sleep(1 * time.Second)
 		for i := 0; i < new; i++ {
-			status := getStatus(ctx, fx, i)
+			status := getStatus(t, fx, i)
 			if status.Status != SpaceStatusCreated {
 				t.Fatalf("should get status created for new ids")
 			}
 		}
 		for i := new; i < new+pending; i++ {
-			status := getStatus(ctx, fx, i)
+			status := getStatus(t, fx, i)
 			if status.Status != SpaceStatusDeleted {
 				t.Fatalf("should get status deleted for pending ids")
 			}
@@ -337,7 +337,7 @@ func TestSpaceStatus_Run(t *testing.T) {
 		mainFx := newFixture(t, 0)
 		defer mainFx.Finish(t)
 		pending := 10
-		generateIds(ctx, mainFx, 0, pending)
+		generateIds(t, mainFx, 0, pending)
 		startCh := make(chan struct{})
 		stopCh := make(chan struct{})
 
@@ -355,7 +355,7 @@ func TestSpaceStatus_Run(t *testing.T) {
 		time.Sleep(1 * time.Second)
 		close(stopCh)
 		for i := 0; i < pending; i++ {
-			status := getStatus(ctx, mainFx, i)
+			status := getStatus(t, mainFx, i)
 			if status.Status != SpaceStatusDeleted {
 				t.Fatalf("should get status deleted for pending ids")
 			}
@@ -392,7 +392,7 @@ func newFixture(t *testing.T, deletionPeriod int) *fixture {
 	fx.a.Register(mockConfig{
 		Mongo: db.Mongo{
 			Connect:  "mongodb://localhost:27017",
-			Database: "coordinator_unittest",
+			Database: "coordinator_unittest_spacestatus",
 		},
 		Config: Config{
 			RunSeconds:         100,
