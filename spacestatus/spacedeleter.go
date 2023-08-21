@@ -93,5 +93,7 @@ func (s *spaceDeleter) processEntry(ctx context.Context, cur *mongo.Cursor) (err
 }
 
 func (s *spaceDeleter) Close() {
-	s.loop.Close()
+	if s.loop != nil {
+		s.loop.Close()
+	}
 }
