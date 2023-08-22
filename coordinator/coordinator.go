@@ -117,7 +117,7 @@ func (c *coordinator) StatusChange(ctx context.Context, spaceId string, payloadT
 	})
 }
 
-func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader, oldIdentity, signature []byte) (signedReceipt *coordinatorproto.SpaceReceiptWithSignature, err error) {
+func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader, oldIdentity, signature []byte, force bool) (signedReceipt *coordinatorproto.SpaceReceiptWithSignature, err error) {
 	// TODO: Think about how to make it more evident that account.SignKey is actually a network key
 	//  on a coordinator level
 	networkKey := c.account.SignKey
@@ -141,7 +141,7 @@ func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader
 	if err != nil {
 		return
 	}
-	err = c.spaceStatus.NewStatus(ctx, spaceId, accountPubKey, oldPubKey)
+	err = c.spaceStatus.NewStatus(ctx, spaceId, accountPubKey, oldPubKey, force)
 	if err != nil {
 		return
 	}

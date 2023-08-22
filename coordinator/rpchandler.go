@@ -100,7 +100,8 @@ func (r *rpcHandler) SpaceSign(ctx context.Context, req *coordinatorproto.SpaceS
 			zap.Error(err),
 		)
 	}()
-	receipt, err := r.c.SpaceSign(ctx, req.SpaceId, req.Header, req.OldIdentity, req.NewIdentitySignature)
+	// TODO: make a force param
+	receipt, err := r.c.SpaceSign(ctx, req.SpaceId, req.Header, req.OldIdentity, req.NewIdentitySignature, false)
 	if err != nil {
 		return nil, err
 	}

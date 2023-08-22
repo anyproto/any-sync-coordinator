@@ -3,6 +3,7 @@ package spacestatus
 
 import (
 	"context"
+	"errors"
 	"github.com/anyproto/any-sync-coordinator/db"
 	"github.com/anyproto/any-sync-coordinator/deletionlog"
 	"github.com/anyproto/any-sync/app"
@@ -36,6 +37,10 @@ const (
 	SpaceStatusDeleted
 )
 
+var (
+	ErrStatusExists = errors.New("space status exists")
+)
+
 const collName = "spaces"
 
 type configProvider interface {
@@ -43,7 +48,7 @@ type configProvider interface {
 }
 
 type SpaceStatus interface {
-	NewStatus(ctx context.Context, spaceId string, identity, oldIdentity crypto.PubKey) (err error)
+	NewStatus(ctx context.Context, spaceId string, identity, oldIdentity crypto.PubKey, force bool) (err error)
 	ChangeStatus(ctx context.Context, change StatusChange) (entry StatusEntry, err error)
 	Status(ctx context.Context, spaceId string, pubKey crypto.PubKey) (entry StatusEntry, err error)
 	app.ComponentRunnable
@@ -174,7 +179,7 @@ func (s *spaceStatus) Status(ctx context.Context, spaceId string, identity crypt
 	return
 }
 
-func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity, oldIdentity crypto.PubKey) (err error) {
+func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity, oldIdentity crypto.PubKey, force bool) (err error) {
 	_, err = s.spaces.InsertOne(ctx, insertNewSpaceOp{
 		Identity:    identity.Account(),
 		OldIdentity: oldIdentity.Account(),
@@ -182,7 +187,23 @@ func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity, o
 		SpaceId:     spaceId,
 	})
 	if mongo.IsDuplicateKeyError(err) {
-		err = nil
+		var entry StatusEntry
+		if entry, err = s.Status(ctx, spaceId, identity); err != nil {
+			return
+		}
+		if entry.Status == SpaceStatusCreated {
+			// save back compatibility
+			return nil
+		}
+		if force {
+			_, err = s.setStatus(ctx, StatusChange{
+				Identity: identity,
+				Status:   SpaceStatusCreated,
+				SpaceId:  spaceId,
+			}, entry.Status)
+		} else {
+			return coordinatorproto.ErrSpaceIsDeleted
+		}
 	}
 	return
 }

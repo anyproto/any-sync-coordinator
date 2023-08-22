@@ -95,17 +95,17 @@ func (mr *MockSpaceStatusMockRecorder) Name() *gomock.Call {
 }
 
 // NewStatus mocks base method.
-func (m *MockSpaceStatus) NewStatus(arg0 context.Context, arg1 string, arg2, arg3 crypto.PubKey) error {
+func (m *MockSpaceStatus) NewStatus(arg0 context.Context, arg1 string, arg2, arg3 crypto.PubKey, arg4 bool) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "NewStatus", arg0, arg1, arg2, arg3)
+	ret := m.ctrl.Call(m, "NewStatus", arg0, arg1, arg2, arg3, arg4)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // NewStatus indicates an expected call of NewStatus.
-func (mr *MockSpaceStatusMockRecorder) NewStatus(arg0, arg1, arg2, arg3 interface{}) *gomock.Call {
+func (mr *MockSpaceStatusMockRecorder) NewStatus(arg0, arg1, arg2, arg3, arg4 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewStatus", reflect.TypeOf((*MockSpaceStatus)(nil).NewStatus), arg0, arg1, arg2, arg3)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewStatus", reflect.TypeOf((*MockSpaceStatus)(nil).NewStatus), arg0, arg1, arg2, arg3, arg4)
 }
 
 // Run mocks base method.
