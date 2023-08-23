@@ -2,9 +2,7 @@ package spacestatus
 
 import (
 	"context"
-	"github.com/anyproto/any-sync/commonspace/object/tree/treechangeproto"
 	"github.com/anyproto/any-sync/util/periodicsync"
-	"github.com/golang/protobuf/proto"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.uber.org/zap"
@@ -13,12 +11,10 @@ import (
 
 const deletionTimeout = time.Second * 100
 
-type DelSender interface {
-	Delete(ctx context.Context, spaceId string, raw *treechangeproto.RawTreeChangeWithId) (err error)
-}
+type Deleter func(ctx context.Context, spaceId string) (err error)
 
 type SpaceDeleter interface {
-	Run(spaces *mongo.Collection, delSender DelSender)
+	Run(spaces *mongo.Collection, delSender Deleter)
 	Close()
 }
 
@@ -38,12 +34,13 @@ func (d pendingSpacesQuery) toMap() bson.M {
 }
 
 type StatusEntry struct {
-	SpaceId           string `bson:"_id"`
-	Identity          string `bson:"identity"`
-	OldIdentity       string `bson:"oldIdentity"`
-	DeletionPayload   []byte `bson:"deletionPayload"`
-	DeletionTimestamp int64  `bson:"deletionTimestamp"`
-	Status            int    `bson:"status"`
+	SpaceId             string `bson:"_id"`
+	Identity            string `bson:"identity"`
+	OldIdentity         string `bson:"oldIdentity"`
+	DeletionPayloadType int    `bson:"deletionPayloadType"`
+	DeletionPayload     []byte `bson:"deletionPayload"`
+	DeletionTimestamp   int64  `bson:"deletionTimestamp"`
+	Status              int    `bson:"status"`
 }
 
 type spaceDeleter struct {
@@ -51,7 +48,7 @@ type spaceDeleter struct {
 	runSeconds     int
 	deletionPeriod time.Duration
 	loop           periodicsync.PeriodicSync
-	delSender      DelSender
+	deleter        Deleter
 }
 
 var getSpaceDeleter = newSpaceDeleter
@@ -63,8 +60,8 @@ func newSpaceDeleter(runSeconds int, deletionPeriod time.Duration) SpaceDeleter 
 	}
 }
 
-func (s *spaceDeleter) Run(spaces *mongo.Collection, delSender DelSender) {
-	s.delSender = delSender
+func (s *spaceDeleter) Run(spaces *mongo.Collection, deleter Deleter) {
+	s.deleter = deleter
 	s.spaces = spaces
 	s.loop = periodicsync.NewPeriodicSync(s.runSeconds, deletionTimeout, s.delete, log)
 	s.loop.Run()
@@ -92,43 +89,11 @@ func (s *spaceDeleter) processEntry(ctx context.Context, cur *mongo.Cursor) (err
 	if err != nil {
 		return
 	}
-	raw := &treechangeproto.RawTreeChangeWithId{}
-	err = proto.Unmarshal(entry.DeletionPayload, raw)
-	if err != nil {
-		return
-	}
-	op := modifyStatusOp{}
-	op.Set.DeletionPayload = entry.DeletionPayload
-	op.Set.Status = SpaceStatusDeletionStarted
-	op.Set.DeletionTimestamp = entry.DeletionTimestamp
-	status := SpaceStatusDeletionPending
-	res := s.spaces.FindOneAndUpdate(ctx, findStatusQuery{
-		SpaceId:  entry.SpaceId,
-		Status:   &status,
-		Identity: entry.Identity,
-	}, op)
-	if res.Err() != nil {
-		if res.Err() == mongo.ErrNoDocuments {
-			return nil
-		}
-		return res.Err()
-	}
-	err = s.delSender.Delete(ctx, entry.SpaceId, raw)
-	// TODO: if this is an error related to contents of change that would never be accepted, we should remove the deletion status altogether
-	if err != nil {
-		op.Set.Status = SpaceStatusDeletionPending
-	} else {
-		op.Set.Status = SpaceStatusDeleted
-	}
-	status = SpaceStatusDeletionStarted
-	res = s.spaces.FindOneAndUpdate(ctx, findStatusQuery{
-		SpaceId:  entry.SpaceId,
-		Status:   &status,
-		Identity: entry.Identity,
-	}, op)
-	return res.Err()
+	return s.deleter(ctx, entry.SpaceId)
 }
 
 func (s *spaceDeleter) Close() {
-	s.loop.Close()
+	if s.loop != nil {
+		s.loop.Close()
+	}
 }

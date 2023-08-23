@@ -10,9 +10,9 @@ import (
 	"github.com/anyproto/any-sync-coordinator/coordinator"
 	"github.com/anyproto/any-sync-coordinator/coordinatorlog"
 	"github.com/anyproto/any-sync-coordinator/db"
+	"github.com/anyproto/any-sync-coordinator/deletionlog"
 	"github.com/anyproto/any-sync-coordinator/filelimit"
 	"github.com/anyproto/any-sync-coordinator/nodeconfsource"
-	"github.com/anyproto/any-sync-coordinator/nodeservice"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
 	"github.com/anyproto/any-sync/app"
 	"github.com/anyproto/any-sync/app/logger"
@@ -112,6 +112,7 @@ func Bootstrap(a *app.App) {
 		Register(nodeconfstore.New()).
 		Register(nodeconf.New()).
 		Register(nodeconfsource.New()).
+		Register(deletionlog.New()).
 		Register(peerservice.New()).
 		Register(yamux.New()).
 		Register(quic.New()).
@@ -119,7 +120,6 @@ func Bootstrap(a *app.App) {
 		Register(secureservice.New()).
 		Register(server.New()).
 		Register(coordinatorlog.New()).
-		Register(nodeservice.New()).
 		Register(spacestatus.New()).
 		Register(filelimit.New()).
 		Register(cafeapi.New()).

@@ -4,9 +4,7 @@ go 1.19
 
 require (
 	github.com/ahmetb/govvv v0.3.0
-	github.com/anyproto/any-sync v0.2.22-0.20230816173020-e02abc153c1f
-	github.com/anyproto/any-sync-node v0.1.0
-	github.com/golang/protobuf v1.5.3
+	github.com/anyproto/any-sync v0.3.0-alpha
 	github.com/stretchr/testify v1.8.4
 	go.mongodb.org/mongo-driver v1.12.1
 	go.uber.org/mock v0.2.0
@@ -34,8 +32,9 @@ require (
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect
 	github.com/golang/mock v1.6.0 // indirect
+	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/golang/snappy v0.0.1 // indirect
-	github.com/google/pprof v0.0.0-20230816055901-76846d4d6a3b // indirect
+	github.com/google/pprof v0.0.0-20230817174616-7a8ec2ada47b // indirect
 	github.com/hashicorp/yamux v0.1.1 // indirect
 	github.com/huandu/skiplist v1.2.0 // indirect
 	github.com/ipfs/go-cid v0.4.1 // indirect
@@ -44,7 +43,7 @@ require (
 	github.com/klauspost/compress v1.16.7 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.5 // indirect
 	github.com/libp2p/go-buffer-pool v0.1.0 // indirect
-	github.com/libp2p/go-libp2p v0.29.2 // indirect
+	github.com/libp2p/go-libp2p v0.30.0 // indirect
 	github.com/mattn/go-isatty v0.0.19 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.4 // indirect
 	github.com/minio/sha256-simd v1.0.1 // indirect
@@ -66,7 +65,7 @@ require (
 	github.com/prometheus/common v0.44.0 // indirect
 	github.com/prometheus/procfs v0.11.1 // indirect
 	github.com/quic-go/qtls-go1-20 v0.3.2 // indirect
-	github.com/quic-go/quic-go v0.37.4 // indirect
+	github.com/quic-go/quic-go v0.38.0 // indirect
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
 	github.com/tyler-smith/go-bip39 v1.1.0 // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
@@ -78,14 +77,14 @@ require (
 	go.uber.org/atomic v1.11.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/crypto v0.12.0 // indirect
-	golang.org/x/exp v0.0.0-20230811145659-89c5cff77bcb // indirect
+	golang.org/x/exp v0.0.0-20230817173708-d852ddb80c63 // indirect
 	golang.org/x/image v0.6.0 // indirect
 	golang.org/x/mod v0.12.0 // indirect
 	golang.org/x/net v0.14.0 // indirect
 	golang.org/x/sync v0.3.0 // indirect
 	golang.org/x/sys v0.11.0 // indirect
 	golang.org/x/text v0.12.0 // indirect
-	golang.org/x/tools v0.12.0 // indirect
+	golang.org/x/tools v0.12.1-0.20230815132531-74c255bcf846 // indirect
 	google.golang.org/protobuf v1.31.0 // indirect
 	lukechampine.com/blake3 v1.2.1 // indirect
 )

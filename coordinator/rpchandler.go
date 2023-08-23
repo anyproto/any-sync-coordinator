@@ -2,8 +2,8 @@ package coordinator
 
 import (
 	"context"
+	"fmt"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
-	"github.com/anyproto/any-sync/commonspace/object/tree/treechangeproto"
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/metric"
 	"github.com/anyproto/any-sync/net/peer"
@@ -46,6 +46,31 @@ func (r *rpcHandler) SpaceStatusCheck(ctx context.Context, req *coordinatorproto
 	}, nil
 }
 
+func (r *rpcHandler) SpaceStatusCheckMany(ctx context.Context, req *coordinatorproto.SpaceStatusCheckManyRequest) (resp *coordinatorproto.SpaceStatusCheckManyResponse, err error) {
+	st := time.Now()
+	defer func() {
+		r.c.metric.RequestLog(ctx, "coordinator.spaceStatusCheckMany",
+			metric.TotalDur(time.Since(st)),
+			zap.String("addr", peer.CtxPeerAddr(ctx)),
+			zap.Error(err),
+		)
+	}()
+
+	resp = &coordinatorproto.SpaceStatusCheckManyResponse{
+		Payloads: make([]*coordinatorproto.SpaceStatusPayload, 0, len(req.SpaceIds)),
+	}
+
+	for _, spaceId := range req.SpaceIds {
+		var status spacestatus.StatusEntry
+		status, err = r.c.StatusCheck(ctx, spaceId)
+		if err != nil {
+			return nil, err
+		}
+		resp.Payloads = append(resp.Payloads, r.convertStatus(status))
+	}
+	return
+}
+
 func (r *rpcHandler) SpaceStatusChange(ctx context.Context, req *coordinatorproto.SpaceStatusChangeRequest) (resp *coordinatorproto.SpaceStatusChangeResponse, err error) {
 	st := time.Now()
 	defer func() {
@@ -56,19 +81,12 @@ func (r *rpcHandler) SpaceStatusChange(ctx context.Context, req *coordinatorprot
 			zap.Error(err),
 		)
 	}()
-	var raw *treechangeproto.RawTreeChangeWithId
-	if req.DeletionChangePayload != nil {
-		raw = &treechangeproto.RawTreeChangeWithId{
-			RawChange: req.DeletionChangePayload,
-			Id:        req.DeletionChangeId,
-		}
-	}
-	status, err := r.c.StatusChange(ctx, req.SpaceId, raw)
+	entry, err := r.c.StatusChange(ctx, req.SpaceId, req.DeletionPayloadType, req.DeletionPayload)
 	if err != nil {
 		return nil, err
 	}
 	return &coordinatorproto.SpaceStatusChangeResponse{
-		Payload: r.convertStatus(status),
+		Payload: r.convertStatus(entry),
 	}, nil
 }
 
@@ -82,7 +100,8 @@ func (r *rpcHandler) SpaceSign(ctx context.Context, req *coordinatorproto.SpaceS
 			zap.Error(err),
 		)
 	}()
-	receipt, err := r.c.SpaceSign(ctx, req.SpaceId, req.Header, req.OldIdentity, req.NewIdentitySignature)
+
+	receipt, err := r.c.SpaceSign(ctx, req.SpaceId, req.Header, req.OldIdentity, req.NewIdentitySignature, req.ForceRequest)
 	if err != nil {
 		return nil, err
 	}
@@ -133,11 +152,8 @@ func (r *rpcHandler) NetworkConfiguration(ctx context.Context, req *coordinatorp
 					types = append(types, coordinatorproto.NodeType_FileAPI)
 				case nodeconf.NodeTypeTree:
 					types = append(types, coordinatorproto.NodeType_TreeAPI)
-					// TODO: uncomment for any-sync > 0.3.0
-					/*
-						case nodeconf.NodeTypeConsensus:
-							types = append(types, coordinatorproto.NodeType_ConsensusAPI)
-					*/
+				case nodeconf.NodeTypeConsensus:
+					types = append(types, coordinatorproto.NodeType_ConsensusAPI)
 				}
 			}
 			nodes = append(nodes, &coordinatorproto.Node{
@@ -153,4 +169,41 @@ func (r *rpcHandler) NetworkConfiguration(ctx context.Context, req *coordinatorp
 		Nodes:            nodes,
 		CreationTimeUnix: uint64(last.CreationTime.Unix()),
 	}, nil
+}
+
+func (r *rpcHandler) DeletionLog(ctx context.Context, req *coordinatorproto.DeletionLogRequest) (resp *coordinatorproto.DeletionLogResponse, err error) {
+	st := time.Now()
+	defer func() {
+		r.c.metric.RequestLog(ctx, "coordinator.deletionLog",
+			metric.TotalDur(time.Since(st)),
+			zap.String("addr", peer.CtxPeerAddr(ctx)),
+			zap.Error(err),
+		)
+	}()
+
+	peerId, err := peer.CtxPeerId(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(r.c.nodeConf.NodeTypes(peerId)) == 0 {
+		return nil, fmt.Errorf("forbidden")
+	}
+
+	recs, hasMore, err := r.c.deletionLog.GetAfter(ctx, req.AfterId, req.Limit)
+	if err != nil {
+		return nil, err
+	}
+	resp = &coordinatorproto.DeletionLogResponse{
+		Records: make([]*coordinatorproto.DeletionLogRecord, 0, len(recs)),
+		HasMore: hasMore,
+	}
+	for _, rec := range recs {
+		resp.Records = append(resp.Records, &coordinatorproto.DeletionLogRecord{
+			Id:        rec.Id.Hex(),
+			SpaceId:   rec.SpaceId,
+			Status:    coordinatorproto.DeletionLogRecordStatus(rec.Status),
+			Timestamp: rec.Id.Timestamp().Unix(),
+		})
+	}
+	return
 }

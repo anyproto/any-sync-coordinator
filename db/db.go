@@ -6,6 +6,7 @@ import (
 	"github.com/anyproto/any-sync/app/logger"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo/readconcern"
 	"time"
 )
 
@@ -16,6 +17,7 @@ var log = logger.NewNamed(CName)
 type Database interface {
 	app.Component
 	Db() *mongo.Database
+	Tx(ctx context.Context, f func(txCtx mongo.SessionContext) error) error
 }
 
 func New() Database {
@@ -48,4 +50,30 @@ func (d *database) Name() (name string) {
 
 func (d *database) Db() *mongo.Database {
 	return d.db
+}
+
+func (d *database) Tx(ctx context.Context, f func(txCtx mongo.SessionContext) error) error {
+	client := d.db.Client()
+	return client.UseSessionWithOptions(
+		ctx,
+		options.Session().SetDefaultReadConcern(readconcern.Majority()),
+		func(txCtx mongo.SessionContext) error {
+			if err := txCtx.StartTransaction(); err != nil {
+				return err
+			}
+
+			if err := f(txCtx); err != nil {
+				// Abort the transaction after an error. Use
+				// context.Background() to ensure that the abort can complete
+				// successfully even if the context passed to mongo.WithSession
+				// is changed to have a timeout.
+				_ = txCtx.AbortTransaction(context.Background())
+				return err
+			}
+
+			// Use context.Background() to ensure that the commit can complete
+			// successfully even if the context passed to mongo.WithSession is
+			// changed to have a timeout.
+			return txCtx.CommitTransaction(context.Background())
+		})
 }
