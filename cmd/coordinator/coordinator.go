@@ -12,6 +12,7 @@ import (
 	"github.com/anyproto/any-sync-coordinator/db"
 	"github.com/anyproto/any-sync-coordinator/deletionlog"
 	"github.com/anyproto/any-sync-coordinator/filelimit"
+	"github.com/anyproto/any-sync-coordinator/identityrepo"
 	"github.com/anyproto/any-sync-coordinator/nodeconfsource"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
 	"github.com/anyproto/any-sync/app"
@@ -123,5 +124,6 @@ func Bootstrap(a *app.App) {
 		Register(spacestatus.New()).
 		Register(filelimit.New()).
 		Register(cafeapi.New()).
+		Register(identityrepo.New()).
 		Register(coordinator.New())
 }
