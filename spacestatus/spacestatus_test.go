@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/anyproto/any-sync-coordinator/db"
-	"github.com/anyproto/any-sync-coordinator/nodeservice"
+	"github.com/anyproto/any-sync-coordinator/deletionlog"
 	"github.com/anyproto/any-sync/app"
 	"github.com/anyproto/any-sync/commonspace/object/tree/treechangeproto"
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
@@ -22,32 +22,12 @@ type mockVerifier struct {
 	verify bool
 }
 
-func (m *mockVerifier) Verify(rawDelete *treechangeproto.RawTreeChangeWithId, identity crypto.PubKey, peerId string) (err error) {
+func (m *mockVerifier) Verify(change StatusChange) (err error) {
 	if m.verify {
 		return nil
 	} else {
 		return fmt.Errorf("failed to verify")
 	}
-}
-
-type mockDelSender struct {
-	send bool
-}
-
-func (m *mockDelSender) Delete(ctx context.Context, spaceId string, raw *treechangeproto.RawTreeChangeWithId) (err error) {
-	if m.send {
-		return nil
-	} else {
-		return fmt.Errorf("cannot send")
-	}
-}
-
-func (m *mockDelSender) Init(a *app.App) (err error) {
-	return
-}
-
-func (m *mockDelSender) Name() (name string) {
-	return nodeservice.CName
 }
 
 type mockConfig struct {
@@ -76,7 +56,7 @@ type delayedDeleter struct {
 	SpaceDeleter
 }
 
-func (d *delayedDeleter) Run(spaces *mongo.Collection, delSender DelSender) {
+func (d *delayedDeleter) Run(spaces *mongo.Collection, delSender Deleter) {
 	go func() {
 		<-d.runCh
 		d.SpaceDeleter.Run(spaces, delSender)
@@ -101,7 +81,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		defer fx.Finish(t)
 		spaceId := "spaceId"
 
-		err := fx.NewStatus(ctx, spaceId, identity, oldIdentity)
+		err := fx.NewStatus(ctx, spaceId, identity, oldIdentity, false)
 		require.NoError(t, err)
 		res, err := fx.Status(ctx, spaceId, identity)
 		require.NoError(t, err)
@@ -112,6 +92,61 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 			DeletionTimestamp: 0,
 			Status:            SpaceStatusCreated,
 		}, res)
+
+		// no error for second call
+		err = fx.NewStatus(ctx, spaceId, identity, oldIdentity, false)
+		assert.NoError(t, err)
+	})
+	t.Run("new status force", func(t *testing.T) {
+		t.Run("err space deleted", func(t *testing.T) {
+			fx := newFixture(t, 1)
+			fx.Run()
+			fx.verifier.verify = true
+			defer fx.Finish(t)
+			spaceId := "spaceId"
+
+			err := fx.NewStatus(ctx, spaceId, identity, oldIdentity, false)
+			require.NoError(t, err)
+
+			_, err = fx.SpaceStatus.(*spaceStatus).setStatus(ctx, StatusChange{
+				Status:  SpaceStatusDeleted,
+				SpaceId: spaceId,
+			}, SpaceStatusCreated)
+			require.NoError(t, err)
+
+			err = fx.NewStatus(ctx, spaceId, identity, oldIdentity, false)
+			assert.EqualError(t, err, coordinatorproto.ErrSpaceIsDeleted.Error())
+		})
+		t.Run("force create", func(t *testing.T) {
+			fx := newFixture(t, 1)
+			fx.Run()
+			fx.verifier.verify = true
+			defer fx.Finish(t)
+			spaceId := "spaceId"
+
+			err = fx.NewStatus(ctx, spaceId, identity, oldIdentity, false)
+			require.NoError(t, err)
+
+			_, err = fx.SpaceStatus.(*spaceStatus).setStatus(ctx, StatusChange{
+				Status:  SpaceStatusDeleted,
+				SpaceId: spaceId,
+			}, SpaceStatusCreated)
+			require.NoError(t, err)
+
+			err = fx.NewStatus(ctx, spaceId, identity, oldIdentity, true)
+			require.NoError(t, err)
+
+			res, err := fx.Status(ctx, spaceId, identity)
+			require.NoError(t, err)
+			require.Equal(t, StatusEntry{
+				SpaceId:           spaceId,
+				Identity:          encoded,
+				OldIdentity:       oldEncoded,
+				DeletionTimestamp: 0,
+				Status:            SpaceStatusCreated,
+			}, res)
+
+		})
 	})
 	t.Run("pending status", func(t *testing.T) {
 		fx := newFixture(t, 1)
@@ -120,7 +155,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		defer fx.Finish(t)
 		spaceId := "spaceId"
 
-		err := fx.NewStatus(ctx, spaceId, identity, oldIdentity)
+		err := fx.NewStatus(ctx, spaceId, identity, oldIdentity, false)
 		require.NoError(t, err)
 		raw := &treechangeproto.RawTreeChangeWithId{
 			RawChange: []byte{1},
@@ -141,10 +176,12 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 				Status:          SpaceStatusDeletionPending,
 			}, res)
 		}
-		res, err := fx.ChangeStatus(ctx, spaceId, StatusChange{
-			DeletionPayload: raw,
-			Identity:        identity,
-			Status:          SpaceStatusDeletionPending,
+		res, err := fx.ChangeStatus(ctx, StatusChange{
+			DeletionPayloadType: coordinatorproto.DeletionPayloadType_Tree,
+			DeletionPayload:     marshalled,
+			Identity:            identity,
+			SpaceId:             spaceId,
+			Status:              SpaceStatusDeletionPending,
 		})
 		checkStatus(res, err)
 		res, err = fx.Status(ctx, spaceId, identity)
@@ -157,20 +194,23 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		defer fx.Finish(t)
 		spaceId := "spaceId"
 
-		err := fx.NewStatus(ctx, spaceId, identity, oldIdentity)
+		err := fx.NewStatus(ctx, spaceId, identity, oldIdentity, false)
 		require.NoError(t, err)
 		raw := &treechangeproto.RawTreeChangeWithId{
 			RawChange: []byte{1},
 			Id:        "id",
 		}
-		res, err := fx.ChangeStatus(ctx, spaceId, StatusChange{
-			DeletionPayload: raw,
+		marshaled, _ := raw.Marshal()
+		res, err := fx.ChangeStatus(ctx, StatusChange{
+			DeletionPayload: marshaled,
 			Identity:        identity,
+			SpaceId:         spaceId,
 			Status:          SpaceStatusDeletionPending,
 		})
 		require.NoError(t, err)
-		res, err = fx.ChangeStatus(ctx, spaceId, StatusChange{
+		res, err = fx.ChangeStatus(ctx, StatusChange{
 			Identity: identity,
+			SpaceId:  spaceId,
 			Status:   SpaceStatusCreated,
 		})
 		require.NoError(t, err)
@@ -189,14 +229,16 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		defer fx.Finish(t)
 		spaceId := "spaceId"
 
-		err := fx.NewStatus(ctx, spaceId, identity, oldIdentity)
+		err := fx.NewStatus(ctx, spaceId, identity, oldIdentity, false)
 		require.NoError(t, err)
 		raw := &treechangeproto.RawTreeChangeWithId{
 			RawChange: []byte{1},
 			Id:        "id",
 		}
-		_, err = fx.ChangeStatus(ctx, spaceId, StatusChange{
-			DeletionPayload: raw,
+		marshaled, _ := raw.Marshal()
+		_, err = fx.ChangeStatus(ctx, StatusChange{
+			DeletionPayload: marshaled,
+			SpaceId:         spaceId,
 			Identity:        identity,
 			Status:          SpaceStatusDeletionPending,
 		})
@@ -209,10 +251,11 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		defer fx.Finish(t)
 		spaceId := "spaceId"
 
-		err := fx.NewStatus(ctx, spaceId, identity, oldIdentity)
+		err := fx.NewStatus(ctx, spaceId, identity, oldIdentity, false)
 		require.NoError(t, err)
-		_, err = fx.ChangeStatus(ctx, spaceId, StatusChange{
+		_, err = fx.ChangeStatus(ctx, StatusChange{
 			Identity: identity,
+			SpaceId:  spaceId,
 			Status:   SpaceStatusCreated,
 		})
 		require.Equal(t, err, coordinatorproto.ErrSpaceIsCreated)
@@ -220,34 +263,46 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 			RawChange: []byte{1},
 			Id:        "id",
 		}
-		_, err = fx.ChangeStatus(ctx, spaceId, StatusChange{
+		marshaled, _ := raw.Marshal()
+		_, err = fx.ChangeStatus(ctx, StatusChange{
 			Identity:        identity,
-			DeletionPayload: raw,
+			DeletionPayload: marshaled,
+			SpaceId:         spaceId,
 			Status:          SpaceStatusDeletionPending,
 		})
 		require.NoError(t, err)
-		_, err = fx.ChangeStatus(ctx, spaceId, StatusChange{
+		_, err = fx.ChangeStatus(ctx, StatusChange{
 			Identity:        identity,
-			DeletionPayload: raw,
+			DeletionPayload: marshaled,
+			SpaceId:         spaceId,
 			Status:          SpaceStatusDeletionPending,
 		})
 		require.Equal(t, err, coordinatorproto.ErrSpaceDeletionPending)
-		_, err = fx.ChangeStatus(ctx, spaceId, StatusChange{
-			DeletionPayload: raw,
+		_, err = fx.ChangeStatus(ctx, StatusChange{
+			DeletionPayload: marshaled,
+			SpaceId:         spaceId,
 			Identity:        identity,
 			Status:          SpaceStatusDeletionStarted,
 		})
 		require.Equal(t, err, coordinatorproto.ErrUnexpected)
-		_, err = fx.ChangeStatus(ctx, spaceId, StatusChange{
-			DeletionPayload: raw,
+		_, err = fx.ChangeStatus(ctx, StatusChange{
+			DeletionPayload: marshaled,
+			SpaceId:         spaceId,
 			Identity:        identity,
 			Status:          SpaceStatusDeleted,
 		})
 		require.Equal(t, err, coordinatorproto.ErrUnexpected)
-		_, err = fx.SpaceStatus.(*spaceStatus).modifyStatus(ctx, spaceId, SpaceStatusDeletionPending, SpaceStatusDeleted, []byte{1}, identity, time.Now().Unix())
+		_, err = fx.SpaceStatus.(*spaceStatus).modifyStatus(ctx, StatusChange{
+			DeletionPayload: []byte{1},
+			Identity:        identity,
+			Status:          SpaceStatusDeleted,
+			SpaceId:         spaceId,
+		}, SpaceStatusDeletionPending)
+
 		require.NoError(t, err)
-		_, err = fx.ChangeStatus(ctx, spaceId, StatusChange{
+		_, err = fx.ChangeStatus(ctx, StatusChange{
 			Identity: identity,
+			SpaceId:  spaceId,
 			Status:   SpaceStatusCreated,
 		})
 		require.Equal(t, err, coordinatorproto.ErrSpaceIsDeleted)
@@ -261,15 +316,17 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		_, other, err := crypto.GenerateRandomEd25519KeyPair()
 		require.NoError(t, err)
 
-		err = fx.NewStatus(ctx, spaceId, identity, oldIdentity)
+		err = fx.NewStatus(ctx, spaceId, identity, oldIdentity, false)
 		require.NoError(t, err)
 		raw := &treechangeproto.RawTreeChangeWithId{
 			RawChange: []byte{1},
 			Id:        "id",
 		}
-		_, err = fx.ChangeStatus(ctx, spaceId, StatusChange{
-			DeletionPayload: raw,
+		marshaled, _ := raw.Marshal()
+		_, err = fx.ChangeStatus(ctx, StatusChange{
+			DeletionPayload: marshaled,
 			Identity:        other,
+			SpaceId:         spaceId,
 			Status:          SpaceStatusDeletionPending,
 		})
 		require.Equal(t, err, coordinatorproto.ErrUnexpected)
@@ -282,10 +339,10 @@ func TestSpaceStatus_Run(t *testing.T) {
 	_, oldIdentity, err := crypto.GenerateRandomEd25519KeyPair()
 	require.NoError(t, err)
 
-	generateIds := func(ctx context.Context, fx *fixture, new int, pending int) {
+	generateIds := func(t *testing.T, fx *fixture, new int, pending int) {
 		for i := 0; i < new+pending; i++ {
 			spaceId := fmt.Sprintf("space%d", i)
-			err := fx.NewStatus(ctx, spaceId, identity, oldIdentity)
+			err := fx.NewStatus(ctx, spaceId, identity, oldIdentity, false)
 			require.NoError(t, err)
 		}
 		for i := new; i < new+pending; i++ {
@@ -294,15 +351,17 @@ func TestSpaceStatus_Run(t *testing.T) {
 				RawChange: []byte{1},
 				Id:        "id",
 			}
-			_, err := fx.ChangeStatus(ctx, spaceId, StatusChange{
-				DeletionPayload: raw,
+			marshaled, _ := raw.Marshal()
+			_, err := fx.ChangeStatus(ctx, StatusChange{
+				DeletionPayload: marshaled,
 				Identity:        identity,
+				SpaceId:         spaceId,
 				Status:          SpaceStatusDeletionPending,
 			})
 			require.NoError(t, err)
 		}
 	}
-	getStatus := func(ctx context.Context, fx *fixture, index int) (status StatusEntry) {
+	getStatus := func(t *testing.T, fx *fixture, index int) (status StatusEntry) {
 		status, err := fx.Status(ctx, fmt.Sprintf("space%d", index), identity)
 		require.NoError(t, err)
 		return
@@ -312,34 +371,19 @@ func TestSpaceStatus_Run(t *testing.T) {
 		defer fx.Finish(t)
 		new := 10
 		pending := 10
-		generateIds(ctx, fx, new, pending)
+		generateIds(t, fx, new, pending)
 		fx.Run()
 		time.Sleep(1 * time.Second)
 		for i := 0; i < new; i++ {
-			status := getStatus(ctx, fx, i)
+			status := getStatus(t, fx, i)
 			if status.Status != SpaceStatusCreated {
 				t.Fatalf("should get status created for new ids")
 			}
 		}
 		for i := new; i < new+pending; i++ {
-			status := getStatus(ctx, fx, i)
+			status := getStatus(t, fx, i)
 			if status.Status != SpaceStatusDeleted {
 				t.Fatalf("should get status deleted for pending ids")
-			}
-		}
-	})
-	t.Run("test run errors", func(t *testing.T) {
-		fx := newFixture(t, 0)
-		defer fx.Finish(t)
-		fx.sender.send = false
-		pending := 10
-		generateIds(ctx, fx, 0, pending)
-		fx.Run()
-		time.Sleep(1 * time.Second)
-		for i := 0; i < pending; i++ {
-			status := getStatus(ctx, fx, i)
-			if status.Status != SpaceStatusDeletionPending {
-				t.Fatalf("should get status pending for pending ids")
 			}
 		}
 	})
@@ -348,7 +392,7 @@ func TestSpaceStatus_Run(t *testing.T) {
 		mainFx := newFixture(t, 0)
 		defer mainFx.Finish(t)
 		pending := 10
-		generateIds(ctx, mainFx, 0, pending)
+		generateIds(t, mainFx, 0, pending)
 		startCh := make(chan struct{})
 		stopCh := make(chan struct{})
 
@@ -366,7 +410,7 @@ func TestSpaceStatus_Run(t *testing.T) {
 		time.Sleep(1 * time.Second)
 		close(stopCh)
 		for i := 0; i < pending; i++ {
-			status := getStatus(ctx, mainFx, i)
+			status := getStatus(t, mainFx, i)
 			if status.Status != SpaceStatusDeleted {
 				t.Fatalf("should get status deleted for pending ids")
 			}
@@ -379,7 +423,6 @@ type fixture struct {
 	a          *app.App
 	cancel     context.CancelFunc
 	verifier   *mockVerifier
-	sender     *mockDelSender
 	delayed    *delayedDeleter
 	deleteColl bool
 }
@@ -389,7 +432,6 @@ func newFixture(t *testing.T, deletionPeriod int) *fixture {
 	fx := fixture{
 		SpaceStatus: New(),
 		verifier:    &mockVerifier{true},
-		sender:      &mockDelSender{true},
 		cancel:      cancel,
 		deleteColl:  true,
 		a:           new(app.App),
@@ -405,7 +447,7 @@ func newFixture(t *testing.T, deletionPeriod int) *fixture {
 	fx.a.Register(mockConfig{
 		Mongo: db.Mongo{
 			Connect:  "mongodb://localhost:27017",
-			Database: "coordinator_test",
+			Database: "coordinator_unittest_spacestatus",
 		},
 		Config: Config{
 			RunSeconds:         100,
@@ -413,8 +455,8 @@ func newFixture(t *testing.T, deletionPeriod int) *fixture {
 		},
 	})
 	fx.a.Register(db.New())
-	fx.a.Register(fx.sender)
 	fx.a.Register(fx.SpaceStatus)
+	fx.a.Register(deletionlog.New())
 	err := fx.a.Start(ctx)
 	if err != nil {
 		fx.cancel()

@@ -10,10 +10,10 @@ import (
 	"github.com/anyproto/any-sync-coordinator/coordinator"
 	"github.com/anyproto/any-sync-coordinator/coordinatorlog"
 	"github.com/anyproto/any-sync-coordinator/db"
+	"github.com/anyproto/any-sync-coordinator/deletionlog"
 	"github.com/anyproto/any-sync-coordinator/filelimit"
 	"github.com/anyproto/any-sync-coordinator/identityrepo"
 	"github.com/anyproto/any-sync-coordinator/nodeconfsource"
-	"github.com/anyproto/any-sync-coordinator/nodeservice"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
 	"github.com/anyproto/any-sync/app"
 	"github.com/anyproto/any-sync/app/logger"
@@ -22,6 +22,7 @@ import (
 	"github.com/anyproto/any-sync/net/pool"
 	"github.com/anyproto/any-sync/net/rpc/server"
 	"github.com/anyproto/any-sync/net/secureservice"
+	"github.com/anyproto/any-sync/net/transport/quic"
 	"github.com/anyproto/any-sync/net/transport/yamux"
 	"github.com/anyproto/any-sync/nodeconf"
 	"github.com/anyproto/any-sync/nodeconf/nodeconfstore"
@@ -69,6 +70,9 @@ func main() {
 	ctx := context.Background()
 	a := new(app.App)
 
+	// set the proto version
+	secureservice.ProtoVersion = 1
+
 	// open config file
 	conf, err := config.NewFromFile(*flagConfigFile)
 	if err != nil {
@@ -109,13 +113,14 @@ func Bootstrap(a *app.App) {
 		Register(nodeconfstore.New()).
 		Register(nodeconf.New()).
 		Register(nodeconfsource.New()).
+		Register(deletionlog.New()).
 		Register(peerservice.New()).
 		Register(yamux.New()).
+		Register(quic.New()).
 		Register(pool.New()).
 		Register(secureservice.New()).
 		Register(server.New()).
 		Register(coordinatorlog.New()).
-		Register(nodeservice.New()).
 		Register(spacestatus.New()).
 		Register(filelimit.New()).
 		Register(cafeapi.New()).
