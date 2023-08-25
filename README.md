@@ -2,7 +2,7 @@
 Implementation of coordinator node from [`any-sync`](https://github.com/anyproto/any-sync) protocol.
 
 ## Building the source
-To ensure compatibility, please use Go version `1.19`.
+To ensure compatibility, please use Go version `1.21`.
 
 To build and run the Any-Sync Coordinator Node on your own server, follow these technical steps:
 
@@ -16,7 +16,7 @@ To build and run the Any-Sync Coordinator Node on your own server, follow these 
 4.  If there are no errors, the Any-Sync Coordinator Node will be built and can be found in the `./bin` directory.
 
 ## Running
-You will need a MongoDB to run Any-Sync Coordinator Node.
+You will need a MongoDB in replica set mode to run Any-Sync Coordinator Node.
 
 Any-Sync Coordinator Node requires a configuration. You can generate configuration files for your nodes with [`any-sync-network`](https://github.com/anyproto/any-sync-tools) tool.
 
