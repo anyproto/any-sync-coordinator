@@ -23,6 +23,7 @@ var log = logger.NewNamed(CName)
 type StatusChange struct {
 	DeletionPayloadType coordinatorproto.DeletionPayloadType
 	DeletionPayload     []byte
+	DeletionPayloadId   string
 	Identity            crypto.PubKey
 	Status              int
 	PeerId              string
