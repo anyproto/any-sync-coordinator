@@ -90,7 +90,7 @@ func (c *coordinator) StatusCheck(ctx context.Context, spaceId string) (status s
 	return
 }
 
-func (c *coordinator) StatusChange(ctx context.Context, spaceId string, payloadType coordinatorproto.DeletionPayloadType, payload []byte) (entry spacestatus.StatusEntry, err error) {
+func (c *coordinator) StatusChange(ctx context.Context, spaceId string, payloadType coordinatorproto.DeletionPayloadType, payload []byte, payloadId string) (entry spacestatus.StatusEntry, err error) {
 	defer func() {
 		log.Debug("finished changing status", zap.Error(err), zap.String("spaceId", spaceId), zap.Bool("isDelete", payload != nil))
 	}()
@@ -109,6 +109,7 @@ func (c *coordinator) StatusChange(ctx context.Context, spaceId string, payloadT
 	return c.spaceStatus.ChangeStatus(ctx, spacestatus.StatusChange{
 		DeletionPayloadType: payloadType,
 		DeletionPayload:     payload,
+		DeletionPayloadId:   payloadId,
 		Identity:            accountPubKey,
 		Status:              status,
 		PeerId:              peerId,

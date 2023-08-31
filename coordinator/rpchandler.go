@@ -81,7 +81,7 @@ func (r *rpcHandler) SpaceStatusChange(ctx context.Context, req *coordinatorprot
 			zap.Error(err),
 		)
 	}()
-	entry, err := r.c.StatusChange(ctx, req.SpaceId, req.DeletionPayloadType, req.DeletionPayload)
+	entry, err := r.c.StatusChange(ctx, req.SpaceId, req.DeletionPayloadType, req.DeletionPayload, req.DeletionPayloadId)
 	if err != nil {
 		return nil, err
 	}

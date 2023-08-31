@@ -21,9 +21,9 @@ type changeVerifier struct {
 
 func (c *changeVerifier) Verify(change StatusChange) (err error) {
 	if change.DeletionPayloadType == coordinatorproto.DeletionPayloadType_Tree {
-		var rawDelete = new(treechangeproto.RawTreeChangeWithId)
-		if err = rawDelete.Unmarshal(change.DeletionPayload); err != nil {
-			return err
+		rawDelete := &treechangeproto.RawTreeChangeWithId{
+			RawChange: change.DeletionPayload,
+			Id:        change.DeletionPayloadId,
 		}
 		return settings.VerifyDeleteChange(rawDelete, change.Identity, change.PeerId)
 	}
