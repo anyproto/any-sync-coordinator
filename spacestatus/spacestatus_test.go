@@ -75,7 +75,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 	encoded := identity.Account()
 	oldEncoded := oldIdentity.Account()
 	t.Run("new status", func(t *testing.T) {
-		fx := newFixture(t, 1)
+		fx := newFixture(t, 1, 0)
 		fx.Run()
 		fx.verifier.verify = true
 		defer fx.Finish(t)
@@ -99,7 +99,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 	})
 	t.Run("new status force", func(t *testing.T) {
 		t.Run("err space deleted", func(t *testing.T) {
-			fx := newFixture(t, 1)
+			fx := newFixture(t, 1, 0)
 			fx.Run()
 			fx.verifier.verify = true
 			defer fx.Finish(t)
@@ -118,7 +118,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 			assert.EqualError(t, err, coordinatorproto.ErrSpaceIsDeleted.Error())
 		})
 		t.Run("force create", func(t *testing.T) {
-			fx := newFixture(t, 1)
+			fx := newFixture(t, 1, 0)
 			fx.Run()
 			fx.verifier.verify = true
 			defer fx.Finish(t)
@@ -149,7 +149,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		})
 	})
 	t.Run("pending status", func(t *testing.T) {
-		fx := newFixture(t, 1)
+		fx := newFixture(t, 1, 0)
 		fx.Run()
 		fx.verifier.verify = true
 		defer fx.Finish(t)
@@ -188,7 +188,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		checkStatus(res, err)
 	})
 	t.Run("change status pending to created", func(t *testing.T) {
-		fx := newFixture(t, 1)
+		fx := newFixture(t, 1, 0)
 		fx.Run()
 		fx.verifier.verify = true
 		defer fx.Finish(t)
@@ -223,7 +223,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		}, res)
 	})
 	t.Run("failed to verify change", func(t *testing.T) {
-		fx := newFixture(t, 1)
+		fx := newFixture(t, 1, 0)
 		fx.Run()
 		fx.verifier.verify = false
 		defer fx.Finish(t)
@@ -245,7 +245,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		require.Error(t, err)
 	})
 	t.Run("set incorrect status change", func(t *testing.T) {
-		fx := newFixture(t, 1)
+		fx := newFixture(t, 1, 0)
 		fx.Run()
 		fx.verifier.verify = true
 		defer fx.Finish(t)
@@ -308,7 +308,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		require.Equal(t, err, coordinatorproto.ErrSpaceIsDeleted)
 	})
 	t.Run("set wrong identity", func(t *testing.T) {
-		fx := newFixture(t, 1)
+		fx := newFixture(t, 1, 0)
 		fx.Run()
 		fx.verifier.verify = false
 		defer fx.Finish(t)
@@ -330,6 +330,56 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 			Status:          SpaceStatusDeletionPending,
 		})
 		require.Equal(t, err, coordinatorproto.ErrUnexpected)
+	})
+	t.Run("new status space limit", func(t *testing.T) {
+		var limit = 3
+		fx := newFixture(t, 0, limit)
+		fx.Run()
+		fx.verifier.verify = true
+		defer fx.Finish(t)
+
+		for i := 0; i < limit; i++ {
+			err := fx.NewStatus(ctx, fmt.Sprint(i), identity, oldIdentity, false)
+			require.NoError(t, err)
+		}
+
+		err := fx.NewStatus(ctx, "spaceId", identity, oldIdentity, false)
+		require.EqualError(t, err, coordinatorproto.ErrSpaceLimitReached.Error())
+	})
+	t.Run("restore status limit", func(t *testing.T) {
+		var limit = 3
+		fx := newFixture(t, 0, limit)
+		fx.Run()
+		fx.verifier.verify = true
+		defer fx.Finish(t)
+		spaceId := "spaceId"
+
+		err := fx.NewStatus(ctx, spaceId, identity, oldIdentity, false)
+		require.NoError(t, err)
+		raw := &treechangeproto.RawTreeChangeWithId{
+			RawChange: []byte{1},
+			Id:        "id",
+		}
+		marshaled, _ := raw.Marshal()
+		_, err = fx.ChangeStatus(ctx, StatusChange{
+			DeletionPayload: marshaled,
+			Identity:        identity,
+			SpaceId:         spaceId,
+			Status:          SpaceStatusDeletionPending,
+		})
+		require.NoError(t, err)
+
+		for i := 0; i < limit; i++ {
+			err := fx.NewStatus(ctx, fmt.Sprint(i), identity, oldIdentity, false)
+			require.NoError(t, err)
+		}
+
+		_, err = fx.ChangeStatus(ctx, StatusChange{
+			Identity: identity,
+			SpaceId:  spaceId,
+			Status:   SpaceStatusCreated,
+		})
+		assert.EqualError(t, err, coordinatorproto.ErrSpaceLimitReached.Error())
 	})
 }
 
@@ -367,7 +417,7 @@ func TestSpaceStatus_Run(t *testing.T) {
 		return
 	}
 	t.Run("test run simple", func(t *testing.T) {
-		fx := newFixture(t, 0)
+		fx := newFixture(t, 0, 0)
 		defer fx.Finish(t)
 		new := 10
 		pending := 10
@@ -389,7 +439,7 @@ func TestSpaceStatus_Run(t *testing.T) {
 	})
 	t.Run("test run parallel", func(t *testing.T) {
 		var otherFx *fixture
-		mainFx := newFixture(t, 0)
+		mainFx := newFixture(t, 0, 0)
 		defer mainFx.Finish(t)
 		pending := 10
 		generateIds(t, mainFx, 0, pending)
@@ -397,7 +447,7 @@ func TestSpaceStatus_Run(t *testing.T) {
 		stopCh := make(chan struct{})
 
 		go func() {
-			otherFx = newFixture(t, 0)
+			otherFx = newFixture(t, 0, 0)
 			otherFx.deleteColl = false
 			defer otherFx.Finish(t)
 			close(startCh)
@@ -427,7 +477,7 @@ type fixture struct {
 	deleteColl bool
 }
 
-func newFixture(t *testing.T, deletionPeriod int) *fixture {
+func newFixture(t *testing.T, deletionPeriod, spaceLimit int) *fixture {
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	fx := fixture{
 		SpaceStatus: New(),
@@ -452,6 +502,7 @@ func newFixture(t *testing.T, deletionPeriod int) *fixture {
 		Config: Config{
 			RunSeconds:         100,
 			DeletionPeriodDays: deletionPeriod,
+			SpaceLimit:         spaceLimit,
 		},
 	})
 	fx.a.Register(db.New())
