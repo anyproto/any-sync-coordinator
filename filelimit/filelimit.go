@@ -19,7 +19,7 @@ func New() FileLimit {
 }
 
 type FileLimit interface {
-	Get(ctx context.Context, identity []byte, spaceId string) (limit uint64, err error)
+	Get(ctx context.Context, identity []byte, spaceId string) (limit uint64, storageKey string, err error)
 
 	app.Component
 }
@@ -43,7 +43,7 @@ func (f *fileLimit) Name() (name string) {
 	return CName
 }
 
-func (f *fileLimit) Get(ctx context.Context, identity []byte, spaceId string) (limit uint64, err error) {
+func (f *fileLimit) Get(ctx context.Context, identity []byte, spaceId string) (limit uint64, storageKey string, err error) {
 	pk, err := crypto.UnmarshalEd25519PublicKeyProto(identity)
 	if err != nil {
 		return
@@ -53,13 +53,16 @@ func (f *fileLimit) Get(ctx context.Context, identity []byte, spaceId string) (l
 		return
 	}
 	if statusEntry.Status != spacestatus.SpaceStatusCreated {
-		return 0, coordinatorproto.ErrSpaceIsDeleted
+		return 0, "", coordinatorproto.ErrSpaceIsDeleted
 	}
 
 	if f.conf.LimitDefault == 0 {
 		// if not defined - unlimited
-		return math.MaxUint64, nil
+		return math.MaxUint64, statusEntry.Identity, nil
 	}
+
+	// by default, we use identity as storageKey, later will be additional logic to use the spaceId as the key
+	storageKey = statusEntry.Identity
 
 	var shouldCheckCafe bool
 	limit, err = f.db.Get(ctx, spaceId)

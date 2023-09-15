@@ -32,8 +32,9 @@ func TestFileLimit_Get(t *testing.T) {
 		fx.spaceStatus.EXPECT().Status(ctx, spaceId, gomock.Any()).Return(ss, nil)
 		fx.cafeApi.EXPECT().CheckCafeUserStatus(gomock.Any(), "old").Return(cafeapi.UserTypeNew, nil)
 
-		limit, err := fx.Get(ctx, identity, spaceId)
+		limit, storeKey, err := fx.Get(ctx, identity, spaceId)
 		require.NoError(t, err)
+		assert.Equal(t, ss.Identity, storeKey)
 		assert.Equal(t, uint64(100), limit)
 	})
 	t.Run("alpha user", func(t *testing.T) {
@@ -44,8 +45,9 @@ func TestFileLimit_Get(t *testing.T) {
 		fx.spaceStatus.EXPECT().Status(ctx, spaceId, gomock.Any()).Return(ss, nil)
 		fx.cafeApi.EXPECT().CheckCafeUserStatus(gomock.Any(), "old").Return(cafeapi.UserTypeOld, nil)
 
-		limit, err := fx.Get(ctx, identity, spaceId)
+		limit, storeKey, err := fx.Get(ctx, identity, spaceId)
 		require.NoError(t, err)
+		assert.Equal(t, ss.Identity, storeKey)
 		assert.Equal(t, uint64(1000), limit)
 	})
 	t.Run("nightly user", func(t *testing.T) {
@@ -56,8 +58,9 @@ func TestFileLimit_Get(t *testing.T) {
 		fx.spaceStatus.EXPECT().Status(ctx, spaceId, gomock.Any()).Return(ss, nil)
 		fx.cafeApi.EXPECT().CheckCafeUserStatus(gomock.Any(), "old").Return(cafeapi.UserTypeNightly, nil)
 
-		limit, err := fx.Get(ctx, identity, spaceId)
+		limit, storeKey, err := fx.Get(ctx, identity, spaceId)
 		require.NoError(t, err)
+		assert.Equal(t, ss.Identity, storeKey)
 		assert.Equal(t, uint64(10000), limit)
 	})
 	t.Run("custom limit", func(t *testing.T) {
@@ -68,8 +71,9 @@ func TestFileLimit_Get(t *testing.T) {
 		identity := newTestIdentity()
 
 		fx.spaceStatus.EXPECT().Status(ctx, spaceId, gomock.Any()).Return(ss, nil)
-		limit, err := fx.Get(ctx, identity, spaceId)
+		limit, storeKey, err := fx.Get(ctx, identity, spaceId)
 		require.NoError(t, err)
+		assert.Equal(t, ss.Identity, storeKey)
 		assert.Equal(t, uint64(123), limit)
 	})
 }
