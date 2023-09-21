@@ -3,9 +3,7 @@ on:
     branches:
       - main
 
-permissions:
-  contents: write
-  pull-requests: write
+name: coverage
 
 jobs:
   test:
@@ -26,6 +24,7 @@ jobs:
       - name: git config
         run: git config --global url.https://${{ secrets.ANYTYPE_PAT }}@github.com/.insteadOf https://github.com/
 
+      # check license {{
       - name: Setup license repository
         uses: actions/checkout@master
         with:
@@ -40,12 +39,19 @@ jobs:
           sudo gem install license_finder
           license_finder inherited_decisions add open/decisions.yml
           license_finder --enabled-package-managers gomodules
+      # }}
+
+      - name: Start MongoDB
+        uses: supercharge/mongodb-github-action@1.8.0
+        with:
+          mongodb-version: 6.0
+          mongodb-replica-set: test-rs
 
       - name: deps
-        run: make deps
+        run: make deps CGO_ENABLED=0
 
       - name: unit tests
-        run: make test
+        run: make test CGO_ENABLED=0
 
       - name: Quality Gate - Test coverage shall be above threshold
         env:
