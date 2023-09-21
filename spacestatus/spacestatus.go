@@ -93,7 +93,13 @@ type insertNewSpaceOp struct {
 func (s *spaceStatus) ChangeStatus(ctx context.Context, change StatusChange) (entry StatusEntry, err error) {
 	switch change.Status {
 	case SpaceStatusCreated:
-		return s.setStatus(ctx, change, SpaceStatusDeletionPending)
+		err = s.db.Tx(ctx, func(txCtx mongo.SessionContext) error {
+			if entry, err = s.setStatusTx(txCtx, change, SpaceStatusDeletionPending); err != nil {
+				return err
+			}
+			return s.checkLimitTx(txCtx, change.Identity)
+		})
+		return
 	case SpaceStatusDeletionPending:
 		err = s.verifier.Verify(change)
 		if err != nil {
@@ -108,25 +114,31 @@ func (s *spaceStatus) ChangeStatus(ctx context.Context, change StatusChange) (en
 
 func (s *spaceStatus) setStatus(ctx context.Context, change StatusChange, oldStatus int) (entry StatusEntry, err error) {
 	err = s.db.Tx(ctx, func(txCtx mongo.SessionContext) error {
-		entry, err = s.modifyStatus(txCtx, change, oldStatus)
-		if err != nil {
-			return err
-		}
-		var status deletionlog.Status
-		switch change.Status {
-		case SpaceStatusDeletionPending:
-			status = deletionlog.StatusRemovePrepare
-		case SpaceStatusCreated:
-			status = deletionlog.StatusOk
-		case SpaceStatusDeleted:
-			status = deletionlog.StatusRemove
-		default:
-			log.Error("unexpected space status", zap.Int("status", change.Status))
-			return coordinatorproto.ErrUnexpected
-		}
-		_, err = s.deletionLog.Add(txCtx, change.SpaceId, status)
+		entry, err = s.setStatusTx(txCtx, change, oldStatus)
 		return err
 	})
+	return
+}
+
+func (s *spaceStatus) setStatusTx(txCtx mongo.SessionContext, change StatusChange, oldStatus int) (entry StatusEntry, err error) {
+	entry, err = s.modifyStatus(txCtx, change, oldStatus)
+	if err != nil {
+		return
+	}
+	var status deletionlog.Status
+	switch change.Status {
+	case SpaceStatusDeletionPending:
+		status = deletionlog.StatusRemovePrepare
+	case SpaceStatusCreated:
+		status = deletionlog.StatusOk
+	case SpaceStatusDeleted:
+		status = deletionlog.StatusRemove
+	default:
+		log.Error("unexpected space status", zap.Int("status", change.Status))
+		err = coordinatorproto.ErrUnexpected
+		return
+	}
+	_, err = s.deletionLog.Add(txCtx, change.SpaceId, status)
 	return
 }
 
@@ -180,31 +192,66 @@ func (s *spaceStatus) Status(ctx context.Context, spaceId string, identity crypt
 	return
 }
 
-func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity, oldIdentity crypto.PubKey, force bool) (err error) {
-	_, err = s.spaces.InsertOne(ctx, insertNewSpaceOp{
-		Identity:    identity.Account(),
-		OldIdentity: oldIdentity.Account(),
-		Status:      SpaceStatusCreated,
-		SpaceId:     spaceId,
-	})
-	if mongo.IsDuplicateKeyError(err) {
-		var entry StatusEntry
-		if entry, err = s.Status(ctx, spaceId, identity); err != nil {
-			return
+func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity, oldIdentity crypto.PubKey, force bool) error {
+	return s.db.Tx(ctx, func(txCtx mongo.SessionContext) error {
+		entry, err := s.Status(txCtx, spaceId, identity)
+		notFound := err == coordinatorproto.ErrSpaceNotExists
+		if err != nil && !notFound {
+			return err
 		}
-		if entry.Status == SpaceStatusCreated {
+		if entry.Status == SpaceStatusCreated && !notFound {
 			// save back compatibility
 			return nil
 		}
-		if force {
-			_, err = s.setStatus(ctx, StatusChange{
-				Identity: identity,
-				Status:   SpaceStatusCreated,
-				SpaceId:  spaceId,
-			}, entry.Status)
-		} else {
-			return coordinatorproto.ErrSpaceIsDeleted
+		var inserted bool
+		if notFound {
+			if _, err = s.spaces.InsertOne(txCtx, insertNewSpaceOp{
+				Identity:    identity.Account(),
+				OldIdentity: oldIdentity.Account(),
+				Status:      SpaceStatusCreated,
+				SpaceId:     spaceId,
+			}); err != nil {
+				return err
+			} else {
+				inserted = true
+			}
 		}
+		if !inserted {
+			if force {
+				_, err = s.setStatusTx(txCtx, StatusChange{
+					Identity: identity,
+					Status:   SpaceStatusCreated,
+					SpaceId:  spaceId,
+				}, entry.Status)
+			} else {
+				return coordinatorproto.ErrSpaceIsDeleted
+			}
+		}
+		if err = s.checkLimitTx(txCtx, identity); err != nil {
+			return err
+		}
+		return nil
+	})
+}
+
+type byIdentityAndStatus struct {
+	Identity string `bson:"identity"`
+	Status   int    `bson:"status"`
+}
+
+func (s *spaceStatus) checkLimitTx(txCtx mongo.SessionContext, identity crypto.PubKey) (err error) {
+	if s.conf.SpaceLimit <= 0 {
+		return
+	}
+	count, err := s.spaces.CountDocuments(txCtx, byIdentityAndStatus{
+		Identity: identity.Account(),
+		Status:   SpaceStatusCreated,
+	})
+	if err != nil {
+		return
+	}
+	if count > int64(s.conf.SpaceLimit) {
+		return coordinatorproto.ErrSpaceLimitReached
 	}
 	return
 }
@@ -250,6 +297,7 @@ func notFoundOrUnexpected(err error) error {
 	if err == mongo.ErrNoDocuments {
 		return coordinatorproto.ErrSpaceNotExists
 	} else {
+		log.Info("", zap.Error(err))
 		return coordinatorproto.ErrUnexpected
 	}
 }
