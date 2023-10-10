@@ -4,8 +4,8 @@ package spacestatus
 import (
 	"context"
 	"errors"
-	"github.com/anyproto/any-sync-coordinator/db"
-	"github.com/anyproto/any-sync-coordinator/deletionlog"
+	"time"
+
 	"github.com/anyproto/any-sync/app"
 	"github.com/anyproto/any-sync/app/logger"
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
@@ -13,7 +13,9 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.uber.org/zap"
-	"time"
+
+	"github.com/anyproto/any-sync-coordinator/db"
+	"github.com/anyproto/any-sync-coordinator/deletionlog"
 )
 
 const CName = "coordinator.spacestatus"
@@ -38,6 +40,14 @@ const (
 	SpaceStatusDeleted
 )
 
+type SpaceType int
+
+const (
+	SpaceTypePersonal SpaceType = iota
+	SpaceTypeTech
+	SpaceTypeRegular
+)
+
 var (
 	ErrStatusExists = errors.New("space status exists")
 )
@@ -49,7 +59,7 @@ type configProvider interface {
 }
 
 type SpaceStatus interface {
-	NewStatus(ctx context.Context, spaceId string, identity, oldIdentity crypto.PubKey, force bool) (err error)
+	NewStatus(ctx context.Context, spaceId string, identity, oldIdentity crypto.PubKey, spaceType SpaceType, force bool) (err error)
 	ChangeStatus(ctx context.Context, change StatusChange) (entry StatusEntry, err error)
 	Status(ctx context.Context, spaceId string, pubKey crypto.PubKey) (entry StatusEntry, err error)
 	app.ComponentRunnable
@@ -84,10 +94,11 @@ type modifyStatusOp struct {
 }
 
 type insertNewSpaceOp struct {
-	Identity    string `bson:"identity"`
-	OldIdentity string `bson:"oldIdentity"`
-	Status      int    `bson:"status"`
-	SpaceId     string `bson:"_id"`
+	Identity    string    `bson:"identity"`
+	OldIdentity string    `bson:"oldIdentity"`
+	Status      int       `bson:"status"`
+	Type        SpaceType `bson:"type"`
+	SpaceId     string    `bson:"_id"`
 }
 
 func (s *spaceStatus) ChangeStatus(ctx context.Context, change StatusChange) (entry StatusEntry, err error) {
@@ -192,7 +203,7 @@ func (s *spaceStatus) Status(ctx context.Context, spaceId string, identity crypt
 	return
 }
 
-func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity, oldIdentity crypto.PubKey, force bool) error {
+func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity, oldIdentity crypto.PubKey, spaceType SpaceType, force bool) error {
 	return s.db.Tx(ctx, func(txCtx mongo.SessionContext) error {
 		entry, err := s.Status(txCtx, spaceId, identity)
 		notFound := err == coordinatorproto.ErrSpaceNotExists
@@ -210,6 +221,7 @@ func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity, o
 				OldIdentity: oldIdentity.Account(),
 				Status:      SpaceStatusCreated,
 				SpaceId:     spaceId,
+				Type:        spaceType,
 			}); err != nil {
 				return err
 			} else {

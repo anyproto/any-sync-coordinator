@@ -3,11 +3,8 @@ package coordinator
 import (
 	"context"
 	"errors"
-	"github.com/anyproto/any-sync-coordinator/config"
-	"github.com/anyproto/any-sync-coordinator/coordinatorlog"
-	"github.com/anyproto/any-sync-coordinator/deletionlog"
-	"github.com/anyproto/any-sync-coordinator/filelimit"
-	"github.com/anyproto/any-sync-coordinator/spacestatus"
+	"time"
+
 	"github.com/anyproto/any-sync/accountservice"
 	"github.com/anyproto/any-sync/app"
 	"github.com/anyproto/any-sync/app/logger"
@@ -22,7 +19,12 @@ import (
 	"github.com/anyproto/any-sync/util/crypto"
 	"go.uber.org/zap"
 	"storj.io/drpc"
-	"time"
+
+	"github.com/anyproto/any-sync-coordinator/config"
+	"github.com/anyproto/any-sync-coordinator/coordinatorlog"
+	"github.com/anyproto/any-sync-coordinator/deletionlog"
+	"github.com/anyproto/any-sync-coordinator/filelimit"
+	"github.com/anyproto/any-sync-coordinator/spacestatus"
 )
 
 var (
@@ -142,7 +144,11 @@ func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader
 	if err != nil {
 		return
 	}
-	err = c.spaceStatus.NewStatus(ctx, spaceId, accountPubKey, oldPubKey, force)
+	spaceType, err := spacestatus.VerifySpaceHeader(accountPubKey, spaceHeader)
+	if err != nil {
+		return
+	}
+	err = c.spaceStatus.NewStatus(ctx, spaceId, accountPubKey, oldPubKey, spaceType, force)
 	if err != nil {
 		return
 	}

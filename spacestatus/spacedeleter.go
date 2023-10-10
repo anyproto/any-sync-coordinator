@@ -2,11 +2,12 @@ package spacestatus
 
 import (
 	"context"
+	"time"
+
 	"github.com/anyproto/any-sync/util/periodicsync"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.uber.org/zap"
-	"time"
 )
 
 const deletionTimeout = time.Second * 100
@@ -34,13 +35,14 @@ func (d pendingSpacesQuery) toMap() bson.M {
 }
 
 type StatusEntry struct {
-	SpaceId             string `bson:"_id"`
-	Identity            string `bson:"identity"`
-	OldIdentity         string `bson:"oldIdentity"`
-	DeletionPayloadType int    `bson:"deletionPayloadType"`
-	DeletionPayload     []byte `bson:"deletionPayload"`
-	DeletionTimestamp   int64  `bson:"deletionTimestamp"`
-	Status              int    `bson:"status"`
+	SpaceId             string    `bson:"_id"`
+	Identity            string    `bson:"identity"`
+	OldIdentity         string    `bson:"oldIdentity"`
+	DeletionPayloadType int       `bson:"deletionPayloadType"`
+	DeletionPayload     []byte    `bson:"deletionPayload"`
+	DeletionTimestamp   int64     `bson:"deletionTimestamp"`
+	Status              int       `bson:"status"`
+	Type                SpaceType `bson:"type"`
 }
 
 type spaceDeleter struct {

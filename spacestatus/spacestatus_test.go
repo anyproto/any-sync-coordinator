@@ -3,8 +3,9 @@ package spacestatus
 import (
 	"context"
 	"fmt"
-	"github.com/anyproto/any-sync-coordinator/db"
-	"github.com/anyproto/any-sync-coordinator/deletionlog"
+	"testing"
+	"time"
+
 	"github.com/anyproto/any-sync/app"
 	"github.com/anyproto/any-sync/commonspace/object/tree/treechangeproto"
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
@@ -12,8 +13,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/mongo"
-	"testing"
-	"time"
+
+	"github.com/anyproto/any-sync-coordinator/db"
+	"github.com/anyproto/any-sync-coordinator/deletionlog"
 )
 
 var ctx = context.Background()
@@ -81,7 +83,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		defer fx.Finish(t)
 		spaceId := "spaceId"
 
-		err := fx.NewStatus(ctx, spaceId, identity, oldIdentity, false)
+		err := fx.NewStatus(ctx, spaceId, identity, oldIdentity, 0, false)
 		require.NoError(t, err)
 		res, err := fx.Status(ctx, spaceId, identity)
 		require.NoError(t, err)
@@ -94,7 +96,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		}, res)
 
 		// no error for second call
-		err = fx.NewStatus(ctx, spaceId, identity, oldIdentity, false)
+		err = fx.NewStatus(ctx, spaceId, identity, oldIdentity, 0, false)
 		assert.NoError(t, err)
 	})
 	t.Run("new status force", func(t *testing.T) {
@@ -105,7 +107,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 			defer fx.Finish(t)
 			spaceId := "spaceId"
 
-			err := fx.NewStatus(ctx, spaceId, identity, oldIdentity, false)
+			err := fx.NewStatus(ctx, spaceId, identity, oldIdentity, 0, false)
 			require.NoError(t, err)
 
 			_, err = fx.SpaceStatus.(*spaceStatus).setStatus(ctx, StatusChange{
@@ -114,7 +116,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 			}, SpaceStatusCreated)
 			require.NoError(t, err)
 
-			err = fx.NewStatus(ctx, spaceId, identity, oldIdentity, false)
+			err = fx.NewStatus(ctx, spaceId, identity, oldIdentity, 0, false)
 			assert.EqualError(t, err, coordinatorproto.ErrSpaceIsDeleted.Error())
 		})
 		t.Run("force create", func(t *testing.T) {
@@ -124,7 +126,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 			defer fx.Finish(t)
 			spaceId := "spaceId"
 
-			err = fx.NewStatus(ctx, spaceId, identity, oldIdentity, false)
+			err = fx.NewStatus(ctx, spaceId, identity, oldIdentity, 0, false)
 			require.NoError(t, err)
 
 			_, err = fx.SpaceStatus.(*spaceStatus).setStatus(ctx, StatusChange{
@@ -133,7 +135,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 			}, SpaceStatusCreated)
 			require.NoError(t, err)
 
-			err = fx.NewStatus(ctx, spaceId, identity, oldIdentity, true)
+			err = fx.NewStatus(ctx, spaceId, identity, oldIdentity, 0, true)
 			require.NoError(t, err)
 
 			res, err := fx.Status(ctx, spaceId, identity)
@@ -155,7 +157,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		defer fx.Finish(t)
 		spaceId := "spaceId"
 
-		err := fx.NewStatus(ctx, spaceId, identity, oldIdentity, false)
+		err := fx.NewStatus(ctx, spaceId, identity, oldIdentity, 0, false)
 		require.NoError(t, err)
 		raw := &treechangeproto.RawTreeChangeWithId{
 			RawChange: []byte{1},
@@ -194,7 +196,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		defer fx.Finish(t)
 		spaceId := "spaceId"
 
-		err := fx.NewStatus(ctx, spaceId, identity, oldIdentity, false)
+		err := fx.NewStatus(ctx, spaceId, identity, oldIdentity, 0, false)
 		require.NoError(t, err)
 		raw := &treechangeproto.RawTreeChangeWithId{
 			RawChange: []byte{1},
@@ -229,7 +231,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		defer fx.Finish(t)
 		spaceId := "spaceId"
 
-		err := fx.NewStatus(ctx, spaceId, identity, oldIdentity, false)
+		err := fx.NewStatus(ctx, spaceId, identity, oldIdentity, 0, false)
 		require.NoError(t, err)
 		raw := &treechangeproto.RawTreeChangeWithId{
 			RawChange: []byte{1},
@@ -251,7 +253,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		defer fx.Finish(t)
 		spaceId := "spaceId"
 
-		err := fx.NewStatus(ctx, spaceId, identity, oldIdentity, false)
+		err := fx.NewStatus(ctx, spaceId, identity, oldIdentity, 0, false)
 		require.NoError(t, err)
 		_, err = fx.ChangeStatus(ctx, StatusChange{
 			Identity: identity,
@@ -316,7 +318,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		_, other, err := crypto.GenerateRandomEd25519KeyPair()
 		require.NoError(t, err)
 
-		err = fx.NewStatus(ctx, spaceId, identity, oldIdentity, false)
+		err = fx.NewStatus(ctx, spaceId, identity, oldIdentity, 0, false)
 		require.NoError(t, err)
 		raw := &treechangeproto.RawTreeChangeWithId{
 			RawChange: []byte{1},
@@ -339,11 +341,11 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		defer fx.Finish(t)
 
 		for i := 0; i < limit; i++ {
-			err := fx.NewStatus(ctx, fmt.Sprint(i), identity, oldIdentity, false)
+			err := fx.NewStatus(ctx, fmt.Sprint(i), identity, oldIdentity, 0, false)
 			require.NoError(t, err)
 		}
 
-		err := fx.NewStatus(ctx, "spaceId", identity, oldIdentity, false)
+		err := fx.NewStatus(ctx, "spaceId", identity, oldIdentity, 0, false)
 		require.EqualError(t, err, coordinatorproto.ErrSpaceLimitReached.Error())
 	})
 	t.Run("restore status limit", func(t *testing.T) {
@@ -354,7 +356,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		defer fx.Finish(t)
 		spaceId := "spaceId"
 
-		err := fx.NewStatus(ctx, spaceId, identity, oldIdentity, false)
+		err := fx.NewStatus(ctx, spaceId, identity, oldIdentity, 0, false)
 		require.NoError(t, err)
 		raw := &treechangeproto.RawTreeChangeWithId{
 			RawChange: []byte{1},
@@ -370,7 +372,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		require.NoError(t, err)
 
 		for i := 0; i < limit; i++ {
-			err := fx.NewStatus(ctx, fmt.Sprint(i), identity, oldIdentity, false)
+			err := fx.NewStatus(ctx, fmt.Sprint(i), identity, oldIdentity, 0, false)
 			require.NoError(t, err)
 		}
 
@@ -392,7 +394,7 @@ func TestSpaceStatus_Run(t *testing.T) {
 	generateIds := func(t *testing.T, fx *fixture, new int, pending int) {
 		for i := 0; i < new+pending; i++ {
 			spaceId := fmt.Sprintf("space%d", i)
-			err := fx.NewStatus(ctx, spaceId, identity, oldIdentity, false)
+			err := fx.NewStatus(ctx, spaceId, identity, oldIdentity, 0, false)
 			require.NoError(t, err)
 		}
 		for i := new; i < new+pending; i++ {
@@ -466,6 +468,31 @@ func TestSpaceStatus_Run(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestSpaceStatus_Status(t *testing.T) {
+	fx := newFixture(t, 0, 0)
+	defer fx.Finish(t)
+
+	var (
+		spaceId   = "space.id"
+		spaceType = SpaceTypeRegular
+	)
+
+	_, identity, err := crypto.GenerateRandomEd25519KeyPair()
+	require.NoError(t, err)
+	_, oldIdentity, err := crypto.GenerateRandomEd25519KeyPair()
+	require.NoError(t, err)
+
+	require.NoError(t, fx.NewStatus(ctx, spaceId, identity, oldIdentity, spaceType, false))
+
+	status, err := fx.Status(ctx, spaceId, identity)
+	require.NoError(t, err)
+
+	assert.Equal(t, spaceId, status.SpaceId)
+	assert.Equal(t, SpaceStatusCreated, status.Status)
+	assert.Equal(t, spaceType, status.Type)
+
 }
 
 type fixture struct {
