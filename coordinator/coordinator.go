@@ -92,6 +92,52 @@ func (c *coordinator) StatusCheck(ctx context.Context, spaceId string) (status s
 	return
 }
 
+func (c *coordinator) DeleteAccount(ctx context.Context, deletionDuration int64, payload []byte, payloadId string) (toBeDeleted int64, err error) {
+	accountPubKey, err := peer.CtxPubKey(ctx)
+	if err != nil {
+		return
+	}
+	peerId, err := peer.CtxPeerId(ctx)
+	if err != nil {
+		return
+	}
+	tm := time.Now()
+	deletionTimestamp := tm.Unix()
+	toBeDeleted = tm.Add(time.Duration(deletionDuration)).Unix()
+	err = c.spaceStatus.DeleteAccount(ctx, spacestatus.StatusChange{
+		DeletionPayloadType:  coordinatorproto.DeletionPayloadType_Account,
+		DeletionPayload:      payload,
+		DeletionPayloadId:    payloadId,
+		Identity:             accountPubKey,
+		ToBeDeletedTimestamp: toBeDeleted,
+		DeletionTimestamp:    deletionTimestamp,
+		Status:               spacestatus.SpaceStatusDeletionPending,
+		PeerId:               peerId,
+		NetworkId:            c.nodeConf.Configuration().NetworkId,
+	})
+	if err != nil {
+		return 0, err
+	}
+	return toBeDeleted, nil
+}
+
+func (c *coordinator) RevertAccountDeletion(ctx context.Context) (err error) {
+	accountPubKey, err := peer.CtxPubKey(ctx)
+	if err != nil {
+		return
+	}
+	peerId, err := peer.CtxPeerId(ctx)
+	if err != nil {
+		return
+	}
+	return c.spaceStatus.RevertAccountDeletion(ctx, spacestatus.StatusChange{
+		Identity:  accountPubKey,
+		Status:    spacestatus.SpaceStatusDeletionPending,
+		PeerId:    peerId,
+		NetworkId: c.nodeConf.Configuration().NetworkId,
+	})
+}
+
 func (c *coordinator) StatusChange(ctx context.Context, spaceId string, payloadType coordinatorproto.DeletionPayloadType, payload []byte, payloadId string) (entry spacestatus.StatusEntry, err error) {
 	defer func() {
 		log.Debug("finished changing status", zap.Error(err), zap.String("spaceId", spaceId), zap.Bool("isDelete", payload != nil))
@@ -104,19 +150,28 @@ func (c *coordinator) StatusChange(ctx context.Context, spaceId string, payloadT
 	if err != nil {
 		return
 	}
+	var (
+		deletionTimestamp    int64
+		toBeDeletedTimestamp int64
+	)
 	status := spacestatus.SpaceStatusCreated
 	if payload != nil {
+		tm := time.Now()
+		deletionTimestamp = tm.Unix()
+		toBeDeletedTimestamp = tm.Add(c.deletionPeriod).Unix()
 		status = spacestatus.SpaceStatusDeletionPending
 	}
 	return c.spaceStatus.ChangeStatus(ctx, spacestatus.StatusChange{
-		DeletionPayloadType: payloadType,
-		DeletionPayload:     payload,
-		DeletionPayloadId:   payloadId,
-		Identity:            accountPubKey,
-		Status:              status,
-		PeerId:              peerId,
-		SpaceId:             spaceId,
-		NetworkId:           c.nodeConf.Configuration().NetworkId,
+		DeletionPayloadType:  payloadType,
+		DeletionPayload:      payload,
+		DeletionPayloadId:    payloadId,
+		DeletionTimestamp:    deletionTimestamp,
+		ToBeDeletedTimestamp: toBeDeletedTimestamp,
+		Identity:             accountPubKey,
+		Status:               status,
+		PeerId:               peerId,
+		SpaceId:              spaceId,
+		NetworkId:            c.nodeConf.Configuration().NetworkId,
 	})
 }
 

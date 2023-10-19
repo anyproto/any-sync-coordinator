@@ -23,14 +23,16 @@ const CName = "coordinator.spacestatus"
 var log = logger.NewNamed(CName)
 
 type StatusChange struct {
-	DeletionPayloadType coordinatorproto.DeletionPayloadType
-	DeletionPayload     []byte
-	DeletionPayloadId   string
-	Identity            crypto.PubKey
-	Status              int
-	PeerId              string
-	SpaceId             string
-	NetworkId           string
+	DeletionPayloadType  coordinatorproto.DeletionPayloadType
+	DeletionPayload      []byte
+	DeletionPayloadId    string
+	Identity             crypto.PubKey
+	DeletionTimestamp    int64
+	ToBeDeletedTimestamp int64
+	Status               int
+	PeerId               string
+	SpaceId              string
+	NetworkId            string
 }
 
 const (
@@ -61,6 +63,8 @@ type configProvider interface {
 type SpaceStatus interface {
 	NewStatus(ctx context.Context, spaceId string, identity, oldIdentity crypto.PubKey, spaceType SpaceType, force bool) (err error)
 	ChangeStatus(ctx context.Context, change StatusChange) (entry StatusEntry, err error)
+	DeleteAccount(ctx context.Context, change StatusChange) (err error)
+	RevertAccountDeletion(ctx context.Context, change StatusChange) (err error)
 	Status(ctx context.Context, spaceId string, pubKey crypto.PubKey) (entry StatusEntry, err error)
 	app.ComponentRunnable
 }
@@ -81,15 +85,17 @@ type spaceStatus struct {
 type findStatusQuery struct {
 	SpaceId  string  `bson:"_id"`
 	Status   *int    `bson:"status,omitempty"`
+	Type     *int    `bson:"type,omitempty"`
 	Identity *string `bson:"identity,omitempty"`
 }
 
 type modifyStatusOp struct {
 	Set struct {
-		Status              int    `bson:"status"`
-		DeletionPayloadType int    `bson:"deletionPayloadType"`
-		DeletionPayload     []byte `bson:"deletionPayload"`
-		DeletionTimestamp   int64  `bson:"deletionTimestamp"`
+		Status               int    `bson:"status"`
+		DeletionPayloadType  int    `bson:"deletionPayloadType"`
+		DeletionPayload      []byte `bson:"deletionPayload"`
+		DeletionTimestamp    *int64 `bson:"deletionTimestamp,omitempty"`
+		ToBeDeletedTimestamp *int64 `bson:"toBeDeletedTimestamp,omitempty"`
 	} `bson:"$set"`
 }
 
@@ -99,6 +105,115 @@ type insertNewSpaceOp struct {
 	Status      int       `bson:"status"`
 	Type        SpaceType `bson:"type"`
 	SpaceId     string    `bson:"_id"`
+}
+
+func (s *spaceStatus) DeleteAccount(ctx context.Context, change StatusChange) (err error) {
+	var identity *string
+	if change.Identity != nil {
+		idn := change.Identity.Account()
+		identity = &idn
+	}
+	return s.db.Tx(ctx, func(txCtx mongo.SessionContext) error {
+		// Find personal space with SpaceStatusCreated status for the given identity
+		var (
+			status    = SpaceStatusCreated
+			spaceType = int(SpaceTypePersonal)
+			entry     StatusEntry
+		)
+		err := s.spaces.FindOne(txCtx, findStatusQuery{
+			Status:   &status,
+			Type:     &spaceType,
+			Identity: identity,
+		}).Decode(&entry)
+		if err != nil {
+			return err
+		}
+
+		// Find all spaces with SpaceStatusCreated status for the given identity
+		cursor, err := s.spaces.Find(txCtx, findStatusQuery{
+			Status:   &status,
+			Identity: identity,
+		})
+		if err != nil {
+			return err
+		}
+		var spaces []StatusEntry
+		if err = cursor.All(txCtx, &spaces); err != nil {
+			return err
+		}
+
+		// Iterate through the spaces and call setStatusTx
+		for _, space := range spaces {
+			change := StatusChange{
+				DeletionPayloadType:  coordinatorproto.DeletionPayloadType_Account,
+				DeletionPayload:      change.DeletionPayload,
+				DeletionPayloadId:    change.DeletionPayloadId,
+				Identity:             change.Identity,
+				Status:               SpaceStatusDeletionPending,
+				ToBeDeletedTimestamp: change.ToBeDeletedTimestamp,
+				DeletionTimestamp:    change.DeletionTimestamp,
+				PeerId:               change.PeerId,
+				SpaceId:              space.SpaceId,
+				NetworkId:            change.NetworkId,
+			}
+			if _, err := s.setStatusTx(txCtx, change, SpaceStatusCreated); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func (s *spaceStatus) RevertAccountDeletion(ctx context.Context, change StatusChange) (err error) {
+	var identity *string
+	if change.Identity != nil {
+		idn := change.Identity.Account()
+		identity = &idn
+	}
+	return s.db.Tx(ctx, func(txCtx mongo.SessionContext) error {
+		// Find personal space with SpaceStatusDeletionPending status for the given identity
+		var (
+			status    = SpaceStatusDeletionPending
+			spaceType = int(SpaceTypePersonal)
+			entry     StatusEntry
+		)
+		err := s.spaces.FindOne(txCtx, findStatusQuery{
+			Status:   &status,
+			Type:     &spaceType,
+			Identity: identity,
+		}).Decode(&entry)
+		if err != nil {
+			return err
+		}
+
+		// Find all spaces with SpaceStatusDeletionPending status for the given identity
+		cursor, err := s.spaces.Find(txCtx, findStatusQuery{
+			Status:   &status,
+			Identity: identity,
+		})
+		if err != nil {
+			return err
+		}
+		var spaces []StatusEntry
+		if err = cursor.All(txCtx, &spaces); err != nil {
+			return err
+		}
+
+		// Iterate through the spaces and call setStatusTx
+		for _, space := range spaces {
+			change := StatusChange{
+				Identity:  change.Identity,
+				Status:    SpaceStatusCreated,
+				PeerId:    change.PeerId,
+				SpaceId:   space.SpaceId,
+				NetworkId: change.NetworkId,
+			}
+			if _, err := s.setStatusTx(txCtx, change, SpaceStatusCreated); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (s *spaceStatus) ChangeStatus(ctx context.Context, change StatusChange) (entry StatusEntry, err error) {
@@ -163,8 +278,9 @@ func (s *spaceStatus) modifyStatus(ctx context.Context, change StatusChange, old
 	op.Set.DeletionPayload = change.DeletionPayload
 	op.Set.DeletionPayloadType = int(change.DeletionPayloadType)
 	op.Set.Status = change.Status
-	if change.Status != SpaceStatusCreated {
-		op.Set.DeletionTimestamp = time.Now().Unix()
+	if change.Status != SpaceStatusDeleted {
+		op.Set.DeletionTimestamp = &change.DeletionTimestamp
+		op.Set.ToBeDeletedTimestamp = &change.ToBeDeletedTimestamp
 	}
 	res := s.spaces.FindOneAndUpdate(ctx, findStatusQuery{
 		SpaceId:  change.SpaceId,

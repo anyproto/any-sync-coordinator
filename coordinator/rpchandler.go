@@ -3,17 +3,35 @@ package coordinator
 import (
 	"context"
 	"fmt"
-	"github.com/anyproto/any-sync-coordinator/spacestatus"
+	"time"
+
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/metric"
 	"github.com/anyproto/any-sync/net/peer"
 	"github.com/anyproto/any-sync/nodeconf"
 	"go.uber.org/zap"
-	"time"
+
+	"github.com/anyproto/any-sync-coordinator/spacestatus"
 )
 
 type rpcHandler struct {
 	c *coordinator
+}
+
+func (r *rpcHandler) AccountDelete(ctx context.Context, request *coordinatorproto.AccountDeleteRequest) (*coordinatorproto.AccountDeleteResponse, error) {
+	//TODO implement me
+	panic("implement me")
+	// if the personal space is deleted then account is deleted
+	// if not then get all spaces related to this identity if their status is created
+	// change their status to deleted
+}
+
+func (r *rpcHandler) AccountRevertDeletion(ctx context.Context, request *coordinatorproto.AccountRevertDeletionRequest) (*coordinatorproto.AccountRevertDeletionResponse, error) {
+	//TODO implement me
+	panic("implement me")
+	// if the personal space is not deleted then account is not deleted
+	// if not then get all spaces related to this identity if their status is waiting for deletion
+	// change their status to created
 }
 
 func (r *rpcHandler) convertStatus(status spacestatus.StatusEntry) *coordinatorproto.SpaceStatusPayload {
