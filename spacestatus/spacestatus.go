@@ -63,8 +63,8 @@ type configProvider interface {
 type SpaceStatus interface {
 	NewStatus(ctx context.Context, spaceId string, identity, oldIdentity crypto.PubKey, spaceType SpaceType, force bool) (err error)
 	ChangeStatus(ctx context.Context, change StatusChange) (entry StatusEntry, err error)
-	DeleteAccount(ctx context.Context, change StatusChange) (err error)
-	RevertAccountDeletion(ctx context.Context, change StatusChange) (err error)
+	AccountDelete(ctx context.Context, change StatusChange) (err error)
+	AccountRevertDeletion(ctx context.Context, change StatusChange) (err error)
 	Status(ctx context.Context, spaceId string, pubKey crypto.PubKey) (entry StatusEntry, err error)
 	app.ComponentRunnable
 }
@@ -107,7 +107,7 @@ type insertNewSpaceOp struct {
 	SpaceId     string    `bson:"_id"`
 }
 
-func (s *spaceStatus) DeleteAccount(ctx context.Context, change StatusChange) (err error) {
+func (s *spaceStatus) AccountDelete(ctx context.Context, change StatusChange) (err error) {
 	var identity *string
 	if change.Identity != nil {
 		idn := change.Identity.Account()
@@ -164,7 +164,7 @@ func (s *spaceStatus) DeleteAccount(ctx context.Context, change StatusChange) (e
 	})
 }
 
-func (s *spaceStatus) RevertAccountDeletion(ctx context.Context, change StatusChange) (err error) {
+func (s *spaceStatus) AccountRevertDeletion(ctx context.Context, change StatusChange) (err error) {
 	var identity *string
 	if change.Identity != nil {
 		idn := change.Identity.Account()

@@ -92,7 +92,7 @@ func (c *coordinator) StatusCheck(ctx context.Context, spaceId string) (status s
 	return
 }
 
-func (c *coordinator) DeleteAccount(ctx context.Context, deletionDuration int64, payload []byte, payloadId string) (toBeDeleted int64, err error) {
+func (c *coordinator) AccountDelete(ctx context.Context, payload []byte, payloadId string) (toBeDeleted int64, err error) {
 	accountPubKey, err := peer.CtxPubKey(ctx)
 	if err != nil {
 		return
@@ -103,8 +103,8 @@ func (c *coordinator) DeleteAccount(ctx context.Context, deletionDuration int64,
 	}
 	tm := time.Now()
 	deletionTimestamp := tm.Unix()
-	toBeDeleted = tm.Add(time.Duration(deletionDuration)).Unix()
-	err = c.spaceStatus.DeleteAccount(ctx, spacestatus.StatusChange{
+	toBeDeleted = tm.Add(c.deletionPeriod).Unix()
+	err = c.spaceStatus.AccountDelete(ctx, spacestatus.StatusChange{
 		DeletionPayloadType:  coordinatorproto.DeletionPayloadType_Account,
 		DeletionPayload:      payload,
 		DeletionPayloadId:    payloadId,
@@ -121,7 +121,7 @@ func (c *coordinator) DeleteAccount(ctx context.Context, deletionDuration int64,
 	return toBeDeleted, nil
 }
 
-func (c *coordinator) RevertAccountDeletion(ctx context.Context) (err error) {
+func (c *coordinator) AccountRevertDeletion(ctx context.Context) (err error) {
 	accountPubKey, err := peer.CtxPubKey(ctx)
 	if err != nil {
 		return
@@ -130,7 +130,7 @@ func (c *coordinator) RevertAccountDeletion(ctx context.Context) (err error) {
 	if err != nil {
 		return
 	}
-	return c.spaceStatus.RevertAccountDeletion(ctx, spacestatus.StatusChange{
+	return c.spaceStatus.AccountRevertDeletion(ctx, spacestatus.StatusChange{
 		Identity:  accountPubKey,
 		Status:    spacestatus.SpaceStatusDeletionPending,
 		PeerId:    peerId,
@@ -138,7 +138,15 @@ func (c *coordinator) RevertAccountDeletion(ctx context.Context) (err error) {
 	})
 }
 
-func (c *coordinator) StatusChange(ctx context.Context, spaceId string, payloadType coordinatorproto.DeletionPayloadType, payload []byte, payloadId string) (entry spacestatus.StatusEntry, err error) {
+func (c *coordinator) SpaceDelete(ctx context.Context, spaceId string, deletionDuration int64, payload []byte, payloadId string) (toBeDeleted int64, err error) {
+	status, err := c.StatusChange(ctx, spaceId, time.Duration(deletionDuration), coordinatorproto.DeletionPayloadType_Confirm, payload, payloadId)
+	if err != nil {
+		return
+	}
+	return status.ToBeDeletedTimestamp, nil
+}
+
+func (c *coordinator) StatusChange(ctx context.Context, spaceId string, deletionPeriod time.Duration, payloadType coordinatorproto.DeletionPayloadType, payload []byte, payloadId string) (entry spacestatus.StatusEntry, err error) {
 	defer func() {
 		log.Debug("finished changing status", zap.Error(err), zap.String("spaceId", spaceId), zap.Bool("isDelete", payload != nil))
 	}()
@@ -158,7 +166,7 @@ func (c *coordinator) StatusChange(ctx context.Context, spaceId string, payloadT
 	if payload != nil {
 		tm := time.Now()
 		deletionTimestamp = tm.Unix()
-		toBeDeletedTimestamp = tm.Add(c.deletionPeriod).Unix()
+		toBeDeletedTimestamp = tm.Add(deletionPeriod).Unix()
 		status = spacestatus.SpaceStatusDeletionPending
 	}
 	return c.spaceStatus.ChangeStatus(ctx, spacestatus.StatusChange{
