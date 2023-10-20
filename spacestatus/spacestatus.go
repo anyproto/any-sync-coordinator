@@ -208,7 +208,7 @@ func (s *spaceStatus) AccountRevertDeletion(ctx context.Context, change StatusCh
 				SpaceId:   space.SpaceId,
 				NetworkId: change.NetworkId,
 			}
-			if _, err := s.setStatusTx(txCtx, change, SpaceStatusCreated); err != nil {
+			if _, err := s.setStatusTx(txCtx, change, SpaceStatusDeletionPending); err != nil {
 				return err
 			}
 		}

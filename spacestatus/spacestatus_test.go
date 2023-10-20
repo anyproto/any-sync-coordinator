@@ -501,13 +501,12 @@ func TestSpaceStatus_AccountDelete(t *testing.T) {
 			require.Equal(t, timestamp, status.ToBeDeletedTimestamp)
 		}
 	}
-	t.Run("test account delete", func(t *testing.T) {
+	t.Run("test account delete - pending", func(t *testing.T) {
 		fx := newFixture(t, 0, 0)
 		defer fx.Finish(t)
 		new := 10
 		generateAccount(t, fx, new)
 		tm := time.Now().Add(time.Hour).Unix()
-		time.Sleep(1 * time.Second)
 		err := fx.AccountDelete(ctx, StatusChange{
 			DeletionPayload:      []byte("payload"),
 			DeletionPayloadId:    "id",
@@ -516,8 +515,45 @@ func TestSpaceStatus_AccountDelete(t *testing.T) {
 			DeletionTimestamp:    tm,
 		})
 		require.NoError(t, err)
-		time.Sleep(time.Second)
 		checkStatuses(t, fx, new, tm, SpaceStatusDeletionPending)
+	})
+	t.Run("test account delete - pending - revert deletion", func(t *testing.T) {
+		fx := newFixture(t, 0, 0)
+		defer fx.Finish(t)
+		new := 10
+		generateAccount(t, fx, new)
+		tm := time.Now().Add(time.Hour).Unix()
+		err := fx.AccountDelete(ctx, StatusChange{
+			DeletionPayload:      []byte("payload"),
+			DeletionPayloadId:    "id",
+			Identity:             identity,
+			ToBeDeletedTimestamp: tm,
+			DeletionTimestamp:    tm,
+		})
+		checkStatuses(t, fx, new, tm, SpaceStatusDeletionPending)
+		err = fx.AccountRevertDeletion(ctx, StatusChange{
+			Identity: identity,
+		})
+		require.NoError(t, err)
+		checkStatuses(t, fx, new, 0, SpaceStatusCreated)
+	})
+	t.Run("test account delete - deleted", func(t *testing.T) {
+		fx := newFixture(t, 0, 0)
+		defer fx.Finish(t)
+		new := 10
+		generateAccount(t, fx, new)
+		tm := time.Now().Add(-time.Hour).Unix()
+		err := fx.AccountDelete(ctx, StatusChange{
+			DeletionPayload:      []byte("payload"),
+			DeletionPayloadId:    "id",
+			Identity:             identity,
+			ToBeDeletedTimestamp: tm,
+			DeletionTimestamp:    tm,
+		})
+		require.NoError(t, err)
+		fx.Run()
+		time.Sleep(time.Second)
+		checkStatuses(t, fx, new, tm, SpaceStatusDeleted)
 	})
 }
 
