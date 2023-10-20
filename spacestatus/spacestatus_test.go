@@ -404,11 +404,14 @@ func TestSpaceStatus_Run(t *testing.T) {
 				Id:        "id",
 			}
 			marshaled, _ := raw.Marshal()
+			tm := time.Now().Add(-time.Second).Unix()
 			_, err := fx.ChangeStatus(ctx, StatusChange{
-				DeletionPayload: marshaled,
-				Identity:        identity,
-				SpaceId:         spaceId,
-				Status:          SpaceStatusDeletionPending,
+				DeletionPayload:      marshaled,
+				Identity:             identity,
+				SpaceId:              spaceId,
+				ToBeDeletedTimestamp: tm,
+				DeletionTimestamp:    tm,
+				Status:               SpaceStatusDeletionPending,
 			})
 			require.NoError(t, err)
 		}

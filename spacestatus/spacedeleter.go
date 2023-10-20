@@ -52,7 +52,7 @@ func (n newPendingSpacesQuery) toMap() bson.M {
 		bson.D{{"toBeDeletedTimestamp",
 			bson.M{
 				"$gt":  0,
-				"$lte": time.Now()}}},
+				"$lte": time.Now().Unix()}}},
 	}}
 }
 
