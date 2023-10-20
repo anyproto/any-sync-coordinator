@@ -83,7 +83,7 @@ type spaceStatus struct {
 }
 
 type findStatusQuery struct {
-	SpaceId  string  `bson:"_id"`
+	SpaceId  string  `bson:"_id,omitempty"`
 	Status   *int    `bson:"status,omitempty"`
 	Type     *int    `bson:"type,omitempty"`
 	Identity *string `bson:"identity,omitempty"`

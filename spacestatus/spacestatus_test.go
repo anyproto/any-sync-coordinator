@@ -473,6 +473,54 @@ func TestSpaceStatus_Run(t *testing.T) {
 	})
 }
 
+func TestSpaceStatus_AccountDelete(t *testing.T) {
+	_, identity, err := crypto.GenerateRandomEd25519KeyPair()
+	require.NoError(t, err)
+	_, oldIdentity, err := crypto.GenerateRandomEd25519KeyPair()
+	require.NoError(t, err)
+	generateAccount := func(t *testing.T, fx *fixture, new int) {
+		err := fx.NewStatus(ctx, "personal", identity, oldIdentity, SpaceTypePersonal, false)
+		require.NoError(t, err)
+		err = fx.NewStatus(ctx, "tech", identity, oldIdentity, SpaceTypeTech, false)
+		require.NoError(t, err)
+		for i := 0; i < new; i++ {
+			spaceId := fmt.Sprintf("space%d", i)
+			err := fx.NewStatus(ctx, spaceId, identity, oldIdentity, SpaceTypeRegular, false)
+			require.NoError(t, err)
+		}
+	}
+	checkStatuses := func(t *testing.T, fx *fixture, new int, timestamp int64, checkStatus int) {
+		allIds := []string{"personal", "tech"}
+		for i := 0; i < new; i++ {
+			allIds = append(allIds, fmt.Sprintf("space%d", i))
+		}
+		for _, spaceId := range allIds {
+			status, err := fx.Status(ctx, spaceId, identity)
+			require.NoError(t, err)
+			require.Equal(t, checkStatus, status.Status)
+			require.Equal(t, timestamp, status.ToBeDeletedTimestamp)
+		}
+	}
+	t.Run("test account delete", func(t *testing.T) {
+		fx := newFixture(t, 0, 0)
+		defer fx.Finish(t)
+		new := 10
+		generateAccount(t, fx, new)
+		tm := time.Now().Add(time.Hour).Unix()
+		time.Sleep(1 * time.Second)
+		err := fx.AccountDelete(ctx, StatusChange{
+			DeletionPayload:      []byte("payload"),
+			DeletionPayloadId:    "id",
+			Identity:             identity,
+			ToBeDeletedTimestamp: tm,
+			DeletionTimestamp:    tm,
+		})
+		require.NoError(t, err)
+		time.Sleep(time.Second)
+		checkStatuses(t, fx, new, tm, SpaceStatusDeletionPending)
+	})
+}
+
 func TestSpaceStatus_Status(t *testing.T) {
 	fx := newFixture(t, 0, 0)
 	defer fx.Finish(t)
