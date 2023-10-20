@@ -24,21 +24,27 @@ type changeVerifier struct {
 }
 
 func (c *changeVerifier) Verify(change StatusChange) (err error) {
-	if change.DeletionPayloadType == coordinatorproto.DeletionPayloadType_Tree {
+	switch change.DeletionPayloadType {
+	case coordinatorproto.DeletionPayloadType_Tree:
 		rawDelete := &treechangeproto.RawTreeChangeWithId{
 			RawChange: change.DeletionPayload,
 			Id:        change.DeletionPayloadId,
 		}
 		return settings.VerifyDeleteChange(rawDelete, change.Identity, change.PeerId)
-	}
-	if change.DeletionPayloadType == coordinatorproto.DeletionPayloadType_Confirm {
+	case coordinatorproto.DeletionPayloadType_Confirm:
 		var confirmSig = new(coordinatorproto.DeletionConfirmPayloadWithSignature)
 		if err = confirmSig.Unmarshal(change.DeletionPayload); err != nil {
 			return err
 		}
 		return coordinatorproto.ValidateDeleteConfirmation(change.Identity, change.SpaceId, change.NetworkId, confirmSig)
+	case coordinatorproto.DeletionPayloadType_Account:
+		var confirmSig = new(coordinatorproto.DeletionConfirmPayloadWithSignature)
+		if err = confirmSig.Unmarshal(change.DeletionPayload); err != nil {
+			return err
+		}
+		return coordinatorproto.ValidateAccountDeleteConfirmation(change.Identity, change.SpaceId, change.NetworkId, confirmSig)
 	}
-	return
+	return coordinatorproto.ErrUnexpected
 }
 
 const techSpaceType = "anytype.techspace"
