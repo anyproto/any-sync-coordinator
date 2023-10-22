@@ -139,11 +139,24 @@ func (c *coordinator) AccountRevertDeletion(ctx context.Context) (err error) {
 }
 
 func (c *coordinator) SpaceDelete(ctx context.Context, spaceId string, deletionDuration int64, payload []byte, payloadId string) (toBeDeleted int64, err error) {
-	status, err := c.StatusChange(ctx, spaceId, time.Duration(deletionDuration), coordinatorproto.DeletionPayloadType_Confirm, payload, payloadId)
+	accountPubKey, err := peer.CtxPubKey(ctx)
 	if err != nil {
 		return
 	}
-	return status.ToBeDeletedTimestamp, nil
+	peerId, err := peer.CtxPeerId(ctx)
+	if err != nil {
+		return
+	}
+	return c.spaceStatus.SpaceDelete(ctx, spacestatus.SpaceDeletion{
+		DeletionPayload:   payload,
+		DeletionPayloadId: payloadId,
+		SpaceId:           spaceId,
+		AccountInfo: spacestatus.AccountInfo{
+			Identity:  accountPubKey,
+			PeerId:    peerId,
+			NetworkId: c.nodeConf.Configuration().NetworkId,
+		},
+	})
 }
 
 func (c *coordinator) StatusChange(ctx context.Context, spaceId string, deletionPeriod time.Duration, payloadType coordinatorproto.DeletionPayloadType, payload []byte, payloadId string) (entry spacestatus.StatusEntry, err error) {
@@ -158,28 +171,19 @@ func (c *coordinator) StatusChange(ctx context.Context, spaceId string, deletion
 	if err != nil {
 		return
 	}
-	var (
-		deletionTimestamp    int64
-		toBeDeletedTimestamp int64
-	)
 	status := spacestatus.SpaceStatusCreated
 	if payload != nil {
-		tm := time.Now()
-		deletionTimestamp = tm.Unix()
-		toBeDeletedTimestamp = tm.Add(deletionPeriod).Unix()
 		status = spacestatus.SpaceStatusDeletionPending
 	}
 	return c.spaceStatus.ChangeStatus(ctx, spacestatus.StatusChange{
-		DeletionPayloadType:  payloadType,
-		DeletionPayload:      payload,
-		DeletionPayloadId:    payloadId,
-		DeletionTimestamp:    deletionTimestamp,
-		ToBeDeletedTimestamp: toBeDeletedTimestamp,
-		Identity:             accountPubKey,
-		Status:               status,
-		PeerId:               peerId,
-		SpaceId:              spaceId,
-		NetworkId:            c.nodeConf.Configuration().NetworkId,
+		DeletionPayloadType: payloadType,
+		DeletionPayload:     payload,
+		DeletionPayloadId:   payloadId,
+		Identity:            accountPubKey,
+		Status:              status,
+		PeerId:              peerId,
+		SpaceId:             spaceId,
+		NetworkId:           c.nodeConf.Configuration().NetworkId,
 	})
 }
 
