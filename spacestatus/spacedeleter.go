@@ -63,7 +63,6 @@ type StatusEntry struct {
 	DeletionPayloadType  int       `bson:"deletionPayloadType"`
 	DeletionPayload      []byte    `bson:"deletionPayload"`
 	DeletionTimestamp    int64     `bson:"deletionTimestamp"`
-	DeletionPeriod       int64     `bson:"deletionPeriod"`
 	ToBeDeletedTimestamp int64     `bson:"toBeDeletedTimestamp"`
 	Status               int       `bson:"status"`
 	Type                 SpaceType `bson:"type"`

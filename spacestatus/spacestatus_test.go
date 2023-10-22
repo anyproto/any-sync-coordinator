@@ -171,7 +171,10 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 			if time.Now().Unix()-res.DeletionTimestamp > 10*int64(time.Second) {
 				t.Fatal("incorrect deletion date")
 			}
+			require.Equal(t, time.Hour*24,
+				time.Unix(res.ToBeDeletedTimestamp, 0).Sub(time.Unix(res.DeletionTimestamp, 0)))
 			res.DeletionTimestamp = 0
+			res.ToBeDeletedTimestamp = 0
 			require.Equal(t, StatusEntry{
 				Type:            SpaceTypeRegular,
 				SpaceId:         spaceId,
@@ -211,7 +214,10 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 			if time.Now().Unix()-res.DeletionTimestamp > 10*int64(time.Second) {
 				t.Fatal("incorrect deletion date")
 			}
+			require.Equal(t, time.Hour*24,
+				time.Unix(res.ToBeDeletedTimestamp, 0).Sub(time.Unix(res.DeletionTimestamp, 0)))
 			res.DeletionTimestamp = 0
+			res.ToBeDeletedTimestamp = 0
 			require.Equal(t, StatusEntry{
 				Type:            SpaceTypeRegular,
 				SpaceId:         spaceId,
@@ -550,13 +556,12 @@ func TestSpaceStatus_AccountDelete(t *testing.T) {
 		defer fx.Finish(t)
 		new := 10
 		generateAccount(t, fx, new)
-		tm := time.Now().Add(time.Hour).Unix()
-		err := fx.AccountDelete(ctx, StatusChange{
-			DeletionPayload:      []byte("payload"),
-			DeletionPayloadId:    "id",
-			Identity:             identity,
-			ToBeDeletedTimestamp: tm,
-			DeletionTimestamp:    tm,
+		tm, err := fx.AccountDelete(ctx, AccountDeletion{
+			DeletionPayload:   []byte("payload"),
+			DeletionPayloadId: "id",
+			AccountInfo: AccountInfo{
+				Identity: identity,
+			},
 		})
 		require.NoError(t, err)
 		checkStatuses(t, fx, new, tm, SpaceStatusDeletionPending)
@@ -566,19 +571,18 @@ func TestSpaceStatus_AccountDelete(t *testing.T) {
 		defer fx.Finish(t)
 		new := 10
 		generateAccount(t, fx, new)
-		tm := time.Now().Add(time.Hour).Unix()
-		err := fx.AccountDelete(ctx, StatusChange{
-			DeletionPayload:      []byte("payload"),
-			DeletionPayloadId:    "id",
-			Identity:             identity,
-			ToBeDeletedTimestamp: tm,
-			DeletionTimestamp:    tm,
+		tm, err := fx.AccountDelete(ctx, AccountDeletion{
+			DeletionPayload:   []byte("payload"),
+			DeletionPayloadId: "id",
+			AccountInfo: AccountInfo{
+				Identity: identity,
+			},
 		})
 		checkStatuses(t, fx, new, tm, SpaceStatusDeletionPending)
 		spaceId := fmt.Sprintf("space%d", new)
 		err = fx.NewStatus(ctx, spaceId, identity, oldIdentity, SpaceTypeRegular, false)
 		require.Equal(t, coordinatorproto.ErrAccountIsDeleted, err)
-		err = fx.AccountRevertDeletion(ctx, StatusChange{
+		err = fx.AccountRevertDeletion(ctx, AccountInfo{
 			Identity: identity,
 		})
 		require.NoError(t, err)
@@ -591,15 +595,15 @@ func TestSpaceStatus_AccountDelete(t *testing.T) {
 		defer fx.Finish(t)
 		new := 10
 		generateAccount(t, fx, new)
-		tm := time.Now().Add(-time.Hour).Unix()
-		err := fx.AccountDelete(ctx, StatusChange{
-			DeletionPayload:      []byte("payload"),
-			DeletionPayloadId:    "id",
-			Identity:             identity,
-			ToBeDeletedTimestamp: tm,
-			DeletionTimestamp:    tm,
+		tm, err := fx.AccountDelete(ctx, AccountDeletion{
+			DeletionPayload:   []byte("payload"),
+			DeletionPayloadId: "id",
+			AccountInfo: AccountInfo{
+				Identity: identity,
+			},
 		})
 		require.NoError(t, err)
+		checkStatuses(t, fx, new, tm, SpaceStatusDeletionPending)
 		fx.Run()
 		time.Sleep(time.Second)
 		checkStatuses(t, fx, new, tm, SpaceStatusDeleted)
