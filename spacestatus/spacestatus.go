@@ -23,11 +23,13 @@ const CName = "coordinator.spacestatus"
 var log = logger.NewNamed(CName)
 
 type StatusChange struct {
-	DeletionPayloadType  coordinatorproto.DeletionPayloadType
-	DeletionPayload      []byte
-	DeletionPayloadId    string
-	Identity             crypto.PubKey
-	DeletionTimestamp    int64
+	DeletionPayloadType coordinatorproto.DeletionPayloadType
+	DeletionPayload     []byte
+	DeletionPayloadId   string
+	Identity            crypto.PubKey
+	// DeletionTimestamp is ignored when setting in ChangeStatus
+	DeletionTimestamp int64
+	// ToBeDeletedTimestamp is ignored when setting in ChangeStatus
 	ToBeDeletedTimestamp int64
 	Status               int
 	PeerId               string
@@ -82,6 +84,7 @@ type configProvider interface {
 
 type SpaceStatus interface {
 	NewStatus(ctx context.Context, spaceId string, identity, oldIdentity crypto.PubKey, spaceType SpaceType, force bool) (err error)
+	// ChangeStatus is deprecated, use only for backwards compatibility
 	ChangeStatus(ctx context.Context, change StatusChange) (entry StatusEntry, err error)
 	SpaceDelete(ctx context.Context, payload SpaceDeletion) (toBeDeleted int64, err error)
 	AccountDelete(ctx context.Context, payload AccountDeletion) (toBeDeleted int64, err error)
@@ -248,16 +251,14 @@ func (s *spaceStatus) SpaceDelete(ctx context.Context, payload SpaceDeletion) (t
 		}
 		switch spType {
 		case SpaceTypePersonal:
-			if payload.DeletionPeriod != s.deletionPeriod {
-				log.Debug("cannot set lower deletion time than deletion period", zap.Error(err), zap.String("spaceId", payload.SpaceId))
-				toBeDeletedTimestamp = tm.Add(s.deletionPeriod).Unix()
-			}
+			log.Debug("cannot delete personal space", zap.Error(err), zap.String("spaceId", payload.SpaceId))
+			return coordinatorproto.ErrUnexpected
 		case SpaceTypeTech:
 			log.Debug("cannot delete tech space", zap.Error(err), zap.String("spaceId", payload.SpaceId))
 			return coordinatorproto.ErrUnexpected
 		}
 		change := StatusChange{
-			DeletionPayloadType:  coordinatorproto.DeletionPayloadType_Account,
+			DeletionPayloadType:  coordinatorproto.DeletionPayloadType_Confirm,
 			DeletionPayload:      payload.DeletionPayload,
 			DeletionPayloadId:    payload.DeletionPayloadId,
 			Identity:             payload.Identity,
