@@ -3,17 +3,72 @@ package coordinator
 import (
 	"context"
 	"fmt"
-	"github.com/anyproto/any-sync-coordinator/spacestatus"
+	"time"
+
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/metric"
 	"github.com/anyproto/any-sync/net/peer"
 	"github.com/anyproto/any-sync/nodeconf"
 	"go.uber.org/zap"
-	"time"
+
+	"github.com/anyproto/any-sync-coordinator/spacestatus"
 )
 
 type rpcHandler struct {
 	c *coordinator
+}
+
+func (r *rpcHandler) SpaceDelete(ctx context.Context, request *coordinatorproto.SpaceDeleteRequest) (resp *coordinatorproto.SpaceDeleteResponse, err error) {
+	st := time.Now()
+	defer func() {
+		r.c.metric.RequestLog(ctx, "coordinator.spaceDelete",
+			metric.TotalDur(time.Since(st)),
+			metric.SpaceId(request.SpaceId),
+			zap.String("addr", peer.CtxPeerAddr(ctx)),
+			zap.Error(err),
+		)
+	}()
+	ts, err := r.c.SpaceDelete(ctx, request.SpaceId, request.DeletionDuration, request.DeletionPayload, request.DeletionPayloadId)
+	if err != nil {
+		return nil, err
+	}
+	return &coordinatorproto.SpaceDeleteResponse{
+		ToBeDeletedTimestamp: ts,
+	}, nil
+}
+
+func (r *rpcHandler) AccountDelete(ctx context.Context, request *coordinatorproto.AccountDeleteRequest) (resp *coordinatorproto.AccountDeleteResponse, err error) {
+	st := time.Now()
+	defer func() {
+		r.c.metric.RequestLog(ctx, "coordinator.accountDelete",
+			metric.TotalDur(time.Since(st)),
+			zap.String("addr", peer.CtxPeerAddr(ctx)),
+			zap.Error(err),
+		)
+	}()
+	ts, err := r.c.AccountDelete(ctx, request.DeletionPayload, request.DeletionPayloadId)
+	if err != nil {
+		return nil, err
+	}
+	return &coordinatorproto.AccountDeleteResponse{
+		ToBeDeletedTimestamp: ts,
+	}, nil
+}
+
+func (r *rpcHandler) AccountRevertDeletion(ctx context.Context, request *coordinatorproto.AccountRevertDeletionRequest) (resp *coordinatorproto.AccountRevertDeletionResponse, err error) {
+	st := time.Now()
+	defer func() {
+		r.c.metric.RequestLog(ctx, "coordinator.accountRevertDeletion",
+			metric.TotalDur(time.Since(st)),
+			zap.String("addr", peer.CtxPeerAddr(ctx)),
+			zap.Error(err),
+		)
+	}()
+	err = r.c.AccountRevertDeletion(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &coordinatorproto.AccountRevertDeletionResponse{}, nil
 }
 
 func (r *rpcHandler) convertStatus(status spacestatus.StatusEntry) *coordinatorproto.SpaceStatusPayload {
@@ -81,7 +136,7 @@ func (r *rpcHandler) SpaceStatusChange(ctx context.Context, req *coordinatorprot
 			zap.Error(err),
 		)
 	}()
-	entry, err := r.c.StatusChange(ctx, req.SpaceId, req.DeletionPayloadType, req.DeletionPayload, req.DeletionPayloadId)
+	entry, err := r.c.StatusChange(ctx, req.SpaceId, r.c.deletionPeriod, req.DeletionPayloadType, req.DeletionPayload, req.DeletionPayloadId)
 	if err != nil {
 		return nil, err
 	}

@@ -41,6 +41,35 @@ func (m *MockSpaceStatus) EXPECT() *MockSpaceStatusMockRecorder {
 	return m.recorder
 }
 
+// AccountDelete mocks base method.
+func (m *MockSpaceStatus) AccountDelete(arg0 context.Context, arg1 spacestatus.AccountDeletion) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AccountDelete", arg0, arg1)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AccountDelete indicates an expected call of AccountDelete.
+func (mr *MockSpaceStatusMockRecorder) AccountDelete(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AccountDelete", reflect.TypeOf((*MockSpaceStatus)(nil).AccountDelete), arg0, arg1)
+}
+
+// AccountRevertDeletion mocks base method.
+func (m *MockSpaceStatus) AccountRevertDeletion(arg0 context.Context, arg1 spacestatus.AccountInfo) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AccountRevertDeletion", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AccountRevertDeletion indicates an expected call of AccountRevertDeletion.
+func (mr *MockSpaceStatusMockRecorder) AccountRevertDeletion(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AccountRevertDeletion", reflect.TypeOf((*MockSpaceStatus)(nil).AccountRevertDeletion), arg0, arg1)
+}
+
 // ChangeStatus mocks base method.
 func (m *MockSpaceStatus) ChangeStatus(arg0 context.Context, arg1 spacestatus.StatusChange) (spacestatus.StatusEntry, error) {
 	m.ctrl.T.Helper()
@@ -124,6 +153,21 @@ func (m *MockSpaceStatus) Run(arg0 context.Context) error {
 func (mr *MockSpaceStatusMockRecorder) Run(arg0 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Run", reflect.TypeOf((*MockSpaceStatus)(nil).Run), arg0)
+}
+
+// SpaceDelete mocks base method.
+func (m *MockSpaceStatus) SpaceDelete(arg0 context.Context, arg1 spacestatus.SpaceDeletion) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SpaceDelete", arg0, arg1)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SpaceDelete indicates an expected call of SpaceDelete.
+func (mr *MockSpaceStatusMockRecorder) SpaceDelete(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SpaceDelete", reflect.TypeOf((*MockSpaceStatus)(nil).SpaceDelete), arg0, arg1)
 }
 
 // Status mocks base method.

@@ -92,7 +92,66 @@ func (c *coordinator) StatusCheck(ctx context.Context, spaceId string) (status s
 	return
 }
 
-func (c *coordinator) StatusChange(ctx context.Context, spaceId string, payloadType coordinatorproto.DeletionPayloadType, payload []byte, payloadId string) (entry spacestatus.StatusEntry, err error) {
+func (c *coordinator) AccountDelete(ctx context.Context, payload []byte, payloadId string) (toBeDeleted int64, err error) {
+	accountPubKey, err := peer.CtxPubKey(ctx)
+	if err != nil {
+		return
+	}
+	peerId, err := peer.CtxPeerId(ctx)
+	if err != nil {
+		return
+	}
+	return c.spaceStatus.AccountDelete(ctx, spacestatus.AccountDeletion{
+		DeletionPayload:   payload,
+		DeletionPayloadId: payloadId,
+		AccountInfo: spacestatus.AccountInfo{
+			Identity:  accountPubKey,
+			PeerId:    peerId,
+			NetworkId: c.nodeConf.Configuration().NetworkId,
+		},
+	})
+}
+
+func (c *coordinator) AccountRevertDeletion(ctx context.Context) (err error) {
+	accountPubKey, err := peer.CtxPubKey(ctx)
+	if err != nil {
+		return
+	}
+	peerId, err := peer.CtxPeerId(ctx)
+	if err != nil {
+		return
+	}
+	return c.spaceStatus.AccountRevertDeletion(ctx, spacestatus.AccountInfo{
+		Identity:  accountPubKey,
+		PeerId:    peerId,
+		NetworkId: c.nodeConf.Configuration().NetworkId,
+	})
+}
+
+func (c *coordinator) SpaceDelete(ctx context.Context, spaceId string, deletionDurationSecs int64, payload []byte, payloadId string) (toBeDeleted int64, err error) {
+	accountPubKey, err := peer.CtxPubKey(ctx)
+	if err != nil {
+		return
+	}
+	peerId, err := peer.CtxPeerId(ctx)
+	if err != nil {
+		return
+	}
+	return c.spaceStatus.SpaceDelete(ctx, spacestatus.SpaceDeletion{
+		DeletionPayload:   payload,
+		DeletionPayloadId: payloadId,
+		SpaceId:           spaceId,
+		DeletionPeriod:    time.Duration(deletionDurationSecs) * time.Second,
+		AccountInfo: spacestatus.AccountInfo{
+			Identity:  accountPubKey,
+			PeerId:    peerId,
+			NetworkId: c.nodeConf.Configuration().NetworkId,
+		},
+	})
+}
+
+// StatusChange is deprecated use only for backwards compatibility
+func (c *coordinator) StatusChange(ctx context.Context, spaceId string, deletionPeriod time.Duration, payloadType coordinatorproto.DeletionPayloadType, payload []byte, payloadId string) (entry spacestatus.StatusEntry, err error) {
 	defer func() {
 		log.Debug("finished changing status", zap.Error(err), zap.String("spaceId", spaceId), zap.Bool("isDelete", payload != nil))
 	}()

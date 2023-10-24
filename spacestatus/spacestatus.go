@@ -27,10 +27,34 @@ type StatusChange struct {
 	DeletionPayload     []byte
 	DeletionPayloadId   string
 	Identity            crypto.PubKey
-	Status              int
-	PeerId              string
-	SpaceId             string
-	NetworkId           string
+	// DeletionTimestamp is ignored when setting in ChangeStatus
+	DeletionTimestamp int64
+	// ToBeDeletedTimestamp is ignored when setting in ChangeStatus
+	ToBeDeletedTimestamp int64
+	Status               int
+	PeerId               string
+	SpaceId              string
+	NetworkId            string
+}
+
+type AccountInfo struct {
+	Identity  crypto.PubKey
+	PeerId    string
+	NetworkId string
+}
+
+type AccountDeletion struct {
+	DeletionPayload   []byte
+	DeletionPayloadId string
+	AccountInfo
+}
+
+type SpaceDeletion struct {
+	DeletionPayload   []byte
+	DeletionPayloadId string
+	SpaceId           string
+	DeletionPeriod    time.Duration
+	AccountInfo
 }
 
 const (
@@ -60,7 +84,11 @@ type configProvider interface {
 
 type SpaceStatus interface {
 	NewStatus(ctx context.Context, spaceId string, identity, oldIdentity crypto.PubKey, spaceType SpaceType, force bool) (err error)
+	// ChangeStatus is deprecated, use only for backwards compatibility
 	ChangeStatus(ctx context.Context, change StatusChange) (entry StatusEntry, err error)
+	SpaceDelete(ctx context.Context, payload SpaceDeletion) (toBeDeleted int64, err error)
+	AccountDelete(ctx context.Context, payload AccountDeletion) (toBeDeleted int64, err error)
+	AccountRevertDeletion(ctx context.Context, payload AccountInfo) (err error)
 	Status(ctx context.Context, spaceId string, pubKey crypto.PubKey) (entry StatusEntry, err error)
 	app.ComponentRunnable
 }
@@ -70,26 +98,29 @@ func New() SpaceStatus {
 }
 
 type spaceStatus struct {
-	conf        Config
-	spaces      *mongo.Collection
-	verifier    ChangeVerifier
-	deleter     SpaceDeleter
-	db          db.Database
-	deletionLog deletionlog.DeletionLog
+	conf           Config
+	spaces         *mongo.Collection
+	verifier       ChangeVerifier
+	deleter        SpaceDeleter
+	db             db.Database
+	deletionLog    deletionlog.DeletionLog
+	deletionPeriod time.Duration
 }
 
 type findStatusQuery struct {
-	SpaceId  string  `bson:"_id"`
-	Status   *int    `bson:"status,omitempty"`
-	Identity *string `bson:"identity,omitempty"`
+	SpaceId  string `bson:"_id,omitempty"`
+	Status   *int   `bson:"status,omitempty"`
+	Type     *int   `bson:"type,omitempty"`
+	Identity string `bson:"identity,omitempty"`
 }
 
 type modifyStatusOp struct {
 	Set struct {
-		Status              int    `bson:"status"`
-		DeletionPayloadType int    `bson:"deletionPayloadType"`
-		DeletionPayload     []byte `bson:"deletionPayload"`
-		DeletionTimestamp   int64  `bson:"deletionTimestamp"`
+		Status               int    `bson:"status"`
+		DeletionPayloadType  int    `bson:"deletionPayloadType"`
+		DeletionPayload      []byte `bson:"deletionPayload"`
+		DeletionTimestamp    *int64 `bson:"deletionTimestamp,omitempty"`
+		ToBeDeletedTimestamp *int64 `bson:"toBeDeletedTimestamp,omitempty"`
 	} `bson:"$set"`
 }
 
@@ -99,6 +130,152 @@ type insertNewSpaceOp struct {
 	Status      int       `bson:"status"`
 	Type        SpaceType `bson:"type"`
 	SpaceId     string    `bson:"_id"`
+}
+
+func (s *spaceStatus) AccountDelete(ctx context.Context, payload AccountDeletion) (toBeDeleted int64, err error) {
+	var identity string
+	if payload.Identity != nil {
+		identity = payload.Identity.Account()
+	}
+	err = s.verifier.Verify(StatusChange{
+		DeletionPayloadType: coordinatorproto.DeletionPayloadType_Account,
+		DeletionPayload:     payload.DeletionPayload,
+		DeletionPayloadId:   payload.DeletionPayloadId,
+		Identity:            payload.Identity,
+		PeerId:              payload.PeerId,
+		NetworkId:           payload.NetworkId,
+	})
+	if err != nil {
+		return
+	}
+	var (
+		tm                   = time.Now()
+		deletionTimestamp    = tm.Unix()
+		toBeDeletedTimestamp = tm.Add(s.deletionPeriod).Unix()
+	)
+	err = s.db.Tx(ctx, func(txCtx mongo.SessionContext) error {
+		// Find personal space with SpaceStatusCreated status for the given identity
+		if !s.accountStatusFindTx(txCtx, identity, SpaceStatusCreated) {
+			return coordinatorproto.ErrAccountIsDeleted
+		}
+		status := SpaceStatusCreated
+		// Find all spaces with SpaceStatusCreated status for the given identity
+		cursor, err := s.spaces.Find(txCtx, findStatusQuery{
+			Status:   &status,
+			Identity: identity,
+		})
+		if err != nil {
+			return coordinatorproto.ErrUnexpected
+		}
+		var spaces []StatusEntry
+		if err = cursor.All(txCtx, &spaces); err != nil {
+			return coordinatorproto.ErrUnexpected
+		}
+
+		// Iterate through the spaces and call setStatusTx
+		for _, space := range spaces {
+			change := StatusChange{
+				DeletionPayloadType:  coordinatorproto.DeletionPayloadType_Account,
+				DeletionPayload:      payload.DeletionPayload,
+				DeletionPayloadId:    payload.DeletionPayloadId,
+				Identity:             payload.Identity,
+				PeerId:               payload.PeerId,
+				NetworkId:            payload.NetworkId,
+				Status:               SpaceStatusDeletionPending,
+				ToBeDeletedTimestamp: toBeDeletedTimestamp,
+				DeletionTimestamp:    deletionTimestamp,
+				SpaceId:              space.SpaceId,
+			}
+			if _, err := s.setStatusTx(txCtx, change, SpaceStatusCreated); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return
+	}
+	return toBeDeletedTimestamp, nil
+}
+
+func (s *spaceStatus) AccountRevertDeletion(ctx context.Context, payload AccountInfo) (err error) {
+	var identity string
+	if payload.Identity != nil {
+		identity = payload.Identity.Account()
+	}
+	return s.db.Tx(ctx, func(txCtx mongo.SessionContext) error {
+		if !s.accountStatusFindTx(txCtx, identity, SpaceStatusDeletionPending) {
+			return coordinatorproto.ErrUnexpected
+		}
+		status := SpaceStatusDeletionPending
+		// Find all spaces with SpaceStatusDeletionPending status for the given identity
+		cursor, err := s.spaces.Find(txCtx, findStatusQuery{
+			Status:   &status,
+			Identity: identity,
+		})
+		if err != nil {
+			return coordinatorproto.ErrUnexpected
+		}
+		var spaces []StatusEntry
+		if err = cursor.All(txCtx, &spaces); err != nil {
+			return coordinatorproto.ErrUnexpected
+		}
+
+		// Iterate through the spaces and call setStatusTx
+		for _, space := range spaces {
+			change := StatusChange{
+				Identity:  payload.Identity,
+				PeerId:    payload.PeerId,
+				NetworkId: payload.NetworkId,
+				Status:    SpaceStatusCreated,
+				SpaceId:   space.SpaceId,
+			}
+			if _, err := s.setStatusTx(txCtx, change, SpaceStatusDeletionPending); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func (s *spaceStatus) SpaceDelete(ctx context.Context, payload SpaceDeletion) (toBeDeleted int64, err error) {
+	var (
+		tm                   = time.Now()
+		deletionTimestamp    = tm.Unix()
+		toBeDeletedTimestamp = tm.Add(payload.DeletionPeriod).Unix()
+	)
+	err = s.db.Tx(ctx, func(txCtx mongo.SessionContext) error {
+		spType, err := s.getSpaceTypeTx(txCtx, payload.SpaceId)
+		if err != nil {
+			return coordinatorproto.ErrSpaceNotExists
+		}
+		switch spType {
+		case SpaceTypePersonal:
+			log.Debug("cannot delete personal space", zap.Error(err), zap.String("spaceId", payload.SpaceId))
+			return coordinatorproto.ErrUnexpected
+		case SpaceTypeTech:
+			log.Debug("cannot delete tech space", zap.Error(err), zap.String("spaceId", payload.SpaceId))
+			return coordinatorproto.ErrUnexpected
+		}
+		change := StatusChange{
+			DeletionPayloadType:  coordinatorproto.DeletionPayloadType_Confirm,
+			DeletionPayload:      payload.DeletionPayload,
+			DeletionPayloadId:    payload.DeletionPayloadId,
+			Identity:             payload.Identity,
+			PeerId:               payload.PeerId,
+			NetworkId:            payload.NetworkId,
+			Status:               SpaceStatusDeletionPending,
+			ToBeDeletedTimestamp: toBeDeletedTimestamp,
+			DeletionTimestamp:    deletionTimestamp,
+			SpaceId:              payload.SpaceId,
+		}
+		_, err = s.setStatusTx(txCtx, change, SpaceStatusCreated)
+		return err
+	})
+	if err != nil {
+		return
+	}
+	return toBeDeletedTimestamp, nil
 }
 
 func (s *spaceStatus) ChangeStatus(ctx context.Context, change StatusChange) (entry StatusEntry, err error) {
@@ -112,6 +289,9 @@ func (s *spaceStatus) ChangeStatus(ctx context.Context, change StatusChange) (en
 		})
 		return
 	case SpaceStatusDeletionPending:
+		tm := time.Now()
+		change.DeletionTimestamp = tm.Unix()
+		change.ToBeDeletedTimestamp = tm.Add(s.deletionPeriod).Unix()
 		err = s.verifier.Verify(change)
 		if err != nil {
 			log.Debug("failed to verify payload", zap.Error(err))
@@ -154,17 +334,17 @@ func (s *spaceStatus) setStatusTx(txCtx mongo.SessionContext, change StatusChang
 }
 
 func (s *spaceStatus) modifyStatus(ctx context.Context, change StatusChange, oldStatus int) (entry StatusEntry, err error) {
-	var encodedIdentity *string
+	var encodedIdentity string
 	if change.Identity != nil {
-		idn := change.Identity.Account()
-		encodedIdentity = &idn
+		encodedIdentity = change.Identity.Account()
 	}
 	op := modifyStatusOp{}
 	op.Set.DeletionPayload = change.DeletionPayload
 	op.Set.DeletionPayloadType = int(change.DeletionPayloadType)
 	op.Set.Status = change.Status
-	if change.Status != SpaceStatusCreated {
-		op.Set.DeletionTimestamp = time.Now().Unix()
+	if change.Status != SpaceStatusDeleted {
+		op.Set.DeletionTimestamp = &change.DeletionTimestamp
+		op.Set.ToBeDeletedTimestamp = &change.ToBeDeletedTimestamp
 	}
 	res := s.spaces.FindOneAndUpdate(ctx, findStatusQuery{
 		SpaceId:  change.SpaceId,
@@ -187,10 +367,9 @@ func (s *spaceStatus) modifyStatus(ctx context.Context, change StatusChange, old
 }
 
 func (s *spaceStatus) Status(ctx context.Context, spaceId string, identity crypto.PubKey) (entry StatusEntry, err error) {
-	var ident *string
+	var ident string
 	if identity != nil {
-		idn := identity.Account()
-		ident = &idn
+		ident = identity.Account()
 	}
 	res := s.spaces.FindOne(ctx, findStatusQuery{
 		SpaceId:  spaceId,
@@ -203,8 +382,35 @@ func (s *spaceStatus) Status(ctx context.Context, spaceId string, identity crypt
 	return
 }
 
+func (s *spaceStatus) accountStatusFindTx(txCtx mongo.SessionContext, identity string, status int) (found bool) {
+	spaceType := int(SpaceTypePersonal)
+	err := s.spaces.FindOne(txCtx, findStatusQuery{
+		Status:   &status,
+		Type:     &spaceType,
+		Identity: identity,
+	}).Err()
+	if err == nil {
+		return true
+	}
+	return false
+}
+
+func (s *spaceStatus) getSpaceTypeTx(txCtx mongo.SessionContext, spaceId string) (spaceType SpaceType, err error) {
+	var entry StatusEntry
+	err = s.spaces.FindOne(txCtx, findStatusQuery{
+		SpaceId: spaceId,
+	}).Decode(&entry)
+	if err != nil {
+		return
+	}
+	return entry.Type, nil
+}
+
 func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity, oldIdentity crypto.PubKey, spaceType SpaceType, force bool) error {
 	return s.db.Tx(ctx, func(txCtx mongo.SessionContext) error {
+		if s.accountStatusFindTx(txCtx, identity.Account(), SpaceStatusDeletionPending) {
+			return coordinatorproto.ErrAccountIsDeleted
+		}
 		entry, err := s.Status(txCtx, spaceId, identity)
 		notFound := err == coordinatorproto.ErrSpaceNotExists
 		if err != nil && !notFound {
@@ -273,7 +479,8 @@ func (s *spaceStatus) Init(a *app.App) (err error) {
 	s.spaces = s.db.Db().Collection(collName)
 	s.verifier = getChangeVerifier()
 	s.conf = a.MustComponent("config").(configProvider).GetSpaceStatus()
-	s.deleter = getSpaceDeleter(s.conf.RunSeconds, time.Duration(s.conf.DeletionPeriodDays*24)*time.Hour)
+	s.deletionPeriod = time.Duration(s.conf.DeletionPeriodDays*24) * time.Hour
+	s.deleter = getSpaceDeleter(s.conf.RunSeconds, s.deletionPeriod)
 	s.deletionLog = app.MustComponent[deletionlog.DeletionLog](a)
 	return
 }

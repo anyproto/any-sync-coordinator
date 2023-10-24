@@ -19,30 +19,53 @@ type SpaceDeleter interface {
 	Close()
 }
 
-type pendingSpacesQuery struct {
+// oldPendingSpacesQuery returns spaces that are pending deletion and have no deletion timestamp
+type oldPendingSpacesQuery struct {
 	deletionPeriod time.Duration
 }
 
-func (d pendingSpacesQuery) toMap() bson.M {
+func (d oldPendingSpacesQuery) toMap() bson.M {
 	return bson.M{"$and": bson.A{
 		bson.D{{"status",
 			bson.M{
 				"$eq": SpaceStatusDeletionPending}}},
+		bson.D{{"toBeDeletedTimestamp",
+			bson.M{
+				"$exists": false}}},
 		bson.D{{"deletionTimestamp",
 			bson.M{
 				"$gt":  0,
-				"$lte": time.Now().Add(-d.deletionPeriod).Unix()}}}}}
+				"$lte": time.Now().Add(-d.deletionPeriod).Unix()}}},
+	}}
+}
+
+// newPendingSpacesQuery returns spaces that are pending deletion and have a deletion timestamp
+// this allows us to have different deletion periods for different spaces
+type newPendingSpacesQuery struct {
+}
+
+func (n newPendingSpacesQuery) toMap() bson.M {
+	return bson.M{"$and": bson.A{
+		bson.D{{"status",
+			bson.M{
+				"$eq": SpaceStatusDeletionPending}}},
+		bson.D{{"toBeDeletedTimestamp",
+			bson.M{
+				"$gt":  0,
+				"$lte": time.Now().Unix()}}},
+	}}
 }
 
 type StatusEntry struct {
-	SpaceId             string    `bson:"_id"`
-	Identity            string    `bson:"identity"`
-	OldIdentity         string    `bson:"oldIdentity"`
-	DeletionPayloadType int       `bson:"deletionPayloadType"`
-	DeletionPayload     []byte    `bson:"deletionPayload"`
-	DeletionTimestamp   int64     `bson:"deletionTimestamp"`
-	Status              int       `bson:"status"`
-	Type                SpaceType `bson:"type"`
+	SpaceId              string    `bson:"_id"`
+	Identity             string    `bson:"identity"`
+	OldIdentity          string    `bson:"oldIdentity"`
+	DeletionPayloadType  int       `bson:"deletionPayloadType"`
+	DeletionPayload      []byte    `bson:"deletionPayload"`
+	DeletionTimestamp    int64     `bson:"deletionTimestamp"`
+	ToBeDeletedTimestamp int64     `bson:"toBeDeletedTimestamp"`
+	Status               int       `bson:"status"`
+	Type                 SpaceType `bson:"type"`
 }
 
 type spaceDeleter struct {
@@ -70,16 +93,27 @@ func (s *spaceDeleter) Run(spaces *mongo.Collection, deleter Deleter) {
 }
 
 func (s *spaceDeleter) delete(ctx context.Context) (err error) {
-	query := pendingSpacesQuery{s.deletionPeriod}.toMap()
-	cur, err := s.spaces.Find(ctx, query)
-	if err != nil {
-		return
-	}
-	for cur.Next(ctx) {
-		err = s.processEntry(ctx, cur)
+	processQuery := func(query interface{}) error {
+		cur, err := s.spaces.Find(ctx, query)
 		if err != nil {
-			log.Debug("failed to process entry", zap.Error(err))
-			continue
+			return err
+		}
+		for cur.Next(ctx) {
+			err = s.processEntry(ctx, cur)
+			if err != nil {
+				log.Debug("failed to process entry", zap.Error(err))
+				continue
+			}
+		}
+		return nil
+	}
+	for _, query := range []interface{}{
+		oldPendingSpacesQuery{s.deletionPeriod}.toMap(),
+		newPendingSpacesQuery{}.toMap(),
+	} {
+		err = processQuery(query)
+		if err != nil {
+			return
 		}
 	}
 	return
