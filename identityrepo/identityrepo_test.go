@@ -3,7 +3,9 @@ package identityrepo
 import (
 	"context"
 	"crypto/rand"
-	"github.com/anyproto/any-sync-coordinator/db"
+	"testing"
+	"time"
+
 	"github.com/anyproto/any-sync/app"
 	"github.com/anyproto/any-sync/identityrepo/identityrepoproto"
 	"github.com/anyproto/any-sync/net/peer"
@@ -12,8 +14,8 @@ import (
 	"github.com/anyproto/any-sync/util/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"testing"
-	"time"
+
+	"github.com/anyproto/any-sync-coordinator/db"
 )
 
 var ctx = context.Background()
@@ -227,7 +229,7 @@ func newFixture(t *testing.T) *fixture {
 	}
 	fx.a.Register(config{}).Register(fx.db).Register(fx.identityRepo).Register(fx.ts)
 	require.NoError(t, fx.a.Start(ctx))
-	_ = fx.db.Db().Drop(ctx)
+	_ = fx.db.Db().Collection(collName).Drop(ctx)
 	time.Sleep(time.Second / 2)
 	return fx
 }

@@ -3,12 +3,14 @@ package deletionlog
 import (
 	"context"
 	"fmt"
-	"github.com/anyproto/any-sync-coordinator/db"
+	"testing"
+	"time"
+
 	"github.com/anyproto/any-sync/app"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"testing"
-	"time"
+
+	"github.com/anyproto/any-sync-coordinator/db"
 )
 
 var ctx = context.Background()
@@ -71,7 +73,7 @@ func newFixture(t *testing.T) *fixture {
 	}
 	fx.a.Register(config{}).Register(fx.db).Register(fx.DeletionLog)
 	require.NoError(t, fx.a.Start(ctx))
-	_ = fx.db.Db().Drop(ctx)
+	_ = fx.db.Db().Collection(collName).Drop(ctx)
 	time.Sleep(time.Second / 2)
 	return fx
 }
