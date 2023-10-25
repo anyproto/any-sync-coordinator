@@ -10,6 +10,7 @@ import (
 	"github.com/anyproto/any-sync/app/logger"
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/util/crypto"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.uber.org/zap"
@@ -114,13 +115,28 @@ type findStatusQuery struct {
 	Identity string `bson:"identity,omitempty"`
 }
 
+func newPersonalAccountQuery(identity string, status int) bson.M {
+	return bson.M{
+		"identity": identity,
+		"$and": []bson.M{
+			{
+				"$or": []bson.M{
+					{"type": SpaceTypePersonal},
+					{"type": bson.M{"$exists": false}},
+				},
+			},
+			{"status": status},
+		},
+	}
+}
+
 type modifyStatusOp struct {
 	Set struct {
-		Status               int    `bson:"status"`
-		DeletionPayloadType  int    `bson:"deletionPayloadType"`
-		DeletionPayload      []byte `bson:"deletionPayload"`
-		DeletionTimestamp    *int64 `bson:"deletionTimestamp,omitempty"`
-		ToBeDeletedTimestamp *int64 `bson:"toBeDeletedTimestamp,omitempty"`
+		Status               int                                   `bson:"status"`
+		DeletionPayloadType  *coordinatorproto.DeletionPayloadType `bson:"deletionPayloadType,omitempty"`
+		DeletionPayload      *[]byte                               `bson:"deletionPayload,omitempty"`
+		DeletionTimestamp    *int64                                `bson:"deletionTimestamp,omitempty"`
+		ToBeDeletedTimestamp *int64                                `bson:"toBeDeletedTimestamp,omitempty"`
 	} `bson:"$set"`
 }
 
@@ -339,12 +355,23 @@ func (s *spaceStatus) modifyStatus(ctx context.Context, change StatusChange, old
 		encodedIdentity = change.Identity.Account()
 	}
 	op := modifyStatusOp{}
-	op.Set.DeletionPayload = change.DeletionPayload
-	op.Set.DeletionPayloadType = int(change.DeletionPayloadType)
 	op.Set.Status = change.Status
-	if change.Status != SpaceStatusDeleted {
+	switch change.Status {
+	case SpaceStatusDeletionPending:
+		// setting deletion data to the values from the change
+		op.Set.DeletionPayload = &change.DeletionPayload
+		op.Set.DeletionPayloadType = &change.DeletionPayloadType
 		op.Set.DeletionTimestamp = &change.DeletionTimestamp
 		op.Set.ToBeDeletedTimestamp = &change.ToBeDeletedTimestamp
+	case SpaceStatusCreated:
+		// setting deletion data to empty values
+		emptyPayload := []byte(nil)
+		var emptyTimestamp int64
+		op.Set.DeletionPayload = &emptyPayload
+		op.Set.DeletionTimestamp = &emptyTimestamp
+		op.Set.ToBeDeletedTimestamp = &emptyTimestamp
+	default:
+		// don't change anything (e.g. deletion data stays from SpaceStatusDeletionPending)
 	}
 	res := s.spaces.FindOneAndUpdate(ctx, findStatusQuery{
 		SpaceId:  change.SpaceId,
@@ -383,12 +410,7 @@ func (s *spaceStatus) Status(ctx context.Context, spaceId string, identity crypt
 }
 
 func (s *spaceStatus) accountStatusFindTx(txCtx mongo.SessionContext, identity string, status int) (found bool) {
-	spaceType := int(SpaceTypePersonal)
-	err := s.spaces.FindOne(txCtx, findStatusQuery{
-		Status:   &status,
-		Type:     &spaceType,
-		Identity: identity,
-	}).Err()
+	err := s.spaces.FindOne(txCtx, newPersonalAccountQuery(identity, status)).Err()
 	if err == nil {
 		return true
 	}

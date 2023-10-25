@@ -12,6 +12,7 @@ import (
 	"github.com/anyproto/any-sync/util/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/anyproto/any-sync-coordinator/db"
@@ -624,6 +625,22 @@ func TestSpaceStatus_AccountDelete(t *testing.T) {
 			require.NoError(t, err)
 		}
 	}
+	generateOldAccount := func(t *testing.T, fx *fixture, new int) {
+		_, err := fx.SpaceStatus.(*spaceStatus).spaces.InsertOne(ctx, bson.M{
+			"identity":    identity.Account(),
+			"oldIdentity": oldIdentity.Account(),
+			"status":      SpaceStatusCreated,
+			"_id":         "personal",
+		})
+		require.NoError(t, err)
+		err = fx.NewStatus(ctx, "tech", identity, oldIdentity, SpaceTypeTech, false)
+		require.NoError(t, err)
+		for i := 0; i < new; i++ {
+			spaceId := fmt.Sprintf("space%d", i)
+			err := fx.NewStatus(ctx, spaceId, identity, oldIdentity, SpaceTypeRegular, false)
+			require.NoError(t, err)
+		}
+	}
 	checkStatuses := func(t *testing.T, fx *fixture, new int, timestamp int64, checkStatus int) {
 		allIds := []string{"personal", "tech"}
 		for i := 0; i < new; i++ {
@@ -634,6 +651,9 @@ func TestSpaceStatus_AccountDelete(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, checkStatus, status.Status)
 			require.Equal(t, timestamp, status.ToBeDeletedTimestamp)
+			if checkStatus == SpaceStatusDeleted {
+				require.NotNil(t, status.DeletionPayload)
+			}
 		}
 	}
 	t.Run("test account delete - pending", func(t *testing.T) {
@@ -641,6 +661,21 @@ func TestSpaceStatus_AccountDelete(t *testing.T) {
 		defer fx.Finish(t)
 		new := 10
 		generateAccount(t, fx, new)
+		tm, err := fx.AccountDelete(ctx, AccountDeletion{
+			DeletionPayload:   []byte("payload"),
+			DeletionPayloadId: "id",
+			AccountInfo: AccountInfo{
+				Identity: identity,
+			},
+		})
+		require.NoError(t, err)
+		checkStatuses(t, fx, new, tm, SpaceStatusDeletionPending)
+	})
+	t.Run("test old delete - pending", func(t *testing.T) {
+		fx := newFixture(t, 0, 0)
+		defer fx.Finish(t)
+		new := 10
+		generateOldAccount(t, fx, new)
 		tm, err := fx.AccountDelete(ctx, AccountDeletion{
 			DeletionPayload:   []byte("payload"),
 			DeletionPayloadId: "id",
