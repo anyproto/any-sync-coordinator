@@ -252,10 +252,11 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 		}
 		marshaled, _ := raw.Marshal()
 		res, err := fx.ChangeStatus(ctx, StatusChange{
-			DeletionPayload: marshaled,
-			Identity:        identity,
-			SpaceId:         spaceId,
-			Status:          SpaceStatusDeletionPending,
+			DeletionPayload:     marshaled,
+			DeletionPayloadType: coordinatorproto.DeletionPayloadType_Confirm,
+			Identity:            identity,
+			SpaceId:             spaceId,
+			Status:              SpaceStatusDeletionPending,
 		})
 		require.NoError(t, err)
 		res, err = fx.ChangeStatus(ctx, StatusChange{

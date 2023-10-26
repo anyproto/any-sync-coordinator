@@ -366,8 +366,12 @@ func (s *spaceStatus) modifyStatus(ctx context.Context, change StatusChange, old
 	case SpaceStatusCreated:
 		// setting deletion data to empty values
 		emptyPayload := []byte(nil)
-		var emptyTimestamp int64
+		var (
+			emptyTimestamp   int64
+			emptyPayloadType coordinatorproto.DeletionPayloadType
+		)
 		op.Set.DeletionPayload = &emptyPayload
+		op.Set.DeletionPayloadType = &emptyPayloadType
 		op.Set.DeletionTimestamp = &emptyTimestamp
 		op.Set.ToBeDeletedTimestamp = &emptyTimestamp
 	default:
