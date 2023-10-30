@@ -2,7 +2,7 @@ package deletionlog
 
 import (
 	"context"
-	"github.com/anyproto/any-sync-coordinator/db"
+
 	"github.com/anyproto/any-sync/app"
 	"github.com/anyproto/any-sync/app/logger"
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
@@ -10,6 +10,8 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+
+	"github.com/anyproto/any-sync-coordinator/db"
 )
 
 const CName = "coordinator.deletionLog"
@@ -27,14 +29,15 @@ func New() DeletionLog {
 
 type DeletionLog interface {
 	GetAfter(ctx context.Context, afterId string, limit uint32) (records []Record, hasMore bool, err error)
-	Add(ctx context.Context, spaceId string, status Status) (id string, err error)
+	Add(ctx context.Context, spaceId, fileGroup string, status Status) (id string, err error)
 	app.ComponentRunnable
 }
 
 type Record struct {
-	Id      *primitive.ObjectID `bson:"_id,omitempty"`
-	SpaceId string              `bson:"spaceId"`
-	Status  Status              `bson:"status"`
+	Id        *primitive.ObjectID `bson:"_id,omitempty"`
+	SpaceId   string              `bson:"spaceId"`
+	FileGroup string              `bson:"fileGroup"`
+	Status    Status              `bson:"status"`
 }
 
 type Status int32
@@ -111,10 +114,11 @@ func (d *deletionLog) GetAfter(ctx context.Context, afterId string, limit uint32
 	return
 }
 
-func (d *deletionLog) Add(ctx context.Context, spaceId string, status Status) (id string, err error) {
+func (d *deletionLog) Add(ctx context.Context, spaceId, fileGroup string, status Status) (id string, err error) {
 	rec := Record{
-		SpaceId: spaceId,
-		Status:  status,
+		SpaceId:   spaceId,
+		Status:    status,
+		FileGroup: fileGroup,
 	}
 	res, err := d.coll.InsertOne(ctx, rec)
 	if err != nil {
