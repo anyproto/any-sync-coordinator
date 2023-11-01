@@ -113,8 +113,6 @@ func Bootstrap(a *app.App) {
 		Register(nodeconfsource.New()).
 		Register(deletionlog.New()).
 		Register(peerservice.New()).
-		Register(yamux.New()).
-		Register(quic.New()).
 		Register(pool.New()).
 		Register(secureservice.New()).
 		Register(server.New()).
@@ -122,5 +120,7 @@ func Bootstrap(a *app.App) {
 		Register(spacestatus.New()).
 		Register(filelimit.New()).
 		Register(identityrepo.New()).
-		Register(coordinator.New())
+		Register(coordinator.New()).
+		Register(yamux.New()).
+		Register(quic.New())
 }
