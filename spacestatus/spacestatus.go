@@ -345,7 +345,7 @@ func (s *spaceStatus) setStatusTx(txCtx mongo.SessionContext, change StatusChang
 		err = coordinatorproto.ErrUnexpected
 		return
 	}
-	_, err = s.deletionLog.Add(txCtx, change.SpaceId, status)
+	_, err = s.deletionLog.Add(txCtx, change.SpaceId, entry.Identity, status)
 	return
 }
 

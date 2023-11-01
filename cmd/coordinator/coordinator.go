@@ -4,17 +4,13 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"github.com/anyproto/any-sync-coordinator/account"
-	"github.com/anyproto/any-sync-coordinator/cafeapi"
-	"github.com/anyproto/any-sync-coordinator/config"
-	"github.com/anyproto/any-sync-coordinator/coordinator"
-	"github.com/anyproto/any-sync-coordinator/coordinatorlog"
-	"github.com/anyproto/any-sync-coordinator/db"
-	"github.com/anyproto/any-sync-coordinator/deletionlog"
-	"github.com/anyproto/any-sync-coordinator/filelimit"
-	"github.com/anyproto/any-sync-coordinator/identityrepo"
-	"github.com/anyproto/any-sync-coordinator/nodeconfsource"
-	"github.com/anyproto/any-sync-coordinator/spacestatus"
+	"net/http"
+	_ "net/http/pprof"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
 	"github.com/anyproto/any-sync/app"
 	"github.com/anyproto/any-sync/app/logger"
 	"github.com/anyproto/any-sync/metric"
@@ -27,12 +23,17 @@ import (
 	"github.com/anyproto/any-sync/nodeconf"
 	"github.com/anyproto/any-sync/nodeconf/nodeconfstore"
 	"go.uber.org/zap"
-	"net/http"
-	_ "net/http/pprof"
-	"os"
-	"os/signal"
-	"syscall"
-	"time"
+
+	"github.com/anyproto/any-sync-coordinator/account"
+	"github.com/anyproto/any-sync-coordinator/config"
+	"github.com/anyproto/any-sync-coordinator/coordinator"
+	"github.com/anyproto/any-sync-coordinator/coordinatorlog"
+	"github.com/anyproto/any-sync-coordinator/db"
+	"github.com/anyproto/any-sync-coordinator/deletionlog"
+	"github.com/anyproto/any-sync-coordinator/filelimit"
+	"github.com/anyproto/any-sync-coordinator/identityrepo"
+	"github.com/anyproto/any-sync-coordinator/nodeconfsource"
+	"github.com/anyproto/any-sync-coordinator/spacestatus"
 
 	// import this to keep govvv in go.mod on mod tidy
 	_ "github.com/ahmetb/govvv/integration-test/app-different-package/mypkg"
@@ -112,15 +113,14 @@ func Bootstrap(a *app.App) {
 		Register(nodeconfsource.New()).
 		Register(deletionlog.New()).
 		Register(peerservice.New()).
-		Register(yamux.New()).
-		Register(quic.New()).
 		Register(pool.New()).
 		Register(secureservice.New()).
 		Register(server.New()).
 		Register(coordinatorlog.New()).
 		Register(spacestatus.New()).
 		Register(filelimit.New()).
-		Register(cafeapi.New()).
 		Register(identityrepo.New()).
-		Register(coordinator.New())
+		Register(coordinator.New()).
+		Register(yamux.New()).
+		Register(quic.New())
 }

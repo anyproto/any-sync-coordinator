@@ -257,6 +257,7 @@ func (r *rpcHandler) DeletionLog(ctx context.Context, req *coordinatorproto.Dele
 		resp.Records = append(resp.Records, &coordinatorproto.DeletionLogRecord{
 			Id:        rec.Id.Hex(),
 			SpaceId:   rec.SpaceId,
+			FileGroup: rec.FileGroup,
 			Status:    coordinatorproto.DeletionLogRecordStatus(rec.Status),
 			Timestamp: rec.Id.Timestamp().Unix(),
 		})

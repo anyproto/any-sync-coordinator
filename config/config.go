@@ -1,10 +1,8 @@
 package config
 
 import (
-	"github.com/anyproto/any-sync-coordinator/cafeapi"
-	"github.com/anyproto/any-sync-coordinator/db"
-	"github.com/anyproto/any-sync-coordinator/filelimit"
-	"github.com/anyproto/any-sync-coordinator/spacestatus"
+	"os"
+
 	commonaccount "github.com/anyproto/any-sync/accountservice"
 	"github.com/anyproto/any-sync/app"
 	"github.com/anyproto/any-sync/metric"
@@ -13,7 +11,10 @@ import (
 	"github.com/anyproto/any-sync/net/transport/yamux"
 	"github.com/anyproto/any-sync/nodeconf"
 	"gopkg.in/yaml.v3"
-	"os"
+
+	"github.com/anyproto/any-sync-coordinator/db"
+	"github.com/anyproto/any-sync-coordinator/filelimit"
+	"github.com/anyproto/any-sync-coordinator/spacestatus"
 )
 
 const CName = "config"
@@ -41,7 +42,6 @@ type Config struct {
 	SpaceStatus              spacestatus.Config     `yaml:"spaceStatus"`
 	Yamux                    yamux.Config           `yaml:"yamux"`
 	Quic                     quic.Config            `yaml:"quic"`
-	CafeApi                  cafeapi.Config         `yaml:"cafeApi"`
 	FileLimit                filelimit.Config       `yaml:"fileLimit"`
 }
 
@@ -91,10 +91,6 @@ func (c Config) GetYamux() yamux.Config {
 
 func (c Config) GetQuic() quic.Config {
 	return c.Quic
-}
-
-func (c Config) GetCafeApi() cafeapi.Config {
-	return c.CafeApi
 }
 
 func (c Config) GetFileLimit() filelimit.Config {

@@ -18,7 +18,7 @@ var ctx = context.Background()
 func TestDeletionLog_Add(t *testing.T) {
 	fx := newFixture(t)
 	defer fx.finish(t)
-	id, err := fx.Add(ctx, "spaceId", StatusOk)
+	id, err := fx.Add(ctx, "spaceId", "fileGroup", StatusOk)
 	require.NoError(t, err)
 	assert.NotEmpty(t, id)
 	t.Log(id)
@@ -29,7 +29,7 @@ func TestDeletionLog_GetAfter(t *testing.T) {
 	defer fx.finish(t)
 
 	for i := 0; i < 10; i++ {
-		fx.Add(ctx, fmt.Sprint(i), StatusRemove)
+		fx.Add(ctx, fmt.Sprint(i), "fileGroup", StatusRemove)
 	}
 
 	t.Run("empty after if", func(t *testing.T) {
@@ -58,6 +58,7 @@ func TestDeletionLog_GetAfter(t *testing.T) {
 
 		for i, r := range append(res, res2...) {
 			assert.Equal(t, fmt.Sprint(i), r.SpaceId)
+			assert.Equal(t, "fileGroup", r.FileGroup)
 			assert.Equal(t, StatusRemove, r.Status)
 			assert.NotEmpty(t, r.Id)
 		}
