@@ -210,6 +210,10 @@ func (r *rpcHandler) NetworkConfiguration(ctx context.Context, req *coordinatorp
 					types = append(types, coordinatorproto.NodeType_TreeAPI)
 				case nodeconf.NodeTypeConsensus:
 					types = append(types, coordinatorproto.NodeType_ConsensusAPI)
+				case nodeconf.NodeTypeNamingNode:
+					types = append(types, coordinatorproto.NodeType_NamingNodeAPI)
+				case nodeconf.NodeTypePaymentProcessingNode:
+					types = append(types, coordinatorproto.NodeType_PaymentProcessingAPI)
 				}
 			}
 			nodes = append(nodes, &coordinatorproto.Node{
