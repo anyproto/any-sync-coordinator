@@ -171,16 +171,16 @@ func (mr *MockSpaceStatusMockRecorder) SpaceDelete(arg0, arg1 any) *gomock.Call 
 }
 
 // Status mocks base method.
-func (m *MockSpaceStatus) Status(arg0 context.Context, arg1 string, arg2 crypto.PubKey) (spacestatus.StatusEntry, error) {
+func (m *MockSpaceStatus) Status(arg0 context.Context, arg1 string) (spacestatus.StatusEntry, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Status", arg0, arg1, arg2)
+	ret := m.ctrl.Call(m, "Status", arg0, arg1)
 	ret0, _ := ret[0].(spacestatus.StatusEntry)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // Status indicates an expected call of Status.
-func (mr *MockSpaceStatusMockRecorder) Status(arg0, arg1, arg2 any) *gomock.Call {
+func (mr *MockSpaceStatusMockRecorder) Status(arg0, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Status", reflect.TypeOf((*MockSpaceStatus)(nil).Status), arg0, arg1, arg2)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Status", reflect.TypeOf((*MockSpaceStatus)(nil).Status), arg0, arg1)
 }
