@@ -90,7 +90,7 @@ type SpaceStatus interface {
 	SpaceDelete(ctx context.Context, payload SpaceDeletion) (toBeDeleted int64, err error)
 	AccountDelete(ctx context.Context, payload AccountDeletion) (toBeDeleted int64, err error)
 	AccountRevertDeletion(ctx context.Context, payload AccountInfo) (err error)
-	Status(ctx context.Context, spaceId string, pubKey crypto.PubKey) (entry StatusEntry, err error)
+	Status(ctx context.Context, spaceId string) (entry StatusEntry, err error)
 	app.ComponentRunnable
 }
 
@@ -383,7 +383,7 @@ func (s *spaceStatus) modifyStatus(ctx context.Context, change StatusChange, old
 		Identity: encodedIdentity,
 	}, op, options.FindOneAndUpdate().SetReturnDocument(options.After))
 	if res.Err() != nil {
-		curStatus, err := s.Status(ctx, change.SpaceId, change.Identity)
+		curStatus, err := s.Status(ctx, change.SpaceId)
 		if err != nil {
 			return StatusEntry{}, notFoundOrUnexpected(err)
 		}
@@ -397,14 +397,9 @@ func (s *spaceStatus) modifyStatus(ctx context.Context, change StatusChange, old
 	return
 }
 
-func (s *spaceStatus) Status(ctx context.Context, spaceId string, identity crypto.PubKey) (entry StatusEntry, err error) {
-	var ident string
-	if identity != nil {
-		ident = identity.Account()
-	}
+func (s *spaceStatus) Status(ctx context.Context, spaceId string) (entry StatusEntry, err error) {
 	res := s.spaces.FindOne(ctx, findStatusQuery{
-		SpaceId:  spaceId,
-		Identity: ident,
+		SpaceId: spaceId,
 	})
 	if res.Err() != nil {
 		return StatusEntry{}, notFoundOrUnexpected(res.Err())
@@ -437,7 +432,7 @@ func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity, o
 		if s.accountStatusFindTx(txCtx, identity.Account(), SpaceStatusDeletionPending) {
 			return coordinatorproto.ErrAccountIsDeleted
 		}
-		entry, err := s.Status(txCtx, spaceId, identity)
+		entry, err := s.Status(txCtx, spaceId)
 		notFound := err == coordinatorproto.ErrSpaceNotExists
 		if err != nil && !notFound {
 			return err
@@ -539,10 +534,10 @@ func (s *spaceStatus) Close(ctx context.Context) (err error) {
 }
 
 func notFoundOrUnexpected(err error) error {
-	if err == mongo.ErrNoDocuments {
+	if errors.Is(err, mongo.ErrNoDocuments) {
 		return coordinatorproto.ErrSpaceNotExists
 	} else {
-		log.Info("", zap.Error(err))
+		log.Info("unexpected error received", zap.Error(err))
 		return coordinatorproto.ErrUnexpected
 	}
 }

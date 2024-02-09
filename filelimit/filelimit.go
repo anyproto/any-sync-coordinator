@@ -48,7 +48,7 @@ func (f *fileLimit) Get(ctx context.Context, identity []byte, spaceId string) (l
 	}
 
 	if spaceId != "" {
-		statusEntry, err := f.spaceStatus.Status(ctx, spaceId, pk)
+		statusEntry, err := f.spaceStatus.Status(ctx, spaceId)
 		if err != nil {
 			return 0, "", err
 		}

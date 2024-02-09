@@ -86,7 +86,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 
 		err := fx.NewStatus(ctx, spaceId, identity, oldIdentity, SpaceTypeRegular, false)
 		require.NoError(t, err)
-		res, err := fx.Status(ctx, spaceId, identity)
+		res, err := fx.Status(ctx, spaceId)
 		require.NoError(t, err)
 		require.Equal(t, StatusEntry{
 			Type:        SpaceTypeRegular,
@@ -139,7 +139,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 			err = fx.NewStatus(ctx, spaceId, identity, oldIdentity, SpaceTypeRegular, true)
 			require.NoError(t, err)
 
-			res, err := fx.Status(ctx, spaceId, identity)
+			res, err := fx.Status(ctx, spaceId)
 			require.NoError(t, err)
 			require.Equal(t, StatusEntry{
 				Type:        SpaceTypeRegular,
@@ -191,7 +191,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 			Status:              SpaceStatusDeletionPending,
 		})
 		checkStatus(res, err)
-		res, err = fx.Status(ctx, spaceId, identity)
+		res, err = fx.Status(ctx, spaceId)
 		checkStatus(res, err)
 	})
 	t.Run("space delete", func(t *testing.T) {
@@ -234,7 +234,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 			Status:              SpaceStatusDeletionPending,
 		})
 		checkStatus(res, err)
-		res, err = fx.Status(ctx, spaceId, identity)
+		res, err = fx.Status(ctx, spaceId)
 		checkStatus(res, err)
 	})
 	t.Run("change status pending to created", func(t *testing.T) {
@@ -463,7 +463,7 @@ func TestSpaceStatus_Run(t *testing.T) {
 		}
 	}
 	getStatus := func(t *testing.T, fx *fixture, index int) (status StatusEntry) {
-		status, err := fx.Status(ctx, fmt.Sprintf("space%d", index), identity)
+		status, err := fx.Status(ctx, fmt.Sprintf("space%d", index))
 		require.NoError(t, err)
 		return
 	}
@@ -534,7 +534,7 @@ func TestSpaceStatus_SpaceDelete(t *testing.T) {
 	marshalled, _ := raw.Marshal()
 	checkStatus := func(fx *fixture, timestamp int64, delPeriod time.Duration, err error) {
 		require.NoError(t, err)
-		res, err := fx.Status(ctx, spaceId, identity)
+		res, err := fx.Status(ctx, spaceId)
 		require.NoError(t, err)
 		if time.Now().Unix()-res.DeletionTimestamp > 10*int64(time.Second) {
 			t.Fatal("incorrect deletion date")
@@ -648,7 +648,7 @@ func TestSpaceStatus_AccountDelete(t *testing.T) {
 			allIds = append(allIds, fmt.Sprintf("space%d", i))
 		}
 		for _, spaceId := range allIds {
-			status, err := fx.Status(ctx, spaceId, identity)
+			status, err := fx.Status(ctx, spaceId)
 			require.NoError(t, err)
 			require.Equal(t, checkStatus, status.Status)
 			require.Equal(t, timestamp, status.ToBeDeletedTimestamp)
@@ -747,7 +747,7 @@ func TestSpaceStatus_Status(t *testing.T) {
 
 	require.NoError(t, fx.NewStatus(ctx, spaceId, identity, oldIdentity, spaceType, false))
 
-	status, err := fx.Status(ctx, spaceId, identity)
+	status, err := fx.Status(ctx, spaceId)
 	require.NoError(t, err)
 
 	assert.Equal(t, spaceId, status.SpaceId)

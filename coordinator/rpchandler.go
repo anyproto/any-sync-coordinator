@@ -2,6 +2,7 @@ package coordinator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -119,6 +120,12 @@ func (r *rpcHandler) SpaceStatusCheckMany(ctx context.Context, req *coordinatorp
 		var status spacestatus.StatusEntry
 		status, err = r.c.StatusCheck(ctx, spaceId)
 		if err != nil {
+			if errors.Is(err, coordinatorproto.ErrSpaceNotExists) {
+				resp.Payloads = append(resp.Payloads, &coordinatorproto.SpaceStatusPayload{
+					Status: coordinatorproto.SpaceStatus_SpaceStatusNotExists,
+				})
+				continue
+			}
 			return nil, err
 		}
 		resp.Payloads = append(resp.Payloads, r.convertStatus(status))

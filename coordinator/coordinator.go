@@ -84,11 +84,7 @@ func (c *coordinator) StatusCheck(ctx context.Context, spaceId string) (status s
 	defer func() {
 		log.Debug("finished checking status", zap.Error(err), zap.String("spaceId", spaceId), zap.Error(err))
 	}()
-	accountPubKey, err := peer.CtxPubKey(ctx)
-	if err != nil {
-		return
-	}
-	status, err = c.spaceStatus.Status(ctx, spaceId, accountPubKey)
+	status, err = c.spaceStatus.Status(ctx, spaceId)
 	return
 }
 
