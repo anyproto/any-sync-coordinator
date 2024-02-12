@@ -30,7 +30,7 @@ func TestFileLimit_Get(t *testing.T) {
 		fx := newFixture(t)
 		defer fx.finish(t)
 
-		fx.spaceStatus.EXPECT().Status(ctx, spaceId, gomock.Any()).Return(ss, nil)
+		fx.spaceStatus.EXPECT().Status(ctx, spaceId).Return(ss, nil)
 
 		limit, storeKey, err := fx.Get(ctx, identity, spaceId)
 		require.NoError(t, err)
@@ -44,7 +44,7 @@ func TestFileLimit_Get(t *testing.T) {
 
 		require.NoError(t, fx.FileLimit.(*fileLimit).db.Set(ctx, identityPub.Account(), 123))
 
-		fx.spaceStatus.EXPECT().Status(ctx, spaceId, gomock.Any()).Return(ss, nil)
+		fx.spaceStatus.EXPECT().Status(ctx, spaceId).Return(ss, nil)
 		limit, storeKey, err := fx.Get(ctx, identity, spaceId)
 		require.NoError(t, err)
 		assert.Equal(t, ss.Identity, storeKey)
