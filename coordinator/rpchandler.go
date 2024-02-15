@@ -99,9 +99,19 @@ func (r *rpcHandler) SpaceStatusCheck(ctx context.Context, req *coordinatorproto
 	if err != nil {
 		return nil, err
 	}
-	return &coordinatorproto.SpaceStatusCheckResponse{
+	accountPubKey, err := peer.CtxPubKey(ctx)
+	if err != nil {
+		return
+	}
+
+	accountIdentity := accountPubKey.Account()
+	resp = &coordinatorproto.SpaceStatusCheckResponse{
 		Payload: r.convertStatus(status),
-	}, nil
+	}
+	if status.Identity == accountIdentity {
+		resp.Payload.Permissions = coordinatorproto.SpacePermissions_SpacePermissionsOwner
+	}
+	return resp, nil
 }
 
 func (r *rpcHandler) SpaceStatusCheckMany(ctx context.Context, req *coordinatorproto.SpaceStatusCheckManyRequest) (resp *coordinatorproto.SpaceStatusCheckManyResponse, err error) {
@@ -117,10 +127,15 @@ func (r *rpcHandler) SpaceStatusCheckMany(ctx context.Context, req *coordinatorp
 	resp = &coordinatorproto.SpaceStatusCheckManyResponse{
 		Payloads: make([]*coordinatorproto.SpaceStatusPayload, 0, len(req.SpaceIds)),
 	}
+	accountPubKey, err := peer.CtxPubKey(ctx)
+	if err != nil {
+		return
+	}
+	accountIdentity := accountPubKey.Account()
 
 	for _, spaceId := range req.SpaceIds {
 		var status spacestatus.StatusEntry
-		status, err = r.c.StatusCheck(ctx, spaceId)
+		status, err := r.c.StatusCheck(ctx, spaceId)
 		if err != nil {
 			if errors.Is(err, coordinatorproto.ErrSpaceNotExists) {
 				resp.Payloads = append(resp.Payloads, &coordinatorproto.SpaceStatusPayload{
@@ -130,7 +145,11 @@ func (r *rpcHandler) SpaceStatusCheckMany(ctx context.Context, req *coordinatorp
 			}
 			return nil, err
 		}
-		resp.Payloads = append(resp.Payloads, r.convertStatus(status))
+		st := r.convertStatus(status)
+		if status.Identity == accountIdentity {
+			st.Permissions = coordinatorproto.SpacePermissions_SpacePermissionsOwner
+		}
+		resp.Payloads = append(resp.Payloads, st)
 	}
 	return
 }
