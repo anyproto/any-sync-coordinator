@@ -20,6 +20,7 @@ import (
 	"go.uber.org/zap"
 	"storj.io/drpc"
 
+	"github.com/anyproto/any-sync-coordinator/acl"
 	"github.com/anyproto/any-sync-coordinator/config"
 	"github.com/anyproto/any-sync-coordinator/coordinatorlog"
 	"github.com/anyproto/any-sync-coordinator/deletionlog"
@@ -60,6 +61,7 @@ type coordinator struct {
 	metric         metric.Metric
 	fileLimit      filelimit.FileLimit
 	deletionLog    deletionlog.DeletionLog
+	acl            acl.Acl
 }
 
 func (c *coordinator) Init(a *app.App) (err error) {
@@ -73,6 +75,7 @@ func (c *coordinator) Init(a *app.App) (err error) {
 	c.metric = a.MustComponent(metric.CName).(metric.Metric)
 	c.fileLimit = a.MustComponent(filelimit.CName).(filelimit.FileLimit)
 	c.deletionLog = app.MustComponent[deletionlog.DeletionLog](a)
+	c.acl = app.MustComponent[acl.Acl](a)
 	return coordinatorproto.DRPCRegisterCoordinator(a.MustComponent(server.CName).(drpc.Mux), h)
 }
 

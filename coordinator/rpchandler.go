@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/anyproto/any-sync/consensus/consensusproto"
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/metric"
 	"github.com/anyproto/any-sync/net/peer"
 	"github.com/anyproto/any-sync/nodeconf"
+	"github.com/gogo/protobuf/proto"
 	"go.uber.org/zap"
 
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
@@ -272,6 +274,39 @@ func (r *rpcHandler) DeletionLog(ctx context.Context, req *coordinatorproto.Dele
 			Status:    coordinatorproto.DeletionLogRecordStatus(rec.Status),
 			Timestamp: rec.Id.Timestamp().Unix(),
 		})
+	}
+	return
+}
+
+func (r *rpcHandler) AclAddRecord(ctx context.Context, req *coordinatorproto.AclAddRecordRequest) (resp *coordinatorproto.AclAddRecordResponse, err error) {
+	rec := &consensusproto.RawRecord{}
+	err = proto.Unmarshal(req.Payload, rec)
+	if err != nil {
+		return
+	}
+	rawRecordWithId, err := r.c.acl.AddRecord(ctx, req.SpaceId, rec)
+	if err != nil {
+		return
+	}
+	resp = &coordinatorproto.AclAddRecordResponse{
+		RecordId: rawRecordWithId.Id,
+		Payload:  rawRecordWithId.Payload,
+	}
+	return
+}
+
+func (r *rpcHandler) AclGetRecords(ctx context.Context, req *coordinatorproto.AclGetRecordsRequest) (resp *coordinatorproto.AclGetRecordsResponse, err error) {
+	recordsAfter, err := r.c.acl.RecordsAfter(ctx, req.SpaceId, req.AclHead)
+	if err != nil {
+		return
+	}
+	resp = &coordinatorproto.AclGetRecordsResponse{}
+	for _, rec := range recordsAfter {
+		marshalled, err := proto.Marshal(rec)
+		if err != nil {
+			return nil, err
+		}
+		resp.Records = append(resp.Records, marshalled)
 	}
 	return
 }

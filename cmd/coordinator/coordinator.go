@@ -25,6 +25,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/anyproto/any-sync-coordinator/account"
+	"github.com/anyproto/any-sync-coordinator/acl"
 	"github.com/anyproto/any-sync-coordinator/config"
 	"github.com/anyproto/any-sync-coordinator/coordinator"
 	"github.com/anyproto/any-sync-coordinator/coordinatorlog"
@@ -118,6 +119,7 @@ func Bootstrap(a *app.App) {
 		Register(server.New()).
 		Register(coordinatorlog.New()).
 		Register(spacestatus.New()).
+		Register(acl.New()).
 		Register(filelimit.New()).
 		Register(identityrepo.New()).
 		Register(coordinator.New()).
