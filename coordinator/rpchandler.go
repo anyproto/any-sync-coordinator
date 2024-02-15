@@ -101,7 +101,7 @@ func (r *rpcHandler) SpaceStatusCheck(ctx context.Context, req *coordinatorproto
 	if err != nil {
 		return
 	}
-	
+
 	accountIdentity := accountPubKey.Account()
 	resp = &coordinatorproto.SpaceStatusCheckResponse{
 		Payload: r.convertStatus(status),
