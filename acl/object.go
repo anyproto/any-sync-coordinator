@@ -19,6 +19,9 @@ func newAclObject(ctx context.Context, cs consensusclient.Service, id string) (*
 		consService: cs,
 		ready:       make(chan struct{}),
 	}
+	if err := cs.Watch(id, obj); err != nil {
+		return nil, err
+	}
 	select {
 	case <-obj.ready:
 		if obj.consErr != nil {
@@ -50,12 +53,11 @@ func (a *aclObject) AddConsensusRecords(recs []*consensusproto.RawRecordWithId) 
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.store == nil {
+		defer close(a.ready)
 		if a.store, a.consErr = liststorage.NewInMemoryAclListStorage(a.id, recs); a.consErr != nil {
-			close(a.ready)
 			return
 		}
 		if a.AclList, a.consErr = list.BuildAclList(a.store, list.NoOpAcceptorVerifier{}); a.consErr != nil {
-			close(a.ready)
 			return
 		}
 	} else {

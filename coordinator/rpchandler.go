@@ -298,6 +298,15 @@ func (r *rpcHandler) DeletionLog(ctx context.Context, req *coordinatorproto.Dele
 }
 
 func (r *rpcHandler) AclAddRecord(ctx context.Context, req *coordinatorproto.AclAddRecordRequest) (resp *coordinatorproto.AclAddRecordResponse, err error) {
+	st := time.Now()
+	defer func() {
+		r.c.metric.RequestLog(ctx, "coordinator.aclAddRecord",
+			metric.TotalDur(time.Since(st)),
+			zap.String("addr", peer.CtxPeerAddr(ctx)),
+			metric.SpaceId(req.SpaceId),
+			zap.Error(err),
+		)
+	}()
 	rec := &consensusproto.RawRecord{}
 	err = proto.Unmarshal(req.Payload, rec)
 	if err != nil {
@@ -315,6 +324,15 @@ func (r *rpcHandler) AclAddRecord(ctx context.Context, req *coordinatorproto.Acl
 }
 
 func (r *rpcHandler) AclGetRecords(ctx context.Context, req *coordinatorproto.AclGetRecordsRequest) (resp *coordinatorproto.AclGetRecordsResponse, err error) {
+	st := time.Now()
+	defer func() {
+		r.c.metric.RequestLog(ctx, "coordinator.aclGetRecordsAfter",
+			metric.TotalDur(time.Since(st)),
+			zap.String("addr", peer.CtxPeerAddr(ctx)),
+			metric.SpaceId(req.SpaceId),
+			zap.Error(err),
+		)
+	}()
 	recordsAfter, err := r.c.acl.RecordsAfter(ctx, req.SpaceId, req.AclHead)
 	if err != nil {
 		return
