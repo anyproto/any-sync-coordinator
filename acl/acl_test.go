@@ -11,6 +11,7 @@ import (
 	"github.com/anyproto/any-sync/consensus/consensusclient"
 	"github.com/anyproto/any-sync/consensus/consensusclient/mock_consensusclient"
 	"github.com/anyproto/any-sync/consensus/consensusproto"
+	"github.com/anyproto/any-sync/testutil/accounttest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -115,7 +116,7 @@ func newFixture(t *testing.T) *fixture {
 	fx.consCl.EXPECT().Run(gomock.Any()).AnyTimes()
 	fx.consCl.EXPECT().Close(gomock.Any()).AnyTimes()
 
-	fx.a.Register(fx.consCl).Register(fx.Acl)
+	fx.a.Register(fx.consCl).Register(fx.Acl).Register(&accounttest.AccountTestService{})
 
 	require.NoError(t, fx.a.Start(ctx))
 	return fx
