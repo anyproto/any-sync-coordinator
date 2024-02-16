@@ -13,6 +13,7 @@ import (
 
 	"github.com/anyproto/any-sync/app"
 	"github.com/anyproto/any-sync/app/logger"
+	"github.com/anyproto/any-sync/consensus/consensusclient"
 	"github.com/anyproto/any-sync/metric"
 	"github.com/anyproto/any-sync/net/peerservice"
 	"github.com/anyproto/any-sync/net/pool"
@@ -25,6 +26,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/anyproto/any-sync-coordinator/account"
+	"github.com/anyproto/any-sync-coordinator/acl"
 	"github.com/anyproto/any-sync-coordinator/config"
 	"github.com/anyproto/any-sync-coordinator/coordinator"
 	"github.com/anyproto/any-sync-coordinator/coordinatorlog"
@@ -118,6 +120,8 @@ func Bootstrap(a *app.App) {
 		Register(server.New()).
 		Register(coordinatorlog.New()).
 		Register(spacestatus.New()).
+		Register(consensusclient.New()).
+		Register(acl.New()).
 		Register(filelimit.New()).
 		Register(identityrepo.New()).
 		Register(coordinator.New()).
