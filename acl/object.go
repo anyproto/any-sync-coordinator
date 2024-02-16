@@ -7,42 +7,41 @@ import (
 
 	"github.com/anyproto/any-sync/commonspace/object/acl/list"
 	"github.com/anyproto/any-sync/commonspace/object/acl/liststorage"
-	"github.com/anyproto/any-sync/consensus/consensusclient"
 	"github.com/anyproto/any-sync/consensus/consensusproto"
 	"go.uber.org/atomic"
 	"go.uber.org/zap"
 )
 
-func newAclObject(ctx context.Context, cs consensusclient.Service, id string) (*aclObject, error) {
+func (as *aclService) newAclObject(ctx context.Context, id string) (*aclObject, error) {
 	obj := &aclObject{
-		id:          id,
-		consService: cs,
-		ready:       make(chan struct{}),
+		id:         id,
+		aclService: as,
+		ready:      make(chan struct{}),
 	}
-	if err := cs.Watch(id, obj); err != nil {
+	if err := as.consService.Watch(id, obj); err != nil {
 		return nil, err
 	}
 	select {
 	case <-obj.ready:
 		if obj.consErr != nil {
-			_ = cs.UnWatch(id)
+			_ = as.consService.UnWatch(id)
 			return nil, obj.consErr
 		}
 		return obj, nil
 	case <-ctx.Done():
-		_ = cs.UnWatch(id)
+		_ = as.consService.UnWatch(id)
 		return nil, ctx.Err()
 	}
 }
 
 type aclObject struct {
-	id    string
-	store liststorage.ListStorage
-	list.AclList
+	id         string
+	aclService *aclService
+	store      liststorage.ListStorage
 
-	ready       chan struct{}
-	consErr     error
-	consService consensusclient.Service
+	list.AclList
+	ready   chan struct{}
+	consErr error
 
 	lastUsage atomic.Time
 
@@ -57,7 +56,7 @@ func (a *aclObject) AddConsensusRecords(recs []*consensusproto.RawRecordWithId) 
 		if a.store, a.consErr = liststorage.NewInMemoryAclListStorage(a.id, recs); a.consErr != nil {
 			return
 		}
-		if a.AclList, a.consErr = list.BuildAclList(a.store, list.NoOpAcceptorVerifier{}); a.consErr != nil {
+		if a.AclList, a.consErr = list.BuildAclListWithIdentity(a.aclService.accountService.Account(), a.store, list.NoOpAcceptorVerifier{}); a.consErr != nil {
 			return
 		}
 	} else {
@@ -82,7 +81,7 @@ func (a *aclObject) AddConsensusError(err error) {
 }
 
 func (a *aclObject) Close() (err error) {
-	return a.consService.UnWatch(a.id)
+	return a.aclService.consService.UnWatch(a.id)
 }
 
 func (a *aclObject) TryClose(objectTTL time.Duration) (res bool, err error) {

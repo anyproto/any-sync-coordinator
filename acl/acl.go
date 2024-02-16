@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	commonaccount "github.com/anyproto/any-sync/accountservice"
 	"github.com/anyproto/any-sync/app"
 	"github.com/anyproto/any-sync/app/logger"
 	"github.com/anyproto/any-sync/app/ocache"
@@ -29,12 +30,14 @@ type Acl interface {
 }
 
 type aclService struct {
-	consService consensusclient.Service
-	cache       ocache.OCache
+	consService    consensusclient.Service
+	cache          ocache.OCache
+	accountService commonaccount.Service
 }
 
 func (as *aclService) Init(a *app.App) (err error) {
 	as.consService = app.MustComponent[consensusclient.Service](a)
+	as.accountService = app.MustComponent[commonaccount.Service](a)
 
 	var metricReg *prometheus.Registry
 	if m := a.Component(metric.CName); m != nil {
@@ -53,7 +56,7 @@ func (as *aclService) Name() (name string) {
 }
 
 func (as *aclService) loadObject(ctx context.Context, id string) (ocache.Object, error) {
-	return newAclObject(ctx, as.consService, id)
+	return as.newAclObject(ctx, id)
 }
 
 func (as *aclService) get(ctx context.Context, spaceId string) (list.AclList, error) {
