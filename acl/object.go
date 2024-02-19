@@ -2,6 +2,7 @@ package acl
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"time"
 
@@ -51,6 +52,7 @@ type aclObject struct {
 func (a *aclObject) AddConsensusRecords(recs []*consensusproto.RawRecordWithId) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	slices.Reverse(recs)
 	if a.store == nil {
 		defer close(a.ready)
 		if a.store, a.consErr = liststorage.NewInMemoryAclListStorage(a.id, recs); a.consErr != nil {
