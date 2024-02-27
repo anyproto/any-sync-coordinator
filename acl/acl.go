@@ -76,7 +76,7 @@ func (as *aclService) AddRecord(ctx context.Context, spaceId string, rec *consen
 	}
 	acl.RLock()
 	defer acl.RUnlock()
-	err = acl.ValidateRawRecord(rec)
+	err = acl.ValidateRawRecord(rec, nil)
 	if err != nil {
 		return
 	}
