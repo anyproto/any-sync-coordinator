@@ -55,8 +55,8 @@ github.com/alecthomas/units v0.0.0-20151022065526-2efee857e7cf/go.mod h1:ybxpYRF
 github.com/allegro/bigcache v1.2.1-0.20190218064605-e24eb225f156/go.mod h1:Cb/ax3seSYIx7SuZdm2G2xzfwmv3TPSk2ucNfQESPXM=
 github.com/allegro/bigcache v1.2.1/go.mod h1:Cb/ax3seSYIx7SuZdm2G2xzfwmv3TPSk2ucNfQESPXM=
 github.com/andreyvit/diff v0.0.0-20170406064948-c7f18ee00883/go.mod h1:rCTlJbsFo29Kk6CurOXKm700vrz8f0KW0JNfpkRJY/8=
-github.com/anyproto/any-sync v0.3.26-0.20240226203203-6106c490d7bf h1:RtjXFnIIdlOaeVRTXlyRSWBdUcM6u9IzcbVKcnJ1xvY=
-github.com/anyproto/any-sync v0.3.26-0.20240226203203-6106c490d7bf/go.mod h1:xAzQ+njdF1FM1SD5nw1aUbhLh0tiOmzY0hrFajuY6Ik=
+github.com/anyproto/any-sync v0.3.26 h1:LhLc7e4EDb02l0jNqCnbxczk2Xh8RiUtXQE2P/mHD0E=
+github.com/anyproto/any-sync v0.3.26/go.mod h1:xAzQ+njdF1FM1SD5nw1aUbhLh0tiOmzY0hrFajuY6Ik=
 github.com/anyproto/go-chash v0.1.0 h1:I9meTPjXFRfXZHRJzjOHC/XF7Q5vzysKkiT/grsogXY=
 github.com/anyproto/go-chash v0.1.0/go.mod h1:0UjNQi3PDazP0fINpFYu6VKhuna+W/V+1vpXHAfNgLY=
 github.com/anyproto/go-slip10 v1.0.0 h1:uAEtSuudR3jJBOfkOXf3bErxVoxbuKwdoJN55M1i6IA=

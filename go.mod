@@ -4,7 +4,7 @@ go 1.21
 
 require (
 	github.com/ahmetb/govvv v0.3.0
-	github.com/anyproto/any-sync v0.3.26-0.20240226203203-6106c490d7bf
+	github.com/anyproto/any-sync v0.3.26
 	github.com/gogo/protobuf v1.3.2
 	github.com/prometheus/client_golang v1.18.0
 	github.com/stretchr/testify v1.8.4
