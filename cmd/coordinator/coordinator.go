@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/anyproto/any-sync/acl"
 	"github.com/anyproto/any-sync/app"
 	"github.com/anyproto/any-sync/app/logger"
 	"github.com/anyproto/any-sync/consensus/consensusclient"
@@ -26,7 +27,6 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/anyproto/any-sync-coordinator/account"
-	"github.com/anyproto/any-sync-coordinator/acl"
 	"github.com/anyproto/any-sync-coordinator/config"
 	"github.com/anyproto/any-sync-coordinator/coordinator"
 	"github.com/anyproto/any-sync-coordinator/coordinatorlog"
