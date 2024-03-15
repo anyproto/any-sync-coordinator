@@ -6,8 +6,13 @@ import (
 	"time"
 
 	"github.com/anyproto/any-sync/app"
+	"github.com/anyproto/any-sync/net/peer/mock_peer"
+	"github.com/anyproto/any-sync/net/rpc/rpctest"
+	"github.com/anyproto/any-sync/nodeconf"
+	"github.com/anyproto/any-sync/nodeconf/mock_nodeconf"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	"github.com/anyproto/any-sync-coordinator/db"
 )
@@ -16,9 +21,14 @@ func TestAccountLimit_SetLimits(t *testing.T) {
 	fx := newFixture(t)
 	defer fx.finish(t)
 
+	fx.nodeConf.EXPECT().FilePeers().Return([]string{"filePeer"}).Times(2)
+	peer := mock_peer.NewMockPeer(fx.ctrl)
+	peer.EXPECT().Id().Return("filePeer").AnyTimes()
+	peer.EXPECT().DoDrpc(ctx, gomock.Any()).Times(2)
+	fx.pool.AddPeer(ctx, peer)
+
 	limits := Limits{
 		Identity:          "123",
-		Reason:            "reason",
 		SpaceMembersRead:  100,
 		SpaceMembersWrite: 200,
 	}
@@ -56,13 +66,24 @@ func TestAccountLimit_GetLimits(t *testing.T) {
 var ctx = context.Background()
 
 func newFixture(t *testing.T) *fixture {
+	ctrl := gomock.NewController(t)
 	fx := &fixture{
 		AccountLimit: New(),
+		nodeConf:     mock_nodeconf.NewMockService(ctrl),
+		pool:         rpctest.NewTestPool(),
 		a:            new(app.App),
+		ctrl:         ctrl,
 	}
+
+	fx.nodeConf.EXPECT().Init(gomock.Any()).AnyTimes()
+	fx.nodeConf.EXPECT().Name().Return(nodeconf.CName).AnyTimes()
+	fx.nodeConf.EXPECT().Run(gomock.Any()).AnyTimes()
+	fx.nodeConf.EXPECT().Close(gomock.Any()).AnyTimes()
 
 	fx.a.Register(db.New()).
 		Register(fx.AccountLimit).
+		Register(fx.nodeConf).
+		Register(fx.pool).
 		Register(&testConfig{})
 
 	require.NoError(t, fx.a.Start(ctx))
@@ -72,7 +93,10 @@ func newFixture(t *testing.T) *fixture {
 
 type fixture struct {
 	AccountLimit
-	a *app.App
+	a        *app.App
+	ctrl     *gomock.Controller
+	nodeConf *mock_nodeconf.MockService
+	pool     *rpctest.TestPool
 }
 
 func (fx *fixture) finish(t *testing.T) {
@@ -92,8 +116,8 @@ func (c *testConfig) GetMongo() db.Mongo {
 	}
 }
 
-func (c *testConfig) GetAccountLimit() Limits {
-	return Limits{
+func (c *testConfig) GetAccountLimit() SpaceLimits {
+	return SpaceLimits{
 		SpaceMembersWrite: 5,
 		SpaceMembersRead:  10,
 	}

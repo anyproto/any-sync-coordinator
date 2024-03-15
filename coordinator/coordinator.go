@@ -3,6 +3,7 @@ package coordinator
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/anyproto/any-sync/accountservice"
@@ -21,6 +22,7 @@ import (
 	"go.uber.org/zap"
 	"storj.io/drpc"
 
+	"github.com/anyproto/any-sync-coordinator/accountlimit"
 	"github.com/anyproto/any-sync-coordinator/config"
 	"github.com/anyproto/any-sync-coordinator/coordinatorlog"
 	"github.com/anyproto/any-sync-coordinator/deletionlog"
@@ -59,6 +61,7 @@ type coordinator struct {
 	deletionPeriod time.Duration
 	metric         metric.Metric
 	deletionLog    deletionlog.DeletionLog
+	accountLimit   accountlimit.AccountLimit
 	acl            acl.AclService
 }
 
@@ -73,6 +76,7 @@ func (c *coordinator) Init(a *app.App) (err error) {
 	c.metric = a.MustComponent(metric.CName).(metric.Metric)
 	c.deletionLog = app.MustComponent[deletionlog.DeletionLog](a)
 	c.acl = app.MustComponent[acl.AclService](a)
+	c.accountLimit = app.MustComponent[accountlimit.AccountLimit](a)
 	return coordinatorproto.DRPCRegisterCoordinator(a.MustComponent(server.CName).(drpc.Mux), h)
 }
 
@@ -248,4 +252,21 @@ func (c *coordinator) addCoordinatorLog(ctx context.Context, spaceId, peerId str
 		Identity:           accountPubKey.Account(),
 	})
 	return
+}
+
+func (c *coordinator) AccountLimitsSet(ctx context.Context, req *coordinatorproto.AccountLimitsSetRequest) (err error) {
+	peerId, err := peer.CtxPeerId(ctx)
+	if err != nil {
+		return
+	}
+	if !slices.Contains(c.nodeConf.NodeTypes(peerId), nodeconf.NodeTypePaymentProcessingNode) {
+		return coordinatorproto.ErrForbidden
+	}
+	return c.accountLimit.SetLimits(ctx, accountlimit.Limits{
+		Identity:          req.Identity,
+		Reason:            req.Reason,
+		FileStorageBytes:  req.FileStorageLimitBytes,
+		SpaceMembersRead:  req.SpaceMembersRead,
+		SpaceMembersWrite: req.SpaceMembersWrite,
+	})
 }

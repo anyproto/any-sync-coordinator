@@ -32,17 +32,17 @@ func NewFromFile(path string) (c *Config, err error) {
 }
 
 type Config struct {
-	Account                  commonaccount.Config   `yaml:"account"`
-	Drpc                     rpc.Config             `yaml:"drpc"`
-	Metric                   metric.Config          `yaml:"metric"`
-	Network                  nodeconf.Configuration `yaml:"network"`
-	NetworkStorePath         string                 `yaml:"networkStorePath"`
-	NetworkUpdateIntervalSec int                    `yaml:"networkUpdateIntervalSec"`
-	Mongo                    db.Mongo               `yaml:"mongo"`
-	SpaceStatus              spacestatus.Config     `yaml:"spaceStatus"`
-	Yamux                    yamux.Config           `yaml:"yamux"`
-	Quic                     quic.Config            `yaml:"quic"`
-	AccountLimits            accountlimit.Limits    `yaml:"spaceLimits"`
+	Account                  commonaccount.Config     `yaml:"account"`
+	Drpc                     rpc.Config               `yaml:"drpc"`
+	Metric                   metric.Config            `yaml:"metric"`
+	Network                  nodeconf.Configuration   `yaml:"network"`
+	NetworkStorePath         string                   `yaml:"networkStorePath"`
+	NetworkUpdateIntervalSec int                      `yaml:"networkUpdateIntervalSec"`
+	Mongo                    db.Mongo                 `yaml:"mongo"`
+	SpaceStatus              spacestatus.Config       `yaml:"spaceStatus"`
+	Yamux                    yamux.Config             `yaml:"yamux"`
+	Quic                     quic.Config              `yaml:"quic"`
+	AccountLimits            accountlimit.SpaceLimits `yaml:"defaultLimits"`
 }
 
 func (c *Config) Init(a *app.App) (err error) {
@@ -93,6 +93,6 @@ func (c Config) GetQuic() quic.Config {
 	return c.Quic
 }
 
-func (c Config) GetAccountLimit() accountlimit.Limits {
+func (c Config) GetAccountLimit() accountlimit.SpaceLimits {
 	return c.AccountLimits
 }
