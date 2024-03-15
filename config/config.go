@@ -12,8 +12,8 @@ import (
 	"github.com/anyproto/any-sync/nodeconf"
 	"gopkg.in/yaml.v3"
 
+	"github.com/anyproto/any-sync-coordinator/accountlimit"
 	"github.com/anyproto/any-sync-coordinator/db"
-	"github.com/anyproto/any-sync-coordinator/filelimit"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
 )
 
@@ -42,7 +42,7 @@ type Config struct {
 	SpaceStatus              spacestatus.Config     `yaml:"spaceStatus"`
 	Yamux                    yamux.Config           `yaml:"yamux"`
 	Quic                     quic.Config            `yaml:"quic"`
-	FileLimit                filelimit.Config       `yaml:"fileLimit"`
+	AccountLimits            accountlimit.Limits    `yaml:"spaceLimits"`
 }
 
 func (c *Config) Init(a *app.App) (err error) {
@@ -93,6 +93,6 @@ func (c Config) GetQuic() quic.Config {
 	return c.Quic
 }
 
-func (c Config) GetFileLimit() filelimit.Config {
-	return c.FileLimit
+func (c Config) GetAccountLimit() accountlimit.Limits {
+	return c.AccountLimits
 }

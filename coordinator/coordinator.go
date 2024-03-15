@@ -24,7 +24,6 @@ import (
 	"github.com/anyproto/any-sync-coordinator/config"
 	"github.com/anyproto/any-sync-coordinator/coordinatorlog"
 	"github.com/anyproto/any-sync-coordinator/deletionlog"
-	"github.com/anyproto/any-sync-coordinator/filelimit"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
 )
 
@@ -59,7 +58,6 @@ type coordinator struct {
 	coordinatorLog coordinatorlog.CoordinatorLog
 	deletionPeriod time.Duration
 	metric         metric.Metric
-	fileLimit      filelimit.FileLimit
 	deletionLog    deletionlog.DeletionLog
 	acl            acl.AclService
 }
@@ -73,7 +71,6 @@ func (c *coordinator) Init(a *app.App) (err error) {
 	c.spaceStatus = a.MustComponent(spacestatus.CName).(spacestatus.SpaceStatus)
 	c.coordinatorLog = a.MustComponent(coordinatorlog.CName).(coordinatorlog.CoordinatorLog)
 	c.metric = a.MustComponent(metric.CName).(metric.Metric)
-	c.fileLimit = a.MustComponent(filelimit.CName).(filelimit.FileLimit)
 	c.deletionLog = app.MustComponent[deletionlog.DeletionLog](a)
 	c.acl = app.MustComponent[acl.AclService](a)
 	return coordinatorproto.DRPCRegisterCoordinator(a.MustComponent(server.CName).(drpc.Mux), h)

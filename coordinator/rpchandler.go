@@ -193,24 +193,9 @@ func (r *rpcHandler) SpaceSign(ctx context.Context, req *coordinatorproto.SpaceS
 	}, nil
 }
 
-func (r *rpcHandler) FileLimitCheck(ctx context.Context, req *coordinatorproto.FileLimitCheckRequest) (resp *coordinatorproto.FileLimitCheckResponse, err error) {
-	st := time.Now()
-	defer func() {
-		r.c.metric.RequestLog(ctx, "coordinator.fileLimitCheck",
-			metric.TotalDur(time.Since(st)),
-			metric.SpaceId(req.SpaceId),
-			zap.String("addr", peer.CtxPeerAddr(ctx)),
-			zap.Error(err),
-		)
-	}()
-	limit, storageKey, err := r.c.fileLimit.Get(ctx, req.AccountIdentity, req.SpaceId)
-	if err != nil {
-		return nil, err
-	}
-	return &coordinatorproto.FileLimitCheckResponse{
-		Limit:      limit,
-		StorageKey: storageKey,
-	}, nil
+func (r *rpcHandler) AccountLimitsSet(ctx context.Context, request *coordinatorproto.AccountLimitsSetRequest) (*coordinatorproto.AccountLimitsSetResponse, error) {
+	//TODO implement me
+	panic("implement me")
 }
 
 func (r *rpcHandler) NetworkConfiguration(ctx context.Context, req *coordinatorproto.NetworkConfigurationRequest) (resp *coordinatorproto.NetworkConfigurationResponse, err error) {
