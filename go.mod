@@ -13,7 +13,7 @@ require (
 	go.uber.org/mock v0.4.0
 	go.uber.org/zap v1.26.0
 	gopkg.in/yaml.v3 v3.0.1
-	storj.io/drpc v0.0.33
+	storj.io/drpc v0.0.34
 )
 
 require (
