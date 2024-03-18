@@ -13,6 +13,7 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"go.uber.org/zap"
 
+	"github.com/anyproto/any-sync-coordinator/accountlimit"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
 )
 
@@ -109,6 +110,15 @@ func (r *rpcHandler) SpaceStatusCheck(ctx context.Context, req *coordinatorproto
 	}
 	if status.Identity == accountIdentity {
 		resp.Payload.Permissions = coordinatorproto.SpacePermissions_SpacePermissionsOwner
+		var aLimits accountlimit.Limits
+		aLimits, err = r.c.accountLimit.GetLimits(ctx, accountIdentity)
+		if err != nil {
+			return nil, err
+		}
+		resp.Payload.Limits = &coordinatorproto.SpaceLimits{
+			ReadMembers:  aLimits.SpaceMembersRead,
+			WriteMembers: aLimits.SpaceMembersWrite,
+		}
 	}
 	return resp, nil
 }
@@ -132,9 +142,11 @@ func (r *rpcHandler) SpaceStatusCheckMany(ctx context.Context, req *coordinatorp
 	}
 	accountIdentity := accountPubKey.Account()
 
+	var limits *coordinatorproto.SpaceLimits
+
+	var status spacestatus.StatusEntry
 	for _, spaceId := range req.SpaceIds {
-		var status spacestatus.StatusEntry
-		status, err := r.c.StatusCheck(ctx, spaceId)
+		status, err = r.c.StatusCheck(ctx, spaceId)
 		if err != nil {
 			if errors.Is(err, coordinatorproto.ErrSpaceNotExists) {
 				resp.Payloads = append(resp.Payloads, &coordinatorproto.SpaceStatusPayload{
@@ -147,6 +159,18 @@ func (r *rpcHandler) SpaceStatusCheckMany(ctx context.Context, req *coordinatorp
 		st := r.convertStatus(status)
 		if status.Identity == accountIdentity {
 			st.Permissions = coordinatorproto.SpacePermissions_SpacePermissionsOwner
+			if limits == nil {
+				var aLimits accountlimit.Limits
+				aLimits, err = r.c.accountLimit.GetLimits(ctx, accountIdentity)
+				if err != nil {
+					return nil, err
+				}
+				limits = &coordinatorproto.SpaceLimits{
+					ReadMembers:  aLimits.SpaceMembersRead,
+					WriteMembers: aLimits.SpaceMembersWrite,
+				}
+			}
+			st.Limits = limits
 		}
 		resp.Payloads = append(resp.Payloads, st)
 	}
