@@ -7,7 +7,7 @@ require (
 	github.com/anyproto/any-sync v0.3.26
 	github.com/gogo/protobuf v1.3.2
 	github.com/prometheus/client_golang v1.19.0
-	github.com/stretchr/testify v1.8.4
+	github.com/stretchr/testify v1.9.0
 	go.mongodb.org/mongo-driver v1.14.0
 	go.uber.org/atomic v1.11.0
 	go.uber.org/mock v0.4.0
