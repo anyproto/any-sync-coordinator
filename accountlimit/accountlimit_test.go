@@ -15,6 +15,8 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/anyproto/any-sync-coordinator/db"
+	"github.com/anyproto/any-sync-coordinator/spacestatus"
+	"github.com/anyproto/any-sync-coordinator/spacestatus/mock_spacestatus"
 )
 
 func TestAccountLimit_SetLimits(t *testing.T) {
@@ -63,6 +65,43 @@ func TestAccountLimit_GetLimits(t *testing.T) {
 	assert.Equal(t, uint32(10), limits.SpaceMembersRead)
 }
 
+func TestAccountLimit_GetLimitsBySpace(t *testing.T) {
+	var (
+		spaceId  = "spaceId"
+		identity = "identity"
+	)
+	t.Run("personal", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+
+		fx.spaceStatus.EXPECT().Status(ctx, spaceId).Return(spacestatus.StatusEntry{
+			SpaceId:  spaceId,
+			Identity: identity,
+			Type:     spacestatus.SpaceTypePersonal,
+		}, nil)
+
+		limits, err := fx.GetLimitsBySpace(ctx, spaceId)
+		require.NoError(t, err)
+		assert.Equal(t, SpaceLimits{1, 1}, limits)
+	})
+
+	t.Run("regular", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+
+		fx.spaceStatus.EXPECT().Status(ctx, spaceId).Return(spacestatus.StatusEntry{
+			SpaceId:  spaceId,
+			Identity: identity,
+			Type:     spacestatus.SpaceTypeRegular,
+		}, nil)
+
+		limits, err := fx.GetLimitsBySpace(ctx, spaceId)
+		require.NoError(t, err)
+		assert.Equal(t, SpaceLimits{10, 5}, limits)
+	})
+
+}
+
 var ctx = context.Background()
 
 func newFixture(t *testing.T) *fixture {
@@ -71,6 +110,7 @@ func newFixture(t *testing.T) *fixture {
 		AccountLimit: New(),
 		nodeConf:     mock_nodeconf.NewMockService(ctrl),
 		pool:         rpctest.NewTestPool(),
+		spaceStatus:  mock_spacestatus.NewMockSpaceStatus(ctrl),
 		a:            new(app.App),
 		ctrl:         ctrl,
 	}
@@ -80,9 +120,15 @@ func newFixture(t *testing.T) *fixture {
 	fx.nodeConf.EXPECT().Run(gomock.Any()).AnyTimes()
 	fx.nodeConf.EXPECT().Close(gomock.Any()).AnyTimes()
 
+	fx.spaceStatus.EXPECT().Init(gomock.Any()).AnyTimes()
+	fx.spaceStatus.EXPECT().Name().Return(spacestatus.CName).AnyTimes()
+	fx.spaceStatus.EXPECT().Run(gomock.Any()).AnyTimes()
+	fx.spaceStatus.EXPECT().Close(gomock.Any()).AnyTimes()
+
 	fx.a.Register(db.New()).
 		Register(fx.AccountLimit).
 		Register(fx.nodeConf).
+		Register(fx.spaceStatus).
 		Register(fx.pool).
 		Register(&testConfig{})
 
@@ -93,10 +139,11 @@ func newFixture(t *testing.T) *fixture {
 
 type fixture struct {
 	AccountLimit
-	a        *app.App
-	ctrl     *gomock.Controller
-	nodeConf *mock_nodeconf.MockService
-	pool     *rpctest.TestPool
+	a           *app.App
+	ctrl        *gomock.Controller
+	nodeConf    *mock_nodeconf.MockService
+	pool        *rpctest.TestPool
+	spaceStatus *mock_spacestatus.MockSpaceStatus
 }
 
 func (fx *fixture) finish(t *testing.T) {

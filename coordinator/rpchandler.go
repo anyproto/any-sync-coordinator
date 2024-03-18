@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/anyproto/any-sync/consensus/consensusproto"
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/metric"
 	"github.com/anyproto/any-sync/net/peer"
@@ -302,12 +301,7 @@ func (r *rpcHandler) AclAddRecord(ctx context.Context, req *coordinatorproto.Acl
 			zap.Error(err),
 		)
 	}()
-	rec := &consensusproto.RawRecord{}
-	err = proto.Unmarshal(req.Payload, rec)
-	if err != nil {
-		return
-	}
-	rawRecordWithId, err := r.c.acl.AddRecord(ctx, req.SpaceId, rec)
+	rawRecordWithId, err := r.c.AclAddRecord(ctx, req.SpaceId, req.Payload)
 	if err != nil {
 		return
 	}

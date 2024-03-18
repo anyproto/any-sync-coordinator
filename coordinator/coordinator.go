@@ -13,12 +13,14 @@ import (
 	"github.com/anyproto/any-sync/commonspace"
 	"github.com/anyproto/any-sync/commonspace/object/accountdata"
 	"github.com/anyproto/any-sync/commonspace/spacesyncproto"
+	"github.com/anyproto/any-sync/consensus/consensusproto"
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/metric"
 	"github.com/anyproto/any-sync/net/peer"
 	"github.com/anyproto/any-sync/net/rpc/server"
 	"github.com/anyproto/any-sync/nodeconf"
 	"github.com/anyproto/any-sync/util/crypto"
+	"github.com/gogo/protobuf/proto"
 	"go.uber.org/zap"
 	"storj.io/drpc"
 
@@ -269,4 +271,26 @@ func (c *coordinator) AccountLimitsSet(ctx context.Context, req *coordinatorprot
 		SpaceMembersRead:  req.SpaceMembersRead,
 		SpaceMembersWrite: req.SpaceMembersWrite,
 	})
+}
+
+func (c *coordinator) AclAddRecord(ctx context.Context, spaceId string, payload []byte) (result *consensusproto.RawRecordWithId, err error) {
+	rec := &consensusproto.RawRecord{}
+	err = proto.Unmarshal(payload, rec)
+	if err != nil {
+		return
+	}
+
+	limits, err := c.accountLimit.GetLimitsBySpace(ctx, spaceId)
+	if err != nil {
+		return nil, err
+	}
+
+	rawRecordWithId, err := c.acl.AddRecord(ctx, spaceId, rec, acl.Limits{
+		ReadMembers:  limits.SpaceMembersRead,
+		WriteMembers: limits.SpaceMembersWrite,
+	})
+	if err != nil {
+		return
+	}
+	return rawRecordWithId, nil
 }
