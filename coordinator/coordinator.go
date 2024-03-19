@@ -3,28 +3,31 @@ package coordinator
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/anyproto/any-sync/accountservice"
+	"github.com/anyproto/any-sync/acl"
 	"github.com/anyproto/any-sync/app"
 	"github.com/anyproto/any-sync/app/logger"
 	"github.com/anyproto/any-sync/commonspace"
 	"github.com/anyproto/any-sync/commonspace/object/accountdata"
 	"github.com/anyproto/any-sync/commonspace/spacesyncproto"
+	"github.com/anyproto/any-sync/consensus/consensusproto"
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/metric"
 	"github.com/anyproto/any-sync/net/peer"
 	"github.com/anyproto/any-sync/net/rpc/server"
 	"github.com/anyproto/any-sync/nodeconf"
 	"github.com/anyproto/any-sync/util/crypto"
+	"github.com/gogo/protobuf/proto"
 	"go.uber.org/zap"
 	"storj.io/drpc"
 
-	"github.com/anyproto/any-sync-coordinator/acl"
+	"github.com/anyproto/any-sync-coordinator/accountlimit"
 	"github.com/anyproto/any-sync-coordinator/config"
 	"github.com/anyproto/any-sync-coordinator/coordinatorlog"
 	"github.com/anyproto/any-sync-coordinator/deletionlog"
-	"github.com/anyproto/any-sync-coordinator/filelimit"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
 )
 
@@ -59,9 +62,9 @@ type coordinator struct {
 	coordinatorLog coordinatorlog.CoordinatorLog
 	deletionPeriod time.Duration
 	metric         metric.Metric
-	fileLimit      filelimit.FileLimit
 	deletionLog    deletionlog.DeletionLog
-	acl            acl.Acl
+	accountLimit   accountlimit.AccountLimit
+	acl            acl.AclService
 }
 
 func (c *coordinator) Init(a *app.App) (err error) {
@@ -73,9 +76,9 @@ func (c *coordinator) Init(a *app.App) (err error) {
 	c.spaceStatus = a.MustComponent(spacestatus.CName).(spacestatus.SpaceStatus)
 	c.coordinatorLog = a.MustComponent(coordinatorlog.CName).(coordinatorlog.CoordinatorLog)
 	c.metric = a.MustComponent(metric.CName).(metric.Metric)
-	c.fileLimit = a.MustComponent(filelimit.CName).(filelimit.FileLimit)
 	c.deletionLog = app.MustComponent[deletionlog.DeletionLog](a)
-	c.acl = app.MustComponent[acl.Acl](a)
+	c.acl = app.MustComponent[acl.AclService](a)
+	c.accountLimit = app.MustComponent[accountlimit.AccountLimit](a)
 	return coordinatorproto.DRPCRegisterCoordinator(a.MustComponent(server.CName).(drpc.Mux), h)
 }
 
@@ -251,4 +254,43 @@ func (c *coordinator) addCoordinatorLog(ctx context.Context, spaceId, peerId str
 		Identity:           accountPubKey.Account(),
 	})
 	return
+}
+
+func (c *coordinator) AccountLimitsSet(ctx context.Context, req *coordinatorproto.AccountLimitsSetRequest) (err error) {
+	peerId, err := peer.CtxPeerId(ctx)
+	if err != nil {
+		return
+	}
+	if !slices.Contains(c.nodeConf.NodeTypes(peerId), nodeconf.NodeTypePaymentProcessingNode) {
+		return coordinatorproto.ErrForbidden
+	}
+	return c.accountLimit.SetLimits(ctx, accountlimit.Limits{
+		Identity:          req.Identity,
+		Reason:            req.Reason,
+		FileStorageBytes:  req.FileStorageLimitBytes,
+		SpaceMembersRead:  req.SpaceMembersRead,
+		SpaceMembersWrite: req.SpaceMembersWrite,
+	})
+}
+
+func (c *coordinator) AclAddRecord(ctx context.Context, spaceId string, payload []byte) (result *consensusproto.RawRecordWithId, err error) {
+	rec := &consensusproto.RawRecord{}
+	err = proto.Unmarshal(payload, rec)
+	if err != nil {
+		return
+	}
+
+	limits, err := c.accountLimit.GetLimitsBySpace(ctx, spaceId)
+	if err != nil {
+		return nil, err
+	}
+
+	rawRecordWithId, err := c.acl.AddRecord(ctx, spaceId, rec, acl.Limits{
+		ReadMembers:  limits.SpaceMembersRead,
+		WriteMembers: limits.SpaceMembersWrite,
+	})
+	if err != nil {
+		return
+	}
+	return rawRecordWithId, nil
 }

@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/anyproto/any-sync/acl"
 	"github.com/anyproto/any-sync/app"
 	"github.com/anyproto/any-sync/app/logger"
 	"github.com/anyproto/any-sync/consensus/consensusclient"
@@ -26,13 +27,12 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/anyproto/any-sync-coordinator/account"
-	"github.com/anyproto/any-sync-coordinator/acl"
+	"github.com/anyproto/any-sync-coordinator/accountlimit"
 	"github.com/anyproto/any-sync-coordinator/config"
 	"github.com/anyproto/any-sync-coordinator/coordinator"
 	"github.com/anyproto/any-sync-coordinator/coordinatorlog"
 	"github.com/anyproto/any-sync-coordinator/db"
 	"github.com/anyproto/any-sync-coordinator/deletionlog"
-	"github.com/anyproto/any-sync-coordinator/filelimit"
 	"github.com/anyproto/any-sync-coordinator/identityrepo"
 	"github.com/anyproto/any-sync-coordinator/nodeconfsource"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
@@ -122,7 +122,7 @@ func Bootstrap(a *app.App) {
 		Register(spacestatus.New()).
 		Register(consensusclient.New()).
 		Register(acl.New()).
-		Register(filelimit.New()).
+		Register(accountlimit.New()).
 		Register(identityrepo.New()).
 		Register(coordinator.New()).
 		Register(yamux.New()).

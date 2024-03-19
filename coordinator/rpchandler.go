@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/anyproto/any-sync/consensus/consensusproto"
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/metric"
 	"github.com/anyproto/any-sync/net/peer"
@@ -14,6 +13,7 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"go.uber.org/zap"
 
+	"github.com/anyproto/any-sync-coordinator/accountlimit"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
 )
 
@@ -110,6 +110,15 @@ func (r *rpcHandler) SpaceStatusCheck(ctx context.Context, req *coordinatorproto
 	}
 	if status.Identity == accountIdentity {
 		resp.Payload.Permissions = coordinatorproto.SpacePermissions_SpacePermissionsOwner
+		var aLimits accountlimit.Limits
+		aLimits, err = r.c.accountLimit.GetLimits(ctx, accountIdentity)
+		if err != nil {
+			return nil, err
+		}
+		resp.Payload.Limits = &coordinatorproto.SpaceLimits{
+			ReadMembers:  aLimits.SpaceMembersRead,
+			WriteMembers: aLimits.SpaceMembersWrite,
+		}
 	}
 	return resp, nil
 }
@@ -133,9 +142,11 @@ func (r *rpcHandler) SpaceStatusCheckMany(ctx context.Context, req *coordinatorp
 	}
 	accountIdentity := accountPubKey.Account()
 
+	var limits *coordinatorproto.SpaceLimits
+
+	var status spacestatus.StatusEntry
 	for _, spaceId := range req.SpaceIds {
-		var status spacestatus.StatusEntry
-		status, err := r.c.StatusCheck(ctx, spaceId)
+		status, err = r.c.StatusCheck(ctx, spaceId)
 		if err != nil {
 			if errors.Is(err, coordinatorproto.ErrSpaceNotExists) {
 				resp.Payloads = append(resp.Payloads, &coordinatorproto.SpaceStatusPayload{
@@ -148,6 +159,18 @@ func (r *rpcHandler) SpaceStatusCheckMany(ctx context.Context, req *coordinatorp
 		st := r.convertStatus(status)
 		if status.Identity == accountIdentity {
 			st.Permissions = coordinatorproto.SpacePermissions_SpacePermissionsOwner
+			if limits == nil {
+				var aLimits accountlimit.Limits
+				aLimits, err = r.c.accountLimit.GetLimits(ctx, accountIdentity)
+				if err != nil {
+					return nil, err
+				}
+				limits = &coordinatorproto.SpaceLimits{
+					ReadMembers:  aLimits.SpaceMembersRead,
+					WriteMembers: aLimits.SpaceMembersWrite,
+				}
+			}
+			st.Limits = limits
 		}
 		resp.Payloads = append(resp.Payloads, st)
 	}
@@ -193,24 +216,19 @@ func (r *rpcHandler) SpaceSign(ctx context.Context, req *coordinatorproto.SpaceS
 	}, nil
 }
 
-func (r *rpcHandler) FileLimitCheck(ctx context.Context, req *coordinatorproto.FileLimitCheckRequest) (resp *coordinatorproto.FileLimitCheckResponse, err error) {
+func (r *rpcHandler) AccountLimitsSet(ctx context.Context, req *coordinatorproto.AccountLimitsSetRequest) (resp *coordinatorproto.AccountLimitsSetResponse, err error) {
 	st := time.Now()
 	defer func() {
-		r.c.metric.RequestLog(ctx, "coordinator.fileLimitCheck",
+		r.c.metric.RequestLog(ctx, "coordinator.accountLimitsSet",
 			metric.TotalDur(time.Since(st)),
-			metric.SpaceId(req.SpaceId),
 			zap.String("addr", peer.CtxPeerAddr(ctx)),
 			zap.Error(err),
 		)
 	}()
-	limit, storageKey, err := r.c.fileLimit.Get(ctx, req.AccountIdentity, req.SpaceId)
-	if err != nil {
+	if err = r.c.AccountLimitsSet(ctx, req); err != nil {
 		return nil, err
 	}
-	return &coordinatorproto.FileLimitCheckResponse{
-		Limit:      limit,
-		StorageKey: storageKey,
-	}, nil
+	return &coordinatorproto.AccountLimitsSetResponse{}, nil
 }
 
 func (r *rpcHandler) NetworkConfiguration(ctx context.Context, req *coordinatorproto.NetworkConfigurationRequest) (resp *coordinatorproto.NetworkConfigurationResponse, err error) {
@@ -307,12 +325,7 @@ func (r *rpcHandler) AclAddRecord(ctx context.Context, req *coordinatorproto.Acl
 			zap.Error(err),
 		)
 	}()
-	rec := &consensusproto.RawRecord{}
-	err = proto.Unmarshal(req.Payload, rec)
-	if err != nil {
-		return
-	}
-	rawRecordWithId, err := r.c.acl.AddRecord(ctx, req.SpaceId, rec)
+	rawRecordWithId, err := r.c.AclAddRecord(ctx, req.SpaceId, req.Payload)
 	if err != nil {
 		return
 	}
