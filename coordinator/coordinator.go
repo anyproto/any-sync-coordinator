@@ -290,6 +290,9 @@ func (c *coordinator) AclAddRecord(ctx context.Context, spaceId string, payload 
 		WriteMembers: limits.SpaceMembersWrite,
 	})
 	if err != nil {
+		if errors.Is(err, acl.ErrLimitExceed) {
+			err = coordinatorproto.ErrSpaceLimitReached
+		}
 		return
 	}
 	return rawRecordWithId, nil
