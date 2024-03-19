@@ -6,12 +6,12 @@ require (
 	github.com/ahmetb/govvv v0.3.0
 	github.com/anyproto/any-sync v0.3.33
 	github.com/gogo/protobuf v1.3.2
-	github.com/stretchr/testify v1.8.4
+	github.com/stretchr/testify v1.9.0
 	go.mongodb.org/mongo-driver v1.14.0
 	go.uber.org/mock v0.4.0
 	go.uber.org/zap v1.27.0
 	gopkg.in/yaml.v3 v3.0.1
-	storj.io/drpc v0.0.33
+	storj.io/drpc v0.0.34
 )
 
 require (
