@@ -360,3 +360,13 @@ func (r *rpcHandler) AclGetRecords(ctx context.Context, req *coordinatorproto.Ac
 	}
 	return
 }
+
+func (r *rpcHandler) SpaceMakeShareable(ctx context.Context, req *coordinatorproto.SpaceMakeShareableRequest) (resp *coordinatorproto.SpaceMakeShareableResponse, err error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (r *rpcHandler) SpaceMakeUnshareable(ctx context.Context, req *coordinatorproto.SpaceMakeUnshareableRequest) (resp *coordinatorproto.SpaceMakeUnshareableResponse, err error) {
+	//TODO implement me
+	panic("implement me")
+}

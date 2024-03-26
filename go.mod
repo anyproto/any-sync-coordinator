@@ -4,7 +4,7 @@ go 1.21
 
 require (
 	github.com/ahmetb/govvv v0.3.0
-	github.com/anyproto/any-sync v0.3.33
+	github.com/anyproto/any-sync v0.3.35-0.20240326133015-45bd5be0e7ca
 	github.com/gogo/protobuf v1.3.2
 	github.com/stretchr/testify v1.9.0
 	go.mongodb.org/mongo-driver v1.14.0

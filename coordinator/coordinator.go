@@ -270,6 +270,7 @@ func (c *coordinator) AccountLimitsSet(ctx context.Context, req *coordinatorprot
 		FileStorageBytes:  req.FileStorageLimitBytes,
 		SpaceMembersRead:  req.SpaceMembersRead,
 		SpaceMembersWrite: req.SpaceMembersWrite,
+		SharedSpacesLimit: req.SharedSpacesLimit,
 	})
 }
 

@@ -36,6 +36,7 @@ type configGetter interface {
 type SpaceLimits struct {
 	SpaceMembersRead  uint32 `yaml:"spaceMembersRead" bson:"spaceMembersRead"`
 	SpaceMembersWrite uint32 `yaml:"spaceMembersWrite" bson:"spaceMembersWrite"`
+	SharedSpacesLimit uint32 `yaml:"sharedSpacesLimit" bson:"sharedSpacesLimit"`
 }
 
 type Limits struct {
@@ -44,6 +45,7 @@ type Limits struct {
 	FileStorageBytes  uint64    `bson:"fileStorageBytes"`
 	SpaceMembersRead  uint32    `bson:"spaceMembersRead"`
 	SpaceMembersWrite uint32    `bson:"spaceMembersWrite"`
+	SharedSpacesLimit uint32    `bson:"sharedSpacesLimit"`
 	UpdatedTime       time.Time `bson:"updatedTime"`
 }
 
@@ -118,6 +120,7 @@ func (al *accountLimit) GetLimits(ctx context.Context, identity string) (limits 
 		Identity:          identity,
 		SpaceMembersRead:  al.defaultLimits.SpaceMembersRead,
 		SpaceMembersWrite: al.defaultLimits.SpaceMembersWrite,
+		SharedSpacesLimit: al.defaultLimits.SharedSpacesLimit,
 		UpdatedTime:       time.Now(),
 	}, nil
 }
@@ -144,5 +147,6 @@ func (al *accountLimit) GetLimitsBySpace(ctx context.Context, spaceId string) (s
 	return SpaceLimits{
 		SpaceMembersRead:  limits.SpaceMembersRead,
 		SpaceMembersWrite: limits.SpaceMembersWrite,
+		SharedSpacesLimit: limits.SharedSpacesLimit,
 	}, nil
 }
