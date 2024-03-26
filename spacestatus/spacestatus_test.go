@@ -753,7 +753,83 @@ func TestSpaceStatus_Status(t *testing.T) {
 	assert.Equal(t, spaceId, status.SpaceId)
 	assert.Equal(t, SpaceStatusCreated, status.Status)
 	assert.Equal(t, spaceType, status.Type)
+}
 
+func TestSpaceStatus_MakeShareable(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		fx := newFixture(t, 0, 0)
+		defer fx.Finish(t)
+
+		var (
+			spaceId   = "space.id.shareable"
+			spaceType = SpaceTypeRegular
+		)
+
+		_, identity, err := crypto.GenerateRandomEd25519KeyPair()
+		require.NoError(t, err)
+		_, oldIdentity, err := crypto.GenerateRandomEd25519KeyPair()
+		require.NoError(t, err)
+
+		require.NoError(t, fx.NewStatus(ctx, spaceId, identity, oldIdentity, spaceType, false))
+
+		require.NoError(t, fx.MakeShareable(ctx, spaceId, 2))
+
+		entry, err := fx.Status(ctx, spaceId)
+		require.NoError(t, err)
+		assert.True(t, entry.IsShareable)
+
+		require.NoError(t, fx.MakeShareable(ctx, spaceId, 2))
+	})
+	t.Run("limit exceed", func(t *testing.T) {
+		fx := newFixture(t, 0, 0)
+		defer fx.Finish(t)
+
+		var (
+			spaceType = SpaceTypeRegular
+		)
+
+		_, identity, err := crypto.GenerateRandomEd25519KeyPair()
+		require.NoError(t, err)
+		_, oldIdentity, err := crypto.GenerateRandomEd25519KeyPair()
+		require.NoError(t, err)
+		for i := 0; i < 3; i++ {
+			require.NoError(t, fx.NewStatus(ctx, fmt.Sprintf("space.%d", i), identity, oldIdentity, spaceType, false))
+		}
+
+		require.NoError(t, fx.MakeShareable(ctx, "space.0", 2))
+		require.NoError(t, fx.MakeShareable(ctx, "space.1", 2))
+		require.ErrorIs(t, fx.MakeShareable(ctx, "space.2", 2), coordinatorproto.ErrSpaceLimitReached)
+
+		require.NoError(t, fx.MakeShareable(ctx, "space.2", 3))
+	})
+}
+
+func TestSpaceStatus_MakeUnshareable(t *testing.T) {
+	fx := newFixture(t, 0, 0)
+	defer fx.Finish(t)
+
+	var (
+		spaceId   = "space.id.shareable"
+		spaceType = SpaceTypeRegular
+	)
+
+	_, identity, err := crypto.GenerateRandomEd25519KeyPair()
+	require.NoError(t, err)
+	_, oldIdentity, err := crypto.GenerateRandomEd25519KeyPair()
+	require.NoError(t, err)
+
+	require.NoError(t, fx.NewStatus(ctx, spaceId, identity, oldIdentity, spaceType, false))
+
+	require.NoError(t, fx.MakeShareable(ctx, spaceId, 2))
+
+	entry, err := fx.Status(ctx, spaceId)
+	require.NoError(t, err)
+	assert.True(t, entry.IsShareable)
+
+	require.NoError(t, fx.MakeUnshareable(ctx, spaceId))
+	entry, err = fx.Status(ctx, spaceId)
+	require.NoError(t, err)
+	assert.False(t, entry.IsShareable)
 }
 
 type fixture struct {

@@ -5,6 +5,7 @@
 //
 //	mockgen -destination mock_spacestatus/mock_spacestatus.go github.com/anyproto/any-sync-coordinator/spacestatus SpaceStatus
 //
+
 // Package mock_spacestatus is a generated GoMock package.
 package mock_spacestatus
 
@@ -111,6 +112,34 @@ func (m *MockSpaceStatus) Init(arg0 *app.App) error {
 func (mr *MockSpaceStatusMockRecorder) Init(arg0 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Init", reflect.TypeOf((*MockSpaceStatus)(nil).Init), arg0)
+}
+
+// MakeShareable mocks base method.
+func (m *MockSpaceStatus) MakeShareable(arg0 context.Context, arg1 string, arg2 uint32) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MakeShareable", arg0, arg1, arg2)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// MakeShareable indicates an expected call of MakeShareable.
+func (mr *MockSpaceStatusMockRecorder) MakeShareable(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MakeShareable", reflect.TypeOf((*MockSpaceStatus)(nil).MakeShareable), arg0, arg1, arg2)
+}
+
+// MakeUnshareable mocks base method.
+func (m *MockSpaceStatus) MakeUnshareable(arg0 context.Context, arg1 string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MakeUnshareable", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// MakeUnshareable indicates an expected call of MakeUnshareable.
+func (mr *MockSpaceStatusMockRecorder) MakeUnshareable(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MakeUnshareable", reflect.TypeOf((*MockSpaceStatus)(nil).MakeUnshareable), arg0, arg1)
 }
 
 // Name mocks base method.
