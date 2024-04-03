@@ -1,3 +1,4 @@
+//go:generate mockgen -destination mock_deletionlog/mock_deletionlog.go github.com/anyproto/any-sync-coordinator/deletionlog DeletionLog
 package deletionlog
 
 import (

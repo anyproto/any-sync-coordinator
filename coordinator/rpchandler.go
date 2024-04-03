@@ -3,7 +3,6 @@ package coordinator
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
@@ -292,7 +291,7 @@ func (r *rpcHandler) DeletionLog(ctx context.Context, req *coordinatorproto.Dele
 		return nil, err
 	}
 	if len(r.c.nodeConf.NodeTypes(peerId)) == 0 {
-		return nil, fmt.Errorf("forbidden")
+		return nil, coordinatorproto.ErrForbidden
 	}
 
 	recs, hasMore, err := r.c.deletionLog.GetAfter(ctx, req.AfterId, req.Limit)
@@ -359,4 +358,36 @@ func (r *rpcHandler) AclGetRecords(ctx context.Context, req *coordinatorproto.Ac
 		resp.Records = append(resp.Records, marshalled)
 	}
 	return
+}
+
+func (r *rpcHandler) SpaceMakeShareable(ctx context.Context, req *coordinatorproto.SpaceMakeShareableRequest) (resp *coordinatorproto.SpaceMakeShareableResponse, err error) {
+	st := time.Now()
+	defer func() {
+		r.c.metric.RequestLog(ctx, "coordinator.spaceMakeShareable",
+			metric.TotalDur(time.Since(st)),
+			zap.String("addr", peer.CtxPeerAddr(ctx)),
+			metric.SpaceId(req.SpaceId),
+			zap.Error(err),
+		)
+	}()
+	if err = r.c.MakeSpaceShareable(ctx, req.SpaceId); err != nil {
+		return
+	}
+	return &coordinatorproto.SpaceMakeShareableResponse{}, nil
+}
+
+func (r *rpcHandler) SpaceMakeUnshareable(ctx context.Context, req *coordinatorproto.SpaceMakeUnshareableRequest) (resp *coordinatorproto.SpaceMakeUnshareableResponse, err error) {
+	st := time.Now()
+	defer func() {
+		r.c.metric.RequestLog(ctx, "coordinator.spaceMakeUnshareable",
+			metric.TotalDur(time.Since(st)),
+			zap.String("addr", peer.CtxPeerAddr(ctx)),
+			metric.SpaceId(req.SpaceId),
+			zap.Error(err),
+		)
+	}()
+	if err = r.c.MakeSpaceUnshareable(ctx, req.SpaceId, req.AclHead); err != nil {
+		return
+	}
+	return &coordinatorproto.SpaceMakeUnshareableResponse{}, nil
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/anyproto/any-sync/app/logger"
 	"github.com/anyproto/any-sync/commonspace"
 	"github.com/anyproto/any-sync/commonspace/object/accountdata"
+	"github.com/anyproto/any-sync/commonspace/object/acl/list"
 	"github.com/anyproto/any-sync/commonspace/spacesyncproto"
 	"github.com/anyproto/any-sync/consensus/consensusproto"
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
@@ -270,6 +271,7 @@ func (c *coordinator) AccountLimitsSet(ctx context.Context, req *coordinatorprot
 		FileStorageBytes:  req.FileStorageLimitBytes,
 		SpaceMembersRead:  req.SpaceMembersRead,
 		SpaceMembersWrite: req.SpaceMembersWrite,
+		SharedSpacesLimit: req.SharedSpacesLimit,
 	})
 }
 
@@ -277,6 +279,16 @@ func (c *coordinator) AclAddRecord(ctx context.Context, spaceId string, payload 
 	rec := &consensusproto.RawRecord{}
 	err = proto.Unmarshal(payload, rec)
 	if err != nil {
+		return
+	}
+
+	statusEntry, err := c.spaceStatus.Status(ctx, spaceId)
+	if err != nil {
+		return
+	}
+
+	if !statusEntry.IsShareable {
+		err = coordinatorproto.ErrSpaceNotShareable
 		return
 	}
 
@@ -296,4 +308,74 @@ func (c *coordinator) AclAddRecord(ctx context.Context, spaceId string, payload 
 		return
 	}
 	return rawRecordWithId, nil
+}
+
+func (c *coordinator) MakeSpaceShareable(ctx context.Context, spaceId string) (err error) {
+	pubKey, err := peer.CtxPubKey(ctx)
+	if err != nil {
+		return coordinatorproto.ErrForbidden
+	}
+	statusEntry, err := c.spaceStatus.Status(ctx, spaceId)
+	if err != nil {
+		return
+	}
+	if statusEntry.Identity != pubKey.Account() {
+		return coordinatorproto.ErrForbidden
+	}
+	if statusEntry.IsShareable {
+		return nil
+	}
+
+	limits, err := c.accountLimit.GetLimitsBySpace(ctx, spaceId)
+	if err != nil {
+		return err
+	}
+	return c.spaceStatus.MakeShareable(ctx, spaceId, limits.SharedSpacesLimit)
+}
+
+func (c *coordinator) MakeSpaceUnshareable(ctx context.Context, spaceId, aclHead string) (err error) {
+	pubKey, err := peer.CtxPubKey(ctx)
+	if err != nil {
+		return coordinatorproto.ErrForbidden
+	}
+	statusEntry, err := c.spaceStatus.Status(ctx, spaceId)
+	if err != nil {
+		return
+	}
+	if statusEntry.Identity != pubKey.Account() {
+		return coordinatorproto.ErrForbidden
+	}
+	if !statusEntry.IsShareable {
+		return nil
+	}
+
+	hasRecord, err := c.acl.HasRecord(ctx, spaceId, aclHead)
+	if err != nil {
+		return err
+	}
+	if !hasRecord {
+		return coordinatorproto.ErrAclHeadIsMissing
+	}
+
+	var (
+		activeMembers int
+		hasInvites    bool
+	)
+	err = c.acl.ReadState(ctx, spaceId, func(s *list.AclState) error {
+		for _, acc := range s.CurrentAccounts() {
+			if acc.Permissions.NoPermissions() {
+				continue
+			}
+			activeMembers++
+		}
+		if len(s.Invites()) > 0 {
+			hasInvites = true
+		}
+		return nil
+	})
+	if hasInvites || activeMembers > 1 {
+		return coordinatorproto.ErrAclNonEmpty
+	}
+
+	return c.spaceStatus.MakeUnshareable(ctx, spaceId)
 }

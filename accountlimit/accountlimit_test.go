@@ -31,8 +31,11 @@ func TestAccountLimit_SetLimits(t *testing.T) {
 
 	limits := Limits{
 		Identity:          "123",
+		Reason:            "reason",
+		FileStorageBytes:  12345,
 		SpaceMembersRead:  100,
 		SpaceMembersWrite: 200,
+		SharedSpacesLimit: 3,
 	}
 
 	// set
@@ -82,7 +85,7 @@ func TestAccountLimit_GetLimitsBySpace(t *testing.T) {
 
 		limits, err := fx.GetLimitsBySpace(ctx, spaceId)
 		require.NoError(t, err)
-		assert.Equal(t, SpaceLimits{1, 1}, limits)
+		assert.Equal(t, SpaceLimits{1, 1, 0}, limits)
 	})
 
 	t.Run("regular", func(t *testing.T) {
@@ -97,7 +100,7 @@ func TestAccountLimit_GetLimitsBySpace(t *testing.T) {
 
 		limits, err := fx.GetLimitsBySpace(ctx, spaceId)
 		require.NoError(t, err)
-		assert.Equal(t, SpaceLimits{10, 5}, limits)
+		assert.Equal(t, SpaceLimits{10, 5, 3}, limits)
 	})
 
 }
@@ -165,7 +168,8 @@ func (c *testConfig) GetMongo() db.Mongo {
 
 func (c *testConfig) GetAccountLimit() SpaceLimits {
 	return SpaceLimits{
-		SpaceMembersWrite: 5,
 		SpaceMembersRead:  10,
+		SpaceMembersWrite: 5,
+		SharedSpacesLimit: 3,
 	}
 }

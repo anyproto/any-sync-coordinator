@@ -91,6 +91,10 @@ type SpaceStatus interface {
 	AccountDelete(ctx context.Context, payload AccountDeletion) (toBeDeleted int64, err error)
 	AccountRevertDeletion(ctx context.Context, payload AccountInfo) (err error)
 	Status(ctx context.Context, spaceId string) (entry StatusEntry, err error)
+
+	MakeShareable(ctx context.Context, spaceId string, limit uint32) (err error)
+	MakeUnshareable(ctx context.Context, spaceId string) (err error)
+
 	app.ComponentRunnable
 }
 
@@ -470,6 +474,50 @@ func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity, o
 			return err
 		}
 		return nil
+	})
+}
+
+func (s *spaceStatus) MakeShareable(ctx context.Context, spaceId string, limit uint32) (err error) {
+	return s.db.Tx(ctx, func(txCtx mongo.SessionContext) error {
+		entry, err := s.Status(txCtx, spaceId)
+		if err != nil {
+			return err
+		}
+		// already shareable
+		if entry.IsShareable {
+			return nil
+		}
+		count, err := s.spaces.CountDocuments(txCtx, bson.D{
+			{"identity", entry.Identity},
+			{"status", SpaceStatusCreated},
+			{"isShareable", true},
+		})
+		if err != nil {
+			return err
+		}
+		if uint32(count) >= limit {
+			return coordinatorproto.ErrSpaceLimitReached
+		}
+		_, err = s.spaces.UpdateOne(txCtx, bson.D{{"_id", spaceId}}, bson.D{{"$set", bson.D{{"isShareable", true}}}})
+		return err
+	})
+}
+
+func (s *spaceStatus) MakeUnshareable(ctx context.Context, spaceId string) (err error) {
+	return s.db.Tx(ctx, func(txCtx mongo.SessionContext) error {
+		entry, err := s.Status(txCtx, spaceId)
+		if err != nil {
+			return err
+		}
+		// already shareable
+		if !entry.IsShareable {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		_, err = s.spaces.UpdateOne(txCtx, bson.D{{"_id", spaceId}}, bson.D{{"$set", bson.D{{"isShareable", false}}}})
+		return err
 	})
 }
 
