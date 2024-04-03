@@ -8,6 +8,7 @@ import (
 	"github.com/anyproto/any-sync/acl/mock_acl"
 	"github.com/anyproto/any-sync/app"
 	"github.com/anyproto/any-sync/commonspace/object/acl/list"
+	"github.com/anyproto/any-sync/consensus/consensusproto"
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/metric"
 	"github.com/anyproto/any-sync/net/peer"
@@ -17,6 +18,7 @@ import (
 	"github.com/anyproto/any-sync/testutil/accounttest"
 	"github.com/anyproto/any-sync/testutil/anymock"
 	"github.com/anyproto/any-sync/util/crypto"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
@@ -158,6 +160,70 @@ func TestCoordinator_MakeSpaceUnshareable(t *testing.T) {
 		fx.spaceStatus.EXPECT().MakeUnshareable(ctx, spaceId)
 		require.NoError(t, fx.MakeSpaceUnshareable(ctx, spaceId, headId))
 	})
+}
+
+func TestCoordinator_AclAddRecord(t *testing.T) {
+	spaceId := "space.id"
+	rec := &consensusproto.RawRecord{Payload: []byte("payload")}
+	recBytes, _ := rec.Marshal()
+
+	t.Run("not shareable", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+
+		fx.spaceStatus.EXPECT().Status(ctx, spaceId).Return(spacestatus.StatusEntry{
+			SpaceId: spaceId,
+		}, nil)
+
+		_, err := fx.AclAddRecord(ctx, spaceId, recBytes)
+		require.ErrorIs(t, err, coordinatorproto.ErrSpaceNotShareable)
+	})
+	t.Run("limit exceed", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+
+		fx.spaceStatus.EXPECT().Status(ctx, spaceId).Return(spacestatus.StatusEntry{
+			SpaceId:     spaceId,
+			IsShareable: true,
+		}, nil)
+		fx.accountLimit.EXPECT().GetLimitsBySpace(ctx, spaceId).Return(accountlimit.SpaceLimits{
+			SpaceMembersRead:  4,
+			SpaceMembersWrite: 2,
+		}, nil)
+		fx.acl.EXPECT().AddRecord(ctx, spaceId, rec, acl.Limits{
+			ReadMembers:  4,
+			WriteMembers: 2,
+		}).Return(nil, acl.ErrLimitExceed)
+
+		_, err := fx.AclAddRecord(ctx, spaceId, recBytes)
+		require.ErrorIs(t, err, coordinatorproto.ErrSpaceLimitReached)
+	})
+	t.Run("success", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+
+		fx.spaceStatus.EXPECT().Status(ctx, spaceId).Return(spacestatus.StatusEntry{
+			SpaceId:     spaceId,
+			IsShareable: true,
+		}, nil)
+		fx.accountLimit.EXPECT().GetLimitsBySpace(ctx, spaceId).Return(accountlimit.SpaceLimits{
+			SpaceMembersRead:  4,
+			SpaceMembersWrite: 2,
+		}, nil)
+		rawRec := &consensusproto.RawRecordWithId{
+			Payload: recBytes,
+			Id:      "id",
+		}
+		fx.acl.EXPECT().AddRecord(ctx, spaceId, rec, acl.Limits{
+			ReadMembers:  4,
+			WriteMembers: 2,
+		}).Return(rawRec, nil)
+
+		res, err := fx.AclAddRecord(ctx, spaceId, recBytes)
+		require.NoError(t, err)
+		assert.Equal(t, rawRec, res)
+	})
+
 }
 
 func newFixture(t *testing.T) *fixture {

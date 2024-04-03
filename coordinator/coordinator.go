@@ -282,6 +282,16 @@ func (c *coordinator) AclAddRecord(ctx context.Context, spaceId string, payload 
 		return
 	}
 
+	statusEntry, err := c.spaceStatus.Status(ctx, spaceId)
+	if err != nil {
+		return
+	}
+
+	if !statusEntry.IsShareable {
+		err = coordinatorproto.ErrSpaceNotShareable
+		return
+	}
+
 	limits, err := c.accountLimit.GetLimitsBySpace(ctx, spaceId)
 	if err != nil {
 		return nil, err
