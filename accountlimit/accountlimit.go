@@ -1,3 +1,4 @@
+//go:generate mockgen -destination mock_accountlimit/mock_accountlimit.go github.com/anyproto/any-sync-coordinator/accountlimit AccountLimit
 package accountlimit
 
 import (
