@@ -81,6 +81,7 @@ func (r *rpcHandler) convertStatus(status spacestatus.StatusEntry) *coordinatorp
 	return &coordinatorproto.SpaceStatusPayload{
 		Status:            coordinatorproto.SpaceStatus(status.Status),
 		DeletionTimestamp: timestamp,
+		IsShared:          status.IsShareable,
 	}
 }
 
