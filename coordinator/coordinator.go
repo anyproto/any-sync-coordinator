@@ -357,24 +357,13 @@ func (c *coordinator) MakeSpaceUnshareable(ctx context.Context, spaceId, aclHead
 		return coordinatorproto.ErrAclHeadIsMissing
 	}
 
-	var (
-		activeMembers int
-		hasInvites    bool
-	)
-	err = c.acl.ReadState(ctx, spaceId, func(s *list.AclState) error {
-		for _, acc := range s.CurrentAccounts() {
-			if acc.Permissions.NoPermissions() {
-				continue
-			}
-			activeMembers++
-		}
-		if len(s.Invites()) > 0 {
-			hasInvites = true
+	if err = c.acl.ReadState(ctx, spaceId, func(s *list.AclState) error {
+		if !s.IsEmpty() {
+			return coordinatorproto.ErrAclNonEmpty
 		}
 		return nil
-	})
-	if hasInvites || activeMembers > 1 {
-		return coordinatorproto.ErrAclNonEmpty
+	}); err != nil {
+		return
 	}
 
 	return c.spaceStatus.MakeUnshareable(ctx, spaceId)
