@@ -138,9 +138,20 @@ func TestCoordinator_MakeSpaceUnshareable(t *testing.T) {
 			IsShareable: true,
 		}, nil)
 		fx.acl.EXPECT().HasRecord(ctx, spaceId, headId).Return(true, nil)
-		fx.acl.EXPECT().ReadState(ctx, spaceId, gomock.Any()).Do(func(ctx context.Context, spaceId string, f func(s *list.AclState) error) {
-			s := list.NewTestAclStateWithUsers(5, 5, 5)
-			require.NoError(t, f(s))
+		fx.acl.EXPECT().ReadState(ctx, spaceId, gomock.Any()).DoAndReturn(func(ctx context.Context, spaceId string, f func(s *list.AclState) error) error {
+			a := list.NewAclExecutor("spaceId")
+			cmds := []string{
+				"a.init::a",
+				"a.invite::invId",
+				"b.join::invId",
+				"a.revoke::invId",
+				"a.approve::b,r",
+			}
+			for _, cmd := range cmds {
+				err := a.Execute(cmd)
+				require.NoError(t, err)
+			}
+			return f(a.ActualAccounts()["a"].Acl.AclState())
 		})
 		require.ErrorIs(t, fx.MakeSpaceUnshareable(ctx, spaceId, headId), coordinatorproto.ErrAclNonEmpty)
 	})
