@@ -346,7 +346,7 @@ func (r *rpcHandler) AclGetRecords(ctx context.Context, req *coordinatorproto.Ac
 			zap.Error(err),
 		)
 	}()
-	recordsAfter, err := r.c.acl.RecordsAfter(ctx, req.SpaceId, req.AclHead)
+	recordsAfter, err := r.c.AclGetRecords(ctx, req.SpaceId, req.AclHead)
 	if err != nil {
 		return
 	}
