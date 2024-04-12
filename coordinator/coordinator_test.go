@@ -234,7 +234,50 @@ func TestCoordinator_AclAddRecord(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, rawRec, res)
 	})
+	t.Run("space deleted", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
 
+		fx.spaceStatus.EXPECT().Status(ctx, spaceId).Return(spacestatus.StatusEntry{
+			SpaceId: spaceId,
+			Status:  spacestatus.SpaceStatusDeleted,
+		}, nil)
+
+		_, err := fx.AclAddRecord(ctx, spaceId, recBytes)
+		require.ErrorIs(t, err, coordinatorproto.ErrSpaceIsDeleted)
+	})
+}
+
+func TestCoordinator_AclGetRecords(t *testing.T) {
+	var (
+		spaceId = "space.id"
+		aclHead = "aclHead"
+	)
+	t.Run("success", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+
+		fx.spaceStatus.EXPECT().Status(ctx, spaceId).Return(spacestatus.StatusEntry{
+			SpaceId: spaceId,
+		}, nil)
+		fx.acl.EXPECT().RecordsAfter(ctx, spaceId, aclHead).Return(make([]*consensusproto.RawRecordWithId, 5), nil)
+
+		res, err := fx.AclGetRecords(ctx, spaceId, aclHead)
+		require.NoError(t, err)
+		require.Len(t, res, 5)
+	})
+	t.Run("space deleted", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+
+		fx.spaceStatus.EXPECT().Status(ctx, spaceId).Return(spacestatus.StatusEntry{
+			SpaceId: spaceId,
+			Status:  spacestatus.SpaceStatusDeleted,
+		}, nil)
+
+		_, err := fx.AclGetRecords(ctx, spaceId, aclHead)
+		require.ErrorIs(t, err, coordinatorproto.ErrSpaceIsDeleted)
+	})
 }
 
 func newFixture(t *testing.T) *fixture {

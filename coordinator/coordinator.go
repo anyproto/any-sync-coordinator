@@ -287,6 +287,11 @@ func (c *coordinator) AclAddRecord(ctx context.Context, spaceId string, payload 
 		return
 	}
 
+	if statusEntry.Status != spacestatus.SpaceStatusCreated {
+		err = coordinatorproto.ErrSpaceIsDeleted
+		return
+	}
+
 	if !statusEntry.IsShareable {
 		err = coordinatorproto.ErrSpaceNotShareable
 		return
@@ -308,6 +313,20 @@ func (c *coordinator) AclAddRecord(ctx context.Context, spaceId string, payload 
 		return
 	}
 	return rawRecordWithId, nil
+}
+
+func (c *coordinator) AclGetRecords(ctx context.Context, spaceId, aclHead string) (result []*consensusproto.RawRecordWithId, err error) {
+	statusEntry, err := c.spaceStatus.Status(ctx, spaceId)
+	if err != nil {
+		return
+	}
+
+	if statusEntry.Status != spacestatus.SpaceStatusCreated {
+		err = coordinatorproto.ErrSpaceIsDeleted
+		return
+	}
+
+	return c.acl.RecordsAfter(ctx, spaceId, aclHead)
 }
 
 func (c *coordinator) MakeSpaceShareable(ctx context.Context, spaceId string) (err error) {
