@@ -142,7 +142,15 @@ func (r *rpcHandler) SpaceStatusCheckMany(ctx context.Context, req *coordinatorp
 	}
 	accountIdentity := accountPubKey.Account()
 
-	var limits *coordinatorproto.SpaceLimits
+	var aLimits accountlimit.Limits
+	aLimits, err = r.c.accountLimit.GetLimits(ctx, accountIdentity)
+	if err != nil {
+		return nil, err
+	}
+	limits := &coordinatorproto.SpaceLimits{
+		ReadMembers:  aLimits.SpaceMembersRead,
+		WriteMembers: aLimits.SpaceMembersWrite,
+	}
 
 	var status spacestatus.StatusEntry
 	for _, spaceId := range req.SpaceIds {
@@ -159,21 +167,11 @@ func (r *rpcHandler) SpaceStatusCheckMany(ctx context.Context, req *coordinatorp
 		st := r.convertStatus(status)
 		if status.Identity == accountIdentity {
 			st.Permissions = coordinatorproto.SpacePermissions_SpacePermissionsOwner
-			if limits == nil {
-				var aLimits accountlimit.Limits
-				aLimits, err = r.c.accountLimit.GetLimits(ctx, accountIdentity)
-				if err != nil {
-					return nil, err
-				}
-				limits = &coordinatorproto.SpaceLimits{
-					ReadMembers:  aLimits.SpaceMembersRead,
-					WriteMembers: aLimits.SpaceMembersWrite,
-				}
-			}
 			st.Limits = limits
 		}
 		resp.Payloads = append(resp.Payloads, st)
 	}
+	resp.AccountLimits = &coordinatorproto.AccountLimits{SharedSpacesLimit: aLimits.SharedSpacesLimit}
 	return
 }
 
