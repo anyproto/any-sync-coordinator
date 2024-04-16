@@ -66,13 +66,14 @@ type coordinator struct {
 	deletionLog    deletionlog.DeletionLog
 	accountLimit   accountlimit.AccountLimit
 	acl            acl.AclService
+	drpcHandler    *rpcHandler
 }
 
 func (c *coordinator) Init(a *app.App) (err error) {
 	c.nodeConf = a.MustComponent(nodeconf.CName).(nodeconf.Service)
 	delDays := a.MustComponent(config.CName).(*config.Config).SpaceStatus.DeletionPeriodDays
 	c.deletionPeriod = time.Duration(delDays*24) * time.Hour
-	h := &rpcHandler{c: c}
+	c.drpcHandler = &rpcHandler{c: c}
 	c.account = a.MustComponent(accountservice.CName).(accountservice.Service).Account()
 	c.spaceStatus = a.MustComponent(spacestatus.CName).(spacestatus.SpaceStatus)
 	c.coordinatorLog = a.MustComponent(coordinatorlog.CName).(coordinatorlog.CoordinatorLog)
@@ -80,7 +81,7 @@ func (c *coordinator) Init(a *app.App) (err error) {
 	c.deletionLog = app.MustComponent[deletionlog.DeletionLog](a)
 	c.acl = app.MustComponent[acl.AclService](a)
 	c.accountLimit = app.MustComponent[accountlimit.AccountLimit](a)
-	return coordinatorproto.DRPCRegisterCoordinator(a.MustComponent(server.CName).(drpc.Mux), h)
+	return coordinatorproto.DRPCRegisterCoordinator(a.MustComponent(server.CName).(drpc.Mux), c.drpcHandler)
 }
 
 func (c *coordinator) Name() (name string) {
