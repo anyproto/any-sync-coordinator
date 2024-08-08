@@ -178,6 +178,13 @@ func TestCoordinator_AclAddRecord(t *testing.T) {
 	rec := &consensusproto.RawRecord{Payload: []byte("payload")}
 	recBytes, _ := rec.Marshal()
 
+	_, pubKey, err := crypto.GenerateRandomEd25519KeyPair()
+	require.NoError(t, err)
+	pubKeyData, err := pubKey.Marshall()
+	require.NoError(t, err)
+	ctx = peer.CtxWithIdentity(ctx, pubKeyData)
+	ctx = peer.CtxWithPeerId(ctx, "peer.addr")
+
 	t.Run("not shareable", func(t *testing.T) {
 		fx := newFixture(t)
 		defer fx.finish(t)
@@ -229,6 +236,7 @@ func TestCoordinator_AclAddRecord(t *testing.T) {
 			ReadMembers:  4,
 			WriteMembers: 2,
 		}).Return(rawRec, nil)
+		fx.coordLog.EXPECT().AddLog(ctx, gomock.Any()).MinTimes(1)
 
 		res, err := fx.AclAddRecord(ctx, spaceId, recBytes)
 		require.NoError(t, err)

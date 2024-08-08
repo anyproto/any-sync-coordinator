@@ -86,6 +86,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 
 		err := fx.NewStatus(ctx, spaceId, identity, oldIdentity, SpaceTypeRegular, false)
 		require.NoError(t, err)
+
 		res, err := fx.Status(ctx, spaceId)
 		require.NoError(t, err)
 		require.Equal(t, StatusEntry{
