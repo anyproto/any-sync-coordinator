@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/anyproto/any-sync-coordinator/accountlimit"
+	"github.com/anyproto/any-sync-coordinator/coordinatorlog"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
 )
 
@@ -389,4 +390,63 @@ func (r *rpcHandler) SpaceMakeUnshareable(ctx context.Context, req *coordinatorp
 		return
 	}
 	return &coordinatorproto.SpaceMakeUnshareableResponse{}, nil
+}
+
+func entryTypeToRecordType(et coordinatorlog.SpaceReceiptEntryType) (coordinatorproto.EventLogRecordType, error) {
+	switch et {
+	case coordinatorlog.EntryTypeSpaceReceipt:
+		return coordinatorproto.EventLogRecordType_RecordTypeSpaceReceipt, nil
+	case coordinatorlog.EntryTypeSpaceSharedOrUnshared:
+		return coordinatorproto.EventLogRecordType_RecordTypeSpaceSharedOrUnshared, nil
+	case coordinatorlog.EntryTypeSpaceAclAddRecord:
+		return coordinatorproto.EventLogRecordType_RecordTypeSpaceAclAddRecord, nil
+	}
+
+	return 0, errors.New("unknown event log entry type")
+}
+
+func (r *rpcHandler) EventLog(ctx context.Context, req *coordinatorproto.EventLogRequest) (resp *coordinatorproto.EventLogResponse, err error) {
+	st := time.Now()
+	defer func() {
+		r.c.metric.RequestLog(ctx, "coordinator.eventLog",
+			metric.TotalDur(time.Since(st)),
+			zap.String("addr", peer.CtxPeerAddr(ctx)),
+			zap.Error(err),
+		)
+	}()
+
+	peerId, err := peer.CtxPeerId(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(r.c.nodeConf.NodeTypes(peerId)) == 0 {
+		return nil, coordinatorproto.ErrForbidden
+	}
+
+	recs, hasMore, err := r.c.coordinatorLog.GetAfter(ctx, req.AccountIdentity, req.AfterId, req.Limit)
+	if err != nil {
+		return nil, err
+	}
+	resp = &coordinatorproto.EventLogResponse{
+		Records: make([]*coordinatorproto.EventLogRecord, 0, len(recs)),
+		HasMore: hasMore,
+	}
+
+	for _, rec := range recs {
+		t, err := entryTypeToRecordType(rec.EntryType)
+
+		if err != nil {
+			// skip
+			log.Error("unknown event log entry type", zap.Uint8("entryType", uint8(rec.EntryType)))
+			continue
+		}
+
+		resp.Records = append(resp.Records, &coordinatorproto.EventLogRecord{
+			Id:        rec.Id.Hex(),
+			SpaceId:   rec.SpaceId,
+			Timestamp: rec.Id.Timestamp().Unix(),
+			Type:      t,
+		})
+	}
+	return
 }

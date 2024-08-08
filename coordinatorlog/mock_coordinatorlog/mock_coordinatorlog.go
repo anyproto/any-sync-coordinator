@@ -41,6 +41,36 @@ func (m *MockCoordinatorLog) EXPECT() *MockCoordinatorLogMockRecorder {
 	return m.recorder
 }
 
+// AddLog mocks base method.
+func (m *MockCoordinatorLog) AddLog(arg0 context.Context, arg1 coordinatorlog.SpaceUpdateEntry) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AddLog", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AddLog indicates an expected call of AddLog.
+func (mr *MockCoordinatorLogMockRecorder) AddLog(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddLog", reflect.TypeOf((*MockCoordinatorLog)(nil).AddLog), arg0, arg1)
+}
+
+// GetAfter mocks base method.
+func (m *MockCoordinatorLog) GetAfter(arg0 context.Context, arg1, arg2 string, arg3 uint32) ([]coordinatorlog.SpaceUpdateEntry, bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAfter", arg0, arg1, arg2, arg3)
+	ret0, _ := ret[0].([]coordinatorlog.SpaceUpdateEntry)
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// GetAfter indicates an expected call of GetAfter.
+func (mr *MockCoordinatorLogMockRecorder) GetAfter(arg0, arg1, arg2, arg3 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAfter", reflect.TypeOf((*MockCoordinatorLog)(nil).GetAfter), arg0, arg1, arg2, arg3)
+}
+
 // Init mocks base method.
 func (m *MockCoordinatorLog) Init(arg0 *app.App) error {
 	m.ctrl.T.Helper()
@@ -67,18 +97,4 @@ func (m *MockCoordinatorLog) Name() string {
 func (mr *MockCoordinatorLogMockRecorder) Name() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Name", reflect.TypeOf((*MockCoordinatorLog)(nil).Name))
-}
-
-// SpaceReceipt mocks base method.
-func (m *MockCoordinatorLog) SpaceReceipt(arg0 context.Context, arg1 coordinatorlog.SpaceReceiptEntry) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SpaceReceipt", arg0, arg1)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// SpaceReceipt indicates an expected call of SpaceReceipt.
-func (mr *MockCoordinatorLogMockRecorder) SpaceReceipt(arg0, arg1 any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SpaceReceipt", reflect.TypeOf((*MockCoordinatorLog)(nil).SpaceReceipt), arg0, arg1)
 }

@@ -249,11 +249,12 @@ func (c *coordinator) addCoordinatorLog(ctx context.Context, spaceId, peerId str
 	if err != nil {
 		return
 	}
-	err = c.coordinatorLog.SpaceReceipt(ctx, coordinatorlog.SpaceReceiptEntry{
+	err = c.coordinatorLog.AddLog(ctx, coordinatorlog.SpaceUpdateEntry{
 		SignedSpaceReceipt: marshalledReceipt,
 		SpaceId:            spaceId,
 		PeerId:             peerId,
 		Identity:           accountPubKey.Account(),
+		EntryType:          coordinatorlog.EntryTypeSpaceReceipt,
 	})
 	return
 }
@@ -277,6 +278,15 @@ func (c *coordinator) AccountLimitsSet(ctx context.Context, req *coordinatorprot
 }
 
 func (c *coordinator) AclAddRecord(ctx context.Context, spaceId string, payload []byte) (result *consensusproto.RawRecordWithId, err error) {
+	pubKey, err := peer.CtxPubKey(ctx)
+	if err != nil {
+		return nil, coordinatorproto.ErrForbidden
+	}
+	peerId, err := peer.CtxPeerId(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	rec := &consensusproto.RawRecord{}
 	err = proto.Unmarshal(payload, rec)
 	if err != nil {
@@ -313,6 +323,18 @@ func (c *coordinator) AclAddRecord(ctx context.Context, spaceId string, payload 
 		}
 		return
 	}
+
+	err = c.coordinatorLog.AddLog(ctx, coordinatorlog.SpaceUpdateEntry{
+		SpaceId:   spaceId,
+		PeerId:    peerId,
+		Identity:  pubKey.Account(),
+		Timestamp: time.Now().Unix(),
+		EntryType: coordinatorlog.EntryTypeSpaceAclAddRecord,
+	})
+	if err != nil {
+		return
+	}
+
 	return rawRecordWithId, nil
 }
 
@@ -335,6 +357,10 @@ func (c *coordinator) MakeSpaceShareable(ctx context.Context, spaceId string) (e
 	if err != nil {
 		return coordinatorproto.ErrForbidden
 	}
+	peerId, err := peer.CtxPeerId(ctx)
+	if err != nil {
+		return
+	}
 	statusEntry, err := c.spaceStatus.Status(ctx, spaceId)
 	if err != nil {
 		return
@@ -350,7 +376,19 @@ func (c *coordinator) MakeSpaceShareable(ctx context.Context, spaceId string) (e
 	if err != nil {
 		return err
 	}
-	return c.spaceStatus.MakeShareable(ctx, spaceId, limits.SharedSpacesLimit)
+
+	err = c.spaceStatus.MakeShareable(ctx, spaceId, limits.SharedSpacesLimit)
+	if err != nil {
+		return
+	}
+
+	return c.coordinatorLog.AddLog(ctx, coordinatorlog.SpaceUpdateEntry{
+		SpaceId:   spaceId,
+		PeerId:    peerId,
+		Identity:  pubKey.Account(),
+		Timestamp: time.Now().Unix(),
+		EntryType: coordinatorlog.EntryTypeSpaceSharedOrUnshared,
+	})
 }
 
 func (c *coordinator) MakeSpaceUnshareable(ctx context.Context, spaceId, aclHead string) (err error) {

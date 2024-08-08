@@ -437,10 +437,13 @@ func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity, o
 			return coordinatorproto.ErrAccountIsDeleted
 		}
 		entry, err := s.Status(txCtx, spaceId)
+
 		notFound := err == coordinatorproto.ErrSpaceNotExists
 		if err != nil && !notFound {
 			return err
 		}
+
+		log.Debug("2")
 		if entry.Status == SpaceStatusCreated && !notFound {
 			// save back compatibility
 			return nil
