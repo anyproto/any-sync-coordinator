@@ -29,6 +29,8 @@ import (
 	"github.com/anyproto/any-sync-coordinator/coordinatorlog/mock_coordinatorlog"
 	"github.com/anyproto/any-sync-coordinator/deletionlog"
 	"github.com/anyproto/any-sync-coordinator/deletionlog/mock_deletionlog"
+	"github.com/anyproto/any-sync-coordinator/eventlog"
+	"github.com/anyproto/any-sync-coordinator/eventlog/mock_eventlog"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
 	"github.com/anyproto/any-sync-coordinator/spacestatus/mock_spacestatus"
 )
@@ -43,6 +45,7 @@ func TestCoordinator_MakeSpaceShareable(t *testing.T) {
 	pubKeyData, err := pubKey.Marshall()
 	require.NoError(t, err)
 	ctx = peer.CtxWithIdentity(ctx, pubKeyData)
+	ctx = peer.CtxWithPeerId(ctx, "peer.addr")
 
 	t.Run("no pub key", func(t *testing.T) {
 		fx := newFixture(t)
@@ -79,6 +82,8 @@ func TestCoordinator_MakeSpaceShareable(t *testing.T) {
 			SharedSpacesLimit: 3,
 		}, nil)
 		fx.spaceStatus.EXPECT().MakeShareable(ctx, spaceId, uint32(3))
+		fx.eventLog.EXPECT().AddLog(ctx, gomock.Any()).Return(nil)
+
 		require.NoError(t, fx.MakeSpaceShareable(ctx, spaceId))
 	})
 }
@@ -178,6 +183,13 @@ func TestCoordinator_AclAddRecord(t *testing.T) {
 	rec := &consensusproto.RawRecord{Payload: []byte("payload")}
 	recBytes, _ := rec.Marshal()
 
+	_, pubKey, err := crypto.GenerateRandomEd25519KeyPair()
+	require.NoError(t, err)
+	pubKeyData, err := pubKey.Marshall()
+	require.NoError(t, err)
+	ctx = peer.CtxWithIdentity(ctx, pubKeyData)
+	ctx = peer.CtxWithPeerId(ctx, "peer.addr")
+
 	t.Run("not shareable", func(t *testing.T) {
 		fx := newFixture(t)
 		defer fx.finish(t)
@@ -229,6 +241,7 @@ func TestCoordinator_AclAddRecord(t *testing.T) {
 			ReadMembers:  4,
 			WriteMembers: 2,
 		}).Return(rawRec, nil)
+		fx.eventLog.EXPECT().AddLog(ctx, gomock.Any()).Return(nil)
 
 		res, err := fx.AclAddRecord(ctx, spaceId, recBytes)
 		require.NoError(t, err)
@@ -287,6 +300,7 @@ func newFixture(t *testing.T) *fixture {
 		nodeConf:     mock_nodeconf.NewMockService(ctrl),
 		spaceStatus:  mock_spacestatus.NewMockSpaceStatus(ctrl),
 		coordLog:     mock_coordinatorlog.NewMockCoordinatorLog(ctrl),
+		eventLog:     mock_eventlog.NewMockEventLog(ctrl),
 		deletionLog:  mock_deletionlog.NewMockDeletionLog(ctrl),
 		acl:          mock_acl.NewMockAclService(ctrl),
 		accountLimit: mock_accountlimit.NewMockAccountLimit(ctrl),
@@ -300,6 +314,7 @@ func newFixture(t *testing.T) *fixture {
 	anymock.ExpectComp(fx.deletionLog.EXPECT(), deletionlog.CName)
 	anymock.ExpectComp(fx.acl.EXPECT(), acl.CName)
 	anymock.ExpectComp(fx.accountLimit.EXPECT(), accountlimit.CName)
+	anymock.ExpectComp(fx.eventLog.EXPECT(), eventlog.CName)
 
 	fx.a.Register(fx.coordinator).
 		Register(fx.nodeConf).
@@ -307,6 +322,7 @@ func newFixture(t *testing.T) *fixture {
 		Register(&accounttest.AccountTestService{}).
 		Register(fx.spaceStatus).
 		Register(fx.coordLog).
+		Register(fx.eventLog).
 		Register(metric.New()).
 		Register(fx.deletionLog).
 		Register(fx.acl).
@@ -324,6 +340,7 @@ type fixture struct {
 	nodeConf     *mock_nodeconf.MockService
 	spaceStatus  *mock_spacestatus.MockSpaceStatus
 	coordLog     *mock_coordinatorlog.MockCoordinatorLog
+	eventLog     *mock_eventlog.MockEventLog
 	deletionLog  *mock_deletionlog.MockDeletionLog
 	acl          *mock_acl.MockAclService
 	accountLimit *mock_accountlimit.MockAccountLimit
