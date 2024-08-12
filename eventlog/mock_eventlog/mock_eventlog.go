@@ -55,6 +55,20 @@ func (mr *MockEventLogMockRecorder) AddLog(arg0, arg1 any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddLog", reflect.TypeOf((*MockEventLog)(nil).AddLog), arg0, arg1)
 }
 
+// Close mocks base method.
+func (m *MockEventLog) Close(arg0 context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Close", arg0)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Close indicates an expected call of Close.
+func (mr *MockEventLogMockRecorder) Close(arg0 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockEventLog)(nil).Close), arg0)
+}
+
 // GetAfter mocks base method.
 func (m *MockEventLog) GetAfter(arg0 context.Context, arg1, arg2 string, arg3 uint32) ([]eventlog.EventLogEntry, bool, error) {
 	m.ctrl.T.Helper()
@@ -97,4 +111,18 @@ func (m *MockEventLog) Name() string {
 func (mr *MockEventLogMockRecorder) Name() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Name", reflect.TypeOf((*MockEventLog)(nil).Name))
+}
+
+// Run mocks base method.
+func (m *MockEventLog) Run(arg0 context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Run", arg0)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Run indicates an expected call of Run.
+func (mr *MockEventLogMockRecorder) Run(arg0 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Run", reflect.TypeOf((*MockEventLog)(nil).Run), arg0)
 }

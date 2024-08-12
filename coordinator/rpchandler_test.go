@@ -67,7 +67,7 @@ func TestRpcHandler_EventLog(t *testing.T) {
 	ctx = peer.CtxWithIdentity(ctx, pubKeyData)
 	ctx = peer.CtxWithPeerId(ctx, "peer.addr")
 
-	t.Run("success", func(t *testing.T) {
+	t.Run("success - return all items", func(t *testing.T) {
 		fx := newFixture(t)
 		defer fx.finish(t)
 
@@ -91,10 +91,39 @@ func TestRpcHandler_EventLog(t *testing.T) {
 			},
 		}, false, nil)
 
-		_, err := fx.drpcHandler.EventLog(ctx, &coordinatorproto.EventLogRequest{
+		out, err := fx.drpcHandler.EventLog(ctx, &coordinatorproto.EventLogRequest{
 			AccountIdentity: pubKey.Account(),
 		})
 		require.NoError(t, err)
+
+		require.Equal(t, 2, len(out.Records))
+	})
+
+	t.Run("success - return 1 item", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+
+		fx.nodeConf.EXPECT().NodeTypes(gomock.Any()).Return([]nodeconf.NodeType{nodeconf.NodeTypeCoordinator}).AnyTimes()
+
+		id1 := primitive.NewObjectID()
+		id2 := primitive.NewObjectID()
+
+		fx.eventLog.EXPECT().GetAfter(ctx, pubKey.Account(), id1.Hex(), uint32(0)).Return([]eventlog.EventLogEntry{
+			{
+				Id:          &id2,
+				Timestamp:   124,
+				EntryType:   eventlog.EntryTypeSpaceAclAddRecord,
+				AclChangeId: "acl1",
+			},
+		}, false, nil)
+
+		out, err := fx.drpcHandler.EventLog(ctx, &coordinatorproto.EventLogRequest{
+			AccountIdentity: pubKey.Account(),
+			AfterId:         id1.Hex(),
+		})
+		require.NoError(t, err)
+
+		require.Equal(t, 1, len(out.Records))
 	})
 
 }

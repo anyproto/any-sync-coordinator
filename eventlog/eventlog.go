@@ -3,37 +3,34 @@ package eventlog
 
 import (
 	"context"
-	"time"
+	"errors"
 
 	"github.com/anyproto/any-sync/app"
+	"github.com/anyproto/any-sync/app/logger"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	"gopkg.in/mgo.v2/bson"
 
 	"github.com/anyproto/any-sync-coordinator/db"
 )
 
-const CName = "coordinator.eventlog"
+const CName = "coordinator.eventLog"
+
+var log = logger.NewNamed(CName)
 
 const (
-	collName     = "eventlog"
+	collName     = "eventLog"
 	defaultLimit = 1000
 )
 
-type findIdGt struct {
-	Identity string `bson:"identity"`
+var (
+	ErrNoIdentity = errors.New("no identity")
+)
 
-	Id struct {
-		Gt primitive.ObjectID `bson:"$gt"`
-	} `bson:"_id"`
+func New() EventLog {
+	return new(eventLog)
 }
-
-type findIdentity struct {
-	Identity string `bson:"identity"`
-}
-
-var sortById = bson.D{{"_id", 1}}
 
 type EventLogEntryType uint8
 
@@ -49,51 +46,73 @@ type EventLogEntry struct {
 	PeerId    string              `bson:"peerId"`
 	Identity  string              `bson:"identity"`
 	Timestamp int64               `bson:"timestamp"`
-	EntryType EventLogEntryType   `bson:"entryType"`
+
+	EntryType EventLogEntryType `bson:"entryType"`
 	// only for EntryTypeSpaceReceipt
 	SignedSpaceReceipt []byte `bson:"receipt"`
 	// only for EntryTypeSpaceAclAddRecord
 	AclChangeId string `bson:"aclChangeId"`
 }
 
-// almost like CoordinatorLog, but with more "event types"
-// we did not want to mix events with the CoordinatorLog, so that's why decided to
-// build a separate component and use a different Mongo collection
-type EventLog interface {
-	app.Component
+/*
+	type findIdGt struct {
+		Id struct {
+			Gt primitive.ObjectID `bson:"$gt"`
+		} `bson:"_id"`
+	}
+*/
 
-	AddLog(ctx context.Context, entry EventLogEntry) (err error)
-	GetAfter(ctx context.Context, identity string, afterId string, limit uint32) (records []EventLogEntry, hasMore bool, err error)
+type findIdGt struct {
+	Identity string `bson:"identity"`
+
+	Id struct {
+		Gt primitive.ObjectID `bson:"$gt"`
+	} `bson:"_id"`
 }
 
-func New() EventLog {
-	return &eventLog{}
-}
-
-type eventLog struct {
-	logColl *mongo.Collection
-}
-
-func (c *eventLog) Init(a *app.App) (err error) {
-	c.logColl = a.MustComponent(db.CName).(db.Database).Db().Collection(collName)
-	return
-}
-
-func (c *eventLog) Name() (name string) {
-	return CName
-}
-
-func (c *eventLog) AddLog(ctx context.Context, entry EventLogEntry) (err error) {
-	entry.Timestamp = time.Now().Unix()
-	_, err = c.logColl.InsertOne(ctx, entry)
-	return
-}
-
-type findStatusQuery struct {
+type findIdentity struct {
 	Identity string `bson:"identity"`
 }
 
+var sortById = bson.D{{"_id", 1}}
+
+type EventLog interface {
+	AddLog(ctx context.Context, event EventLogEntry) (err error)
+	GetAfter(ctx context.Context, identity, afterId string, limit uint32) (records []EventLogEntry, hasMore bool, err error)
+
+	app.ComponentRunnable
+}
+
+type eventLog struct {
+	coll *mongo.Collection
+}
+
+func (d *eventLog) Init(a *app.App) (err error) {
+	d.coll = a.MustComponent(db.CName).(db.Database).Db().Collection(collName)
+	return
+}
+
+func (d *eventLog) Name() (name string) {
+	return CName
+}
+
+func (d *eventLog) Run(ctx context.Context) error {
+	// create collection if doesn't exist
+	_ = d.coll.Database().CreateCollection(ctx, collName)
+	return nil
+}
+
+func (d *eventLog) Close(_ context.Context) (err error) {
+	return nil
+}
+
 func (d *eventLog) GetAfter(ctx context.Context, identity string, afterId string, limit uint32) (records []EventLogEntry, hasMore bool, err error) {
+	// if no identity provided, return error
+	if identity == "" {
+		err = ErrNoIdentity
+		return
+	}
+
 	if limit == 0 || limit > defaultLimit {
 		limit = defaultLimit
 	}
@@ -116,7 +135,8 @@ func (d *eventLog) GetAfter(ctx context.Context, identity string, afterId string
 
 		q = qId
 	}
-	it, err := d.logColl.Find(ctx, q, options.Find().SetSort(sortById).SetLimit(int64(limit)))
+
+	it, err := d.coll.Find(ctx, q, options.Find().SetSort(sortById).SetLimit(int64(limit)))
 	if err != nil {
 		return
 	}
@@ -136,4 +156,12 @@ func (d *eventLog) GetAfter(ctx context.Context, identity string, afterId string
 		hasMore = true
 	}
 	return
+}
+
+func (d *eventLog) AddLog(ctx context.Context, event EventLogEntry) (err error) {
+	_, err = d.coll.InsertOne(ctx, event)
+	if err != nil {
+		return
+	}
+	return nil
 }
