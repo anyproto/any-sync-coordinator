@@ -3,7 +3,8 @@ package identityrepo
 import (
 	"context"
 	"errors"
-	"github.com/anyproto/any-sync-coordinator/db"
+	"time"
+
 	"github.com/anyproto/any-sync/app"
 	"github.com/anyproto/any-sync/app/logger"
 	"github.com/anyproto/any-sync/identityrepo/identityrepoproto"
@@ -12,7 +13,8 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	"time"
+
+	"github.com/anyproto/any-sync-coordinator/db"
 )
 
 const CName = "coordinator.identityrepo"
@@ -30,7 +32,7 @@ var (
 
 const (
 	thresholdDataLen        = 65 * 1024 // 65 kb
-	thresholdIdentityPerReq = 100
+	thresholdIdentityPerReq = 350
 )
 
 func New() IdentityRepo {
