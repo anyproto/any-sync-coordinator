@@ -54,14 +54,6 @@ type EventLogEntry struct {
 	AclChangeId string `bson:"aclChangeId"`
 }
 
-/*
-	type findIdGt struct {
-		Id struct {
-			Gt primitive.ObjectID `bson:"$gt"`
-		} `bson:"_id"`
-	}
-*/
-
 type findIdGt struct {
 	Identity string `bson:"identity"`
 
