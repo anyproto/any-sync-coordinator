@@ -26,10 +26,10 @@ import (
 	"storj.io/drpc"
 
 	"github.com/anyproto/any-sync-coordinator/accountlimit"
+	"github.com/anyproto/any-sync-coordinator/acleventlog"
 	"github.com/anyproto/any-sync-coordinator/config"
 	"github.com/anyproto/any-sync-coordinator/coordinatorlog"
 	"github.com/anyproto/any-sync-coordinator/deletionlog"
-	"github.com/anyproto/any-sync-coordinator/eventlog"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
 )
 
@@ -62,7 +62,7 @@ type coordinator struct {
 	nodeConf       nodeconf.Service
 	spaceStatus    spacestatus.SpaceStatus
 	coordinatorLog coordinatorlog.CoordinatorLog
-	eventLog       eventlog.EventLog
+	aclEventLog    acleventlog.AclEventLog
 	deletionPeriod time.Duration
 	metric         metric.Metric
 	deletionLog    deletionlog.DeletionLog
@@ -83,7 +83,7 @@ func (c *coordinator) Init(a *app.App) (err error) {
 	c.deletionLog = app.MustComponent[deletionlog.DeletionLog](a)
 	c.acl = app.MustComponent[acl.AclService](a)
 	c.accountLimit = app.MustComponent[accountlimit.AccountLimit](a)
-	c.eventLog = app.MustComponent[eventlog.EventLog](a)
+	c.aclEventLog = app.MustComponent[acleventlog.AclEventLog](a)
 
 	return coordinatorproto.DRPCRegisterCoordinator(a.MustComponent(server.CName).(drpc.Mux), c.drpcHandler)
 }
@@ -264,13 +264,12 @@ func (c *coordinator) addCoordinatorLog(ctx context.Context, spaceId, peerId str
 	}
 
 	// add to event log too
-	err = c.eventLog.AddLog(ctx, eventlog.EventLogEntry{
-		SpaceId:            spaceId,
-		PeerId:             peerId,
-		Identity:           accountPubKey.Account(),
-		Timestamp:          time.Now().Unix(),
-		EntryType:          eventlog.EntryTypeSpaceReceipt,
-		SignedSpaceReceipt: marshalledReceipt,
+	err = c.aclEventLog.AddLog(ctx, acleventlog.AclEventLogEntry{
+		SpaceId:   spaceId,
+		PeerId:    peerId,
+		Identity:  accountPubKey.Account(),
+		Timestamp: time.Now().Unix(),
+		EntryType: acleventlog.EntryTypeSpaceReceipt,
 	})
 }
 
@@ -341,12 +340,12 @@ func (c *coordinator) AclAddRecord(ctx context.Context, spaceId string, payload 
 
 	log.Debug("ACL change ID:", zap.String("rawRecordWithId.Id", rawRecordWithId.Id))
 
-	err = c.eventLog.AddLog(ctx, eventlog.EventLogEntry{
+	err = c.aclEventLog.AddLog(ctx, acleventlog.AclEventLogEntry{
 		SpaceId:     spaceId,
 		PeerId:      peerId,
 		Identity:    pubKey.Account(),
 		Timestamp:   time.Now().Unix(),
-		EntryType:   eventlog.EntryTypeSpaceAclAddRecord,
+		EntryType:   acleventlog.EntryTypeSpaceAclAddRecord,
 		AclChangeId: rawRecordWithId.Id,
 	})
 	if err != nil {
@@ -399,12 +398,12 @@ func (c *coordinator) MakeSpaceShareable(ctx context.Context, spaceId string) (e
 		return
 	}
 
-	return c.eventLog.AddLog(ctx, eventlog.EventLogEntry{
+	return c.aclEventLog.AddLog(ctx, acleventlog.AclEventLogEntry{
 		SpaceId:   spaceId,
 		PeerId:    peerId,
 		Identity:  pubKey.Account(),
 		Timestamp: time.Now().Unix(),
-		EntryType: eventlog.EntryTypeSpaceSharedOrUnshared,
+		EntryType: acleventlog.EntryTypeSpaceShared,
 	})
 }
 
@@ -412,6 +411,10 @@ func (c *coordinator) MakeSpaceUnshareable(ctx context.Context, spaceId, aclHead
 	pubKey, err := peer.CtxPubKey(ctx)
 	if err != nil {
 		return coordinatorproto.ErrForbidden
+	}
+	peerId, err := peer.CtxPeerId(ctx)
+	if err != nil {
+		return
 	}
 	statusEntry, err := c.spaceStatus.Status(ctx, spaceId)
 	if err != nil {
@@ -441,5 +444,13 @@ func (c *coordinator) MakeSpaceUnshareable(ctx context.Context, spaceId, aclHead
 		return
 	}
 
-	return c.spaceStatus.MakeUnshareable(ctx, spaceId)
+	err = c.spaceStatus.MakeUnshareable(ctx, spaceId)
+
+	return c.aclEventLog.AddLog(ctx, acleventlog.AclEventLogEntry{
+		SpaceId:   spaceId,
+		PeerId:    peerId,
+		Identity:  pubKey.Account(),
+		Timestamp: time.Now().Unix(),
+		EntryType: acleventlog.EntryTypeSpaceUnshared,
+	})
 }

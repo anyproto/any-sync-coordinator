@@ -13,7 +13,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/anyproto/any-sync-coordinator/accountlimit"
-	"github.com/anyproto/any-sync-coordinator/eventlog"
+	"github.com/anyproto/any-sync-coordinator/acleventlog"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
 )
 
@@ -392,23 +392,25 @@ func (r *rpcHandler) SpaceMakeUnshareable(ctx context.Context, req *coordinatorp
 	return &coordinatorproto.SpaceMakeUnshareableResponse{}, nil
 }
 
-func entryTypeToRecordType(et eventlog.EventLogEntryType) (coordinatorproto.EventLogRecordType, error) {
+func entryTypeToRecordType(et acleventlog.EventLogEntryType) (coordinatorproto.AclEventLogRecordType, error) {
 	switch et {
-	case eventlog.EntryTypeSpaceReceipt:
-		return coordinatorproto.EventLogRecordType_RecordTypeSpaceReceipt, nil
-	case eventlog.EntryTypeSpaceSharedOrUnshared:
-		return coordinatorproto.EventLogRecordType_RecordTypeSpaceSharedOrUnshared, nil
-	case eventlog.EntryTypeSpaceAclAddRecord:
-		return coordinatorproto.EventLogRecordType_RecordTypeSpaceAclAddRecord, nil
+	case acleventlog.EntryTypeSpaceReceipt:
+		return coordinatorproto.AclEventLogRecordType_RecordTypeSpaceReceipt, nil
+	case acleventlog.EntryTypeSpaceShared:
+		return coordinatorproto.AclEventLogRecordType_RecordTypeSpaceShared, nil
+	case acleventlog.EntryTypeSpaceUnshared:
+		return coordinatorproto.AclEventLogRecordType_RecordTypeSpaceUnshared, nil
+	case acleventlog.EntryTypeSpaceAclAddRecord:
+		return coordinatorproto.AclEventLogRecordType_RecordTypeSpaceAclAddRecord, nil
 	}
 
 	return 0, errors.New("unknown event log entry type")
 }
 
-func (r *rpcHandler) EventLog(ctx context.Context, req *coordinatorproto.EventLogRequest) (resp *coordinatorproto.EventLogResponse, err error) {
+func (r *rpcHandler) AclEventLog(ctx context.Context, req *coordinatorproto.AclEventLogRequest) (resp *coordinatorproto.AclEventLogResponse, err error) {
 	st := time.Now()
 	defer func() {
-		r.c.metric.RequestLog(ctx, "coordinator.eventLog",
+		r.c.metric.RequestLog(ctx, "coordinator.aclEventLog",
 			metric.TotalDur(time.Since(st)),
 			zap.String("addr", peer.CtxPeerAddr(ctx)),
 			zap.Error(err),
@@ -423,12 +425,12 @@ func (r *rpcHandler) EventLog(ctx context.Context, req *coordinatorproto.EventLo
 		return nil, coordinatorproto.ErrForbidden
 	}
 
-	recs, hasMore, err := r.c.eventLog.GetAfter(ctx, req.AccountIdentity, req.AfterId, req.Limit)
+	recs, hasMore, err := r.c.aclEventLog.GetAfter(ctx, req.AccountIdentity, req.AfterId, req.Limit)
 	if err != nil {
 		return nil, err
 	}
-	resp = &coordinatorproto.EventLogResponse{
-		Records: make([]*coordinatorproto.EventLogRecord, 0, len(recs)),
+	resp = &coordinatorproto.AclEventLogResponse{
+		Records: make([]*coordinatorproto.AclEventLogRecord, 0, len(recs)),
 		HasMore: hasMore,
 	}
 
@@ -441,7 +443,7 @@ func (r *rpcHandler) EventLog(ctx context.Context, req *coordinatorproto.EventLo
 			continue
 		}
 
-		resp.Records = append(resp.Records, &coordinatorproto.EventLogRecord{
+		resp.Records = append(resp.Records, &coordinatorproto.AclEventLogRecord{
 			Id:        rec.Id.Hex(),
 			SpaceId:   rec.SpaceId,
 			Timestamp: rec.Id.Timestamp().Unix(),
@@ -451,11 +453,11 @@ func (r *rpcHandler) EventLog(ctx context.Context, req *coordinatorproto.EventLo
 		// add additional fields for some record types
 
 		// TODO: copy SignedSpaceReceipt field, protos does not have it yet
-		// if rec.EntryType == eventlog.EntryTypeSpaceReceipt {
+		// if rec.EntryType == acleventlog.EntryTypeSpaceReceipt {
 		//	resp.Records[len(resp.Records)-1].SignedSpaceReceipt = rec.SignedSpaceReceipt
 		// }
 
-		if rec.EntryType == eventlog.EntryTypeSpaceAclAddRecord {
+		if rec.EntryType == acleventlog.EntryTypeSpaceAclAddRecord {
 			resp.Records[len(resp.Records)-1].AclChangeId = rec.AclChangeId
 		}
 	}

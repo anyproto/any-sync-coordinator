@@ -1,5 +1,5 @@
-//go:generate mockgen -destination mock_eventlog/mock_eventlog.go github.com/anyproto/any-sync-coordinator/eventlog EventLog
-package eventlog
+//go:generate mockgen -destination mock_eventlog/mock_eventlog.go github.com/anyproto/any-sync-coordinator/acleventlog AclEventLog
+package acleventlog
 
 import (
 	"context"
@@ -15,12 +15,12 @@ import (
 	"github.com/anyproto/any-sync-coordinator/db"
 )
 
-const CName = "coordinator.eventLog"
+const CName = "coordinator.aclEventLog"
 
 var log = logger.NewNamed(CName)
 
 const (
-	collName     = "eventLog"
+	collName     = "aclEventLog"
 	defaultLimit = 1000
 )
 
@@ -28,19 +28,20 @@ var (
 	ErrNoIdentity = errors.New("no identity")
 )
 
-func New() EventLog {
-	return new(eventLog)
+func New() AclEventLog {
+	return new(aclEventLog)
 }
 
 type EventLogEntryType uint8
 
 const (
-	EntryTypeSpaceReceipt          EventLogEntryType = 0
-	EntryTypeSpaceSharedOrUnshared EventLogEntryType = 1
-	EntryTypeSpaceAclAddRecord     EventLogEntryType = 2
+	EntryTypeSpaceReceipt      EventLogEntryType = 0
+	EntryTypeSpaceShared       EventLogEntryType = 1
+	EntryTypeSpaceUnshared     EventLogEntryType = 2
+	EntryTypeSpaceAclAddRecord EventLogEntryType = 3
 )
 
-type EventLogEntry struct {
+type AclEventLogEntry struct {
 	Id        *primitive.ObjectID `bson:"_id,omitempty"`
 	SpaceId   string              `bson:"spaceId"`
 	PeerId    string              `bson:"peerId"`
@@ -48,8 +49,6 @@ type EventLogEntry struct {
 	Timestamp int64               `bson:"timestamp"`
 
 	EntryType EventLogEntryType `bson:"entryType"`
-	// only for EntryTypeSpaceReceipt
-	SignedSpaceReceipt []byte `bson:"receipt"`
 	// only for EntryTypeSpaceAclAddRecord
 	AclChangeId string `bson:"aclChangeId"`
 }
@@ -68,37 +67,37 @@ type findIdentity struct {
 
 var sortById = bson.D{{"_id", 1}}
 
-type EventLog interface {
-	AddLog(ctx context.Context, event EventLogEntry) (err error)
-	GetAfter(ctx context.Context, identity, afterId string, limit uint32) (records []EventLogEntry, hasMore bool, err error)
+type AclEventLog interface {
+	AddLog(ctx context.Context, event AclEventLogEntry) (err error)
+	GetAfter(ctx context.Context, identity, afterId string, limit uint32) (records []AclEventLogEntry, hasMore bool, err error)
 
 	app.ComponentRunnable
 }
 
-type eventLog struct {
+type aclEventLog struct {
 	coll *mongo.Collection
 }
 
-func (d *eventLog) Init(a *app.App) (err error) {
+func (d *aclEventLog) Init(a *app.App) (err error) {
 	d.coll = a.MustComponent(db.CName).(db.Database).Db().Collection(collName)
 	return
 }
 
-func (d *eventLog) Name() (name string) {
+func (d *aclEventLog) Name() (name string) {
 	return CName
 }
 
-func (d *eventLog) Run(ctx context.Context) error {
+func (d *aclEventLog) Run(ctx context.Context) error {
 	// create collection if doesn't exist
 	_ = d.coll.Database().CreateCollection(ctx, collName)
 	return nil
 }
 
-func (d *eventLog) Close(_ context.Context) (err error) {
+func (d *aclEventLog) Close(_ context.Context) (err error) {
 	return nil
 }
 
-func (d *eventLog) GetAfter(ctx context.Context, identity string, afterId string, limit uint32) (records []EventLogEntry, hasMore bool, err error) {
+func (d *aclEventLog) GetAfter(ctx context.Context, identity string, afterId string, limit uint32) (records []AclEventLogEntry, hasMore bool, err error) {
 	// if no identity provided, return error
 	if identity == "" {
 		err = ErrNoIdentity
@@ -135,9 +134,9 @@ func (d *eventLog) GetAfter(ctx context.Context, identity string, afterId string
 	defer func() {
 		_ = it.Close(ctx)
 	}()
-	records = make([]EventLogEntry, 0, limit)
+	records = make([]AclEventLogEntry, 0, limit)
 	for it.Next(ctx) {
-		var rec EventLogEntry
+		var rec AclEventLogEntry
 		if err = it.Decode(&rec); err != nil {
 			return
 		}
@@ -150,7 +149,7 @@ func (d *eventLog) GetAfter(ctx context.Context, identity string, afterId string
 	return
 }
 
-func (d *eventLog) AddLog(ctx context.Context, event EventLogEntry) (err error) {
+func (d *aclEventLog) AddLog(ctx context.Context, event AclEventLogEntry) (err error) {
 	_, err = d.coll.InsertOne(ctx, event)
 	if err != nil {
 		return

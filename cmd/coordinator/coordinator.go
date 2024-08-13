@@ -28,12 +28,12 @@ import (
 
 	"github.com/anyproto/any-sync-coordinator/account"
 	"github.com/anyproto/any-sync-coordinator/accountlimit"
+	"github.com/anyproto/any-sync-coordinator/acleventlog"
 	"github.com/anyproto/any-sync-coordinator/config"
 	"github.com/anyproto/any-sync-coordinator/coordinator"
 	"github.com/anyproto/any-sync-coordinator/coordinatorlog"
 	"github.com/anyproto/any-sync-coordinator/db"
 	"github.com/anyproto/any-sync-coordinator/deletionlog"
-	"github.com/anyproto/any-sync-coordinator/eventlog"
 	"github.com/anyproto/any-sync-coordinator/identityrepo"
 	"github.com/anyproto/any-sync-coordinator/nodeconfsource"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
@@ -120,7 +120,7 @@ func Bootstrap(a *app.App) {
 		Register(secureservice.New()).
 		Register(server.New()).
 		Register(coordinatorlog.New()).
-		Register(eventlog.New()).
+		Register(acleventlog.New()).
 		Register(spacestatus.New()).
 		Register(consensusclient.New()).
 		Register(acl.New()).

@@ -13,7 +13,7 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/anyproto/any-sync-coordinator/accountlimit"
-	"github.com/anyproto/any-sync-coordinator/eventlog"
+	"github.com/anyproto/any-sync-coordinator/acleventlog"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
 )
 
@@ -76,22 +76,21 @@ func TestRpcHandler_EventLog(t *testing.T) {
 		id1 := primitive.NewObjectID()
 		id2 := primitive.NewObjectID()
 
-		fx.eventLog.EXPECT().GetAfter(ctx, pubKey.Account(), "", uint32(0)).Return([]eventlog.EventLogEntry{
+		fx.aclEventLog.EXPECT().GetAfter(ctx, pubKey.Account(), "", uint32(0)).Return([]acleventlog.AclEventLogEntry{
 			{
-				Id:                 &id1,
-				Timestamp:          123,
-				EntryType:          eventlog.EntryTypeSpaceReceipt,
-				SignedSpaceReceipt: []byte("receipt1"),
+				Id:        &id1,
+				Timestamp: 123,
+				EntryType: acleventlog.EntryTypeSpaceReceipt,
 			},
 			{
 				Id:          &id2,
 				Timestamp:   124,
-				EntryType:   eventlog.EntryTypeSpaceAclAddRecord,
+				EntryType:   acleventlog.EntryTypeSpaceAclAddRecord,
 				AclChangeId: "acl1",
 			},
 		}, false, nil)
 
-		out, err := fx.drpcHandler.EventLog(ctx, &coordinatorproto.EventLogRequest{
+		out, err := fx.drpcHandler.AclEventLog(ctx, &coordinatorproto.AclEventLogRequest{
 			AccountIdentity: pubKey.Account(),
 		})
 		require.NoError(t, err)
@@ -108,16 +107,16 @@ func TestRpcHandler_EventLog(t *testing.T) {
 		id1 := primitive.NewObjectID()
 		id2 := primitive.NewObjectID()
 
-		fx.eventLog.EXPECT().GetAfter(ctx, pubKey.Account(), id1.Hex(), uint32(0)).Return([]eventlog.EventLogEntry{
+		fx.aclEventLog.EXPECT().GetAfter(ctx, pubKey.Account(), id1.Hex(), uint32(0)).Return([]acleventlog.AclEventLogEntry{
 			{
 				Id:          &id2,
 				Timestamp:   124,
-				EntryType:   eventlog.EntryTypeSpaceAclAddRecord,
+				EntryType:   acleventlog.EntryTypeSpaceAclAddRecord,
 				AclChangeId: "acl1",
 			},
 		}, false, nil)
 
-		out, err := fx.drpcHandler.EventLog(ctx, &coordinatorproto.EventLogRequest{
+		out, err := fx.drpcHandler.AclEventLog(ctx, &coordinatorproto.AclEventLogRequest{
 			AccountIdentity: pubKey.Account(),
 			AfterId:         id1.Hex(),
 		})

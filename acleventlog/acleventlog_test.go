@@ -1,4 +1,4 @@
-package eventlog
+package acleventlog
 
 import (
 	"context"
@@ -21,14 +21,13 @@ func TestEventLog_Add(t *testing.T) {
 
 	id := primitive.NewObjectID()
 
-	err := fx.AddLog(ctx, EventLogEntry{
-		Id:                 &id,
-		SpaceId:            "space1",
-		PeerId:             "peer1",
-		Identity:           "identity1",
-		Timestamp:          time.Now().Unix(),
-		EntryType:          EntryTypeSpaceReceipt,
-		SignedSpaceReceipt: []byte("receipt"),
+	err := fx.AddLog(ctx, AclEventLogEntry{
+		Id:        &id,
+		SpaceId:   "space1",
+		PeerId:    "peer1",
+		Identity:  "identity1",
+		Timestamp: time.Now().Unix(),
+		EntryType: EntryTypeSpaceReceipt,
 	})
 
 	require.NoError(t, err)
@@ -41,14 +40,13 @@ func TestEventLog_GetAfter(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		id := primitive.NewObjectID()
 
-		err := fx.AddLog(ctx, EventLogEntry{
-			Id:                 &id,
-			SpaceId:            "space1",
-			PeerId:             "peerA",
-			Identity:           "identity1",
-			Timestamp:          time.Now().Unix(),
-			EntryType:          EntryTypeSpaceReceipt,
-			SignedSpaceReceipt: []byte("receipt"),
+		err := fx.AddLog(ctx, AclEventLogEntry{
+			Id:        &id,
+			SpaceId:   "space1",
+			PeerId:    "peerA",
+			Identity:  "identity1",
+			Timestamp: time.Now().Unix(),
+			EntryType: EntryTypeSpaceReceipt,
 		})
 
 		require.NoError(t, err)
@@ -91,12 +89,12 @@ func TestEventLog_GetAfter(t *testing.T) {
 
 func newFixture(t *testing.T) *fixture {
 	fx := &fixture{
-		EventLog: New(),
-		db:       db.New(),
-		a:        new(app.App),
+		AclEventLog: New(),
+		db:          db.New(),
+		a:           new(app.App),
 	}
 
-	fx.a.Register(config{}).Register(fx.db).Register(fx.EventLog)
+	fx.a.Register(config{}).Register(fx.db).Register(fx.AclEventLog)
 
 	require.NoError(t, fx.a.Start(ctx))
 	_ = fx.db.Db().Collection(collName).Drop(ctx)
@@ -106,7 +104,7 @@ func newFixture(t *testing.T) *fixture {
 }
 
 type fixture struct {
-	EventLog
+	AclEventLog
 
 	a  *app.App
 	db db.Database

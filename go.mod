@@ -6,14 +6,13 @@ toolchain go1.22.1
 
 require (
 	github.com/ahmetb/govvv v0.3.0
-	github.com/anyproto/any-sync v0.4.24-0.20240811172634-a45104c566c0
+	github.com/anyproto/any-sync v0.4.24-0.20240813105417-48b0bd91b0df
 	github.com/gogo/protobuf v1.3.2
 	github.com/stretchr/testify v1.9.0
 	github.com/zeebo/assert v1.3.0
 	go.mongodb.org/mongo-driver v1.16.0
 	go.uber.org/mock v0.4.0
 	go.uber.org/zap v1.27.0
-	gopkg.in/mgo.v2 v2.0.0-20190816093944-a6b53ec6cb22
 	gopkg.in/yaml.v3 v3.0.1
 	storj.io/drpc v0.0.34
 )
