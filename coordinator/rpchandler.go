@@ -450,13 +450,6 @@ func (r *rpcHandler) AclEventLog(ctx context.Context, req *coordinatorproto.AclE
 			Type:      t,
 		})
 
-		// add additional fields for some record types
-
-		// TODO: copy SignedSpaceReceipt field, protos does not have it yet
-		// if rec.EntryType == acleventlog.EntryTypeSpaceReceipt {
-		//	resp.Records[len(resp.Records)-1].SignedSpaceReceipt = rec.SignedSpaceReceipt
-		// }
-
 		if rec.EntryType == acleventlog.EntryTypeSpaceAclAddRecord {
 			resp.Records[len(resp.Records)-1].AclChangeId = rec.AclChangeId
 		}

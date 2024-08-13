@@ -445,6 +445,9 @@ func (c *coordinator) MakeSpaceUnshareable(ctx context.Context, spaceId, aclHead
 	}
 
 	err = c.spaceStatus.MakeUnshareable(ctx, spaceId)
+	if err != nil {
+		return
+	}
 
 	return c.aclEventLog.AddLog(ctx, acleventlog.AclEventLogEntry{
 		SpaceId:   spaceId,
