@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/anyproto/any-sync-coordinator/accountlimit"
+	"github.com/anyproto/any-sync-coordinator/acleventlog"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
 )
 
@@ -389,4 +390,69 @@ func (r *rpcHandler) SpaceMakeUnshareable(ctx context.Context, req *coordinatorp
 		return
 	}
 	return &coordinatorproto.SpaceMakeUnshareableResponse{}, nil
+}
+
+func entryTypeToRecordType(et acleventlog.EventLogEntryType) (coordinatorproto.AclEventLogRecordType, error) {
+	switch et {
+	case acleventlog.EntryTypeSpaceReceipt:
+		return coordinatorproto.AclEventLogRecordType_RecordTypeSpaceReceipt, nil
+	case acleventlog.EntryTypeSpaceShared:
+		return coordinatorproto.AclEventLogRecordType_RecordTypeSpaceShared, nil
+	case acleventlog.EntryTypeSpaceUnshared:
+		return coordinatorproto.AclEventLogRecordType_RecordTypeSpaceUnshared, nil
+	case acleventlog.EntryTypeSpaceAclAddRecord:
+		return coordinatorproto.AclEventLogRecordType_RecordTypeSpaceAclAddRecord, nil
+	}
+
+	return 0, errors.New("unknown event log entry type")
+}
+
+func (r *rpcHandler) AclEventLog(ctx context.Context, req *coordinatorproto.AclEventLogRequest) (resp *coordinatorproto.AclEventLogResponse, err error) {
+	st := time.Now()
+	defer func() {
+		r.c.metric.RequestLog(ctx, "coordinator.aclEventLog",
+			metric.TotalDur(time.Since(st)),
+			zap.String("addr", peer.CtxPeerAddr(ctx)),
+			zap.Error(err),
+		)
+	}()
+
+	peerId, err := peer.CtxPeerId(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(r.c.nodeConf.NodeTypes(peerId)) == 0 {
+		return nil, coordinatorproto.ErrForbidden
+	}
+
+	recs, hasMore, err := r.c.aclEventLog.GetAfter(ctx, req.AccountIdentity, req.AfterId, req.Limit)
+	if err != nil {
+		return nil, err
+	}
+	resp = &coordinatorproto.AclEventLogResponse{
+		Records: make([]*coordinatorproto.AclEventLogRecord, 0, len(recs)),
+		HasMore: hasMore,
+	}
+
+	for _, rec := range recs {
+		t, err := entryTypeToRecordType(rec.EntryType)
+
+		if err != nil {
+			// skip
+			log.Error("unknown event log entry type", zap.Uint8("entryType", uint8(rec.EntryType)))
+			continue
+		}
+
+		resp.Records = append(resp.Records, &coordinatorproto.AclEventLogRecord{
+			Id:        rec.Id.Hex(),
+			SpaceId:   rec.SpaceId,
+			Timestamp: rec.Id.Timestamp().Unix(),
+			Type:      t,
+		})
+
+		if rec.EntryType == acleventlog.EntryTypeSpaceAclAddRecord {
+			resp.Records[len(resp.Records)-1].AclChangeId = rec.AclChangeId
+		}
+	}
+	return
 }

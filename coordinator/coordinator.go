@@ -26,6 +26,7 @@ import (
 	"storj.io/drpc"
 
 	"github.com/anyproto/any-sync-coordinator/accountlimit"
+	"github.com/anyproto/any-sync-coordinator/acleventlog"
 	"github.com/anyproto/any-sync-coordinator/config"
 	"github.com/anyproto/any-sync-coordinator/coordinatorlog"
 	"github.com/anyproto/any-sync-coordinator/deletionlog"
@@ -61,6 +62,7 @@ type coordinator struct {
 	nodeConf       nodeconf.Service
 	spaceStatus    spacestatus.SpaceStatus
 	coordinatorLog coordinatorlog.CoordinatorLog
+	aclEventLog    acleventlog.AclEventLog
 	deletionPeriod time.Duration
 	metric         metric.Metric
 	deletionLog    deletionlog.DeletionLog
@@ -81,6 +83,8 @@ func (c *coordinator) Init(a *app.App) (err error) {
 	c.deletionLog = app.MustComponent[deletionlog.DeletionLog](a)
 	c.acl = app.MustComponent[acl.AclService](a)
 	c.accountLimit = app.MustComponent[accountlimit.AccountLimit](a)
+	c.aclEventLog = app.MustComponent[acleventlog.AclEventLog](a)
+
 	return coordinatorproto.DRPCRegisterCoordinator(a.MustComponent(server.CName).(drpc.Mux), c.drpcHandler)
 }
 
@@ -255,7 +259,18 @@ func (c *coordinator) addCoordinatorLog(ctx context.Context, spaceId, peerId str
 		PeerId:             peerId,
 		Identity:           accountPubKey.Account(),
 	})
-	return
+	if err != nil {
+		return
+	}
+
+	// add to event log too
+	err = c.aclEventLog.AddLog(ctx, acleventlog.AclEventLogEntry{
+		SpaceId:   spaceId,
+		PeerId:    peerId,
+		Identity:  accountPubKey.Account(),
+		Timestamp: time.Now().Unix(),
+		EntryType: acleventlog.EntryTypeSpaceReceipt,
+	})
 }
 
 func (c *coordinator) AccountLimitsSet(ctx context.Context, req *coordinatorproto.AccountLimitsSetRequest) (err error) {
@@ -277,6 +292,15 @@ func (c *coordinator) AccountLimitsSet(ctx context.Context, req *coordinatorprot
 }
 
 func (c *coordinator) AclAddRecord(ctx context.Context, spaceId string, payload []byte) (result *consensusproto.RawRecordWithId, err error) {
+	pubKey, err := peer.CtxPubKey(ctx)
+	if err != nil {
+		return nil, coordinatorproto.ErrForbidden
+	}
+	peerId, err := peer.CtxPeerId(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	rec := &consensusproto.RawRecord{}
 	err = proto.Unmarshal(payload, rec)
 	if err != nil {
@@ -313,6 +337,20 @@ func (c *coordinator) AclAddRecord(ctx context.Context, spaceId string, payload 
 		}
 		return
 	}
+
+	log.Debug("ACL change ID:", zap.String("rawRecordWithId.Id", rawRecordWithId.Id))
+
+	err = c.aclEventLog.AddLog(ctx, acleventlog.AclEventLogEntry{
+		SpaceId:     spaceId,
+		PeerId:      peerId,
+		Identity:    pubKey.Account(),
+		Timestamp:   time.Now().Unix(),
+		EntryType:   acleventlog.EntryTypeSpaceAclAddRecord,
+		AclChangeId: rawRecordWithId.Id,
+	})
+	if err != nil {
+		return
+	}
 	return rawRecordWithId, nil
 }
 
@@ -335,6 +373,10 @@ func (c *coordinator) MakeSpaceShareable(ctx context.Context, spaceId string) (e
 	if err != nil {
 		return coordinatorproto.ErrForbidden
 	}
+	peerId, err := peer.CtxPeerId(ctx)
+	if err != nil {
+		return
+	}
 	statusEntry, err := c.spaceStatus.Status(ctx, spaceId)
 	if err != nil {
 		return
@@ -350,13 +392,29 @@ func (c *coordinator) MakeSpaceShareable(ctx context.Context, spaceId string) (e
 	if err != nil {
 		return err
 	}
-	return c.spaceStatus.MakeShareable(ctx, spaceId, limits.SharedSpacesLimit)
+
+	err = c.spaceStatus.MakeShareable(ctx, spaceId, limits.SharedSpacesLimit)
+	if err != nil {
+		return
+	}
+
+	return c.aclEventLog.AddLog(ctx, acleventlog.AclEventLogEntry{
+		SpaceId:   spaceId,
+		PeerId:    peerId,
+		Identity:  pubKey.Account(),
+		Timestamp: time.Now().Unix(),
+		EntryType: acleventlog.EntryTypeSpaceShared,
+	})
 }
 
 func (c *coordinator) MakeSpaceUnshareable(ctx context.Context, spaceId, aclHead string) (err error) {
 	pubKey, err := peer.CtxPubKey(ctx)
 	if err != nil {
 		return coordinatorproto.ErrForbidden
+	}
+	peerId, err := peer.CtxPeerId(ctx)
+	if err != nil {
+		return
 	}
 	statusEntry, err := c.spaceStatus.Status(ctx, spaceId)
 	if err != nil {
@@ -386,5 +444,16 @@ func (c *coordinator) MakeSpaceUnshareable(ctx context.Context, spaceId, aclHead
 		return
 	}
 
-	return c.spaceStatus.MakeUnshareable(ctx, spaceId)
+	err = c.spaceStatus.MakeUnshareable(ctx, spaceId)
+	if err != nil {
+		return
+	}
+
+	return c.aclEventLog.AddLog(ctx, acleventlog.AclEventLogEntry{
+		SpaceId:   spaceId,
+		PeerId:    peerId,
+		Identity:  pubKey.Account(),
+		Timestamp: time.Now().Unix(),
+		EntryType: acleventlog.EntryTypeSpaceUnshared,
+	})
 }
