@@ -45,7 +45,7 @@ type AclEventLogEntry struct {
 	Id        *primitive.ObjectID `bson:"_id,omitempty"`
 	SpaceId   string              `bson:"spaceId"`
 	PeerId    string              `bson:"peerId"`
-	Identity  string              `bson:"identity"`
+	Owner     string              `bson:"owner"`
 	Timestamp int64               `bson:"timestamp"`
 
 	EntryType EventLogEntryType `bson:"entryType"`
@@ -54,15 +54,15 @@ type AclEventLogEntry struct {
 }
 
 type findIdGt struct {
-	Identity string `bson:"identity"`
+	Owner string `bson:"owner"`
 
 	Id struct {
 		Gt primitive.ObjectID `bson:"$gt"`
 	} `bson:"_id"`
 }
 
-type findIdentity struct {
-	Identity string `bson:"identity"`
+type findOwner struct {
+	Owner string `bson:"owner"`
 }
 
 var sortById = bson.D{{"_id", 1}}
@@ -117,12 +117,12 @@ func (d *aclEventLog) GetAfter(ctx context.Context, identity string, afterId str
 		if qGt.Id.Gt, err = primitive.ObjectIDFromHex(afterId); err != nil {
 			return
 		}
-		qGt.Identity = identity
+		qGt.Owner = identity
 
 		q = qGt
 	} else {
-		var qId findIdentity
-		qId.Identity = identity
+		var qId findOwner
+		qId.Owner = identity
 
 		q = qId
 	}

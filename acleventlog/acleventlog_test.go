@@ -25,7 +25,7 @@ func TestEventLog_Add(t *testing.T) {
 		Id:        &id,
 		SpaceId:   "space1",
 		PeerId:    "peer1",
-		Identity:  "identity1",
+		Owner:     "identity1",
 		Timestamp: time.Now().Unix(),
 		EntryType: EntryTypeSpaceReceipt,
 	})
@@ -44,7 +44,7 @@ func TestEventLog_GetAfter(t *testing.T) {
 			Id:        &id,
 			SpaceId:   "space1",
 			PeerId:    "peerA",
-			Identity:  "identity1",
+			Owner:     "identity1",
 			Timestamp: time.Now().Unix(),
 			EntryType: EntryTypeSpaceReceipt,
 		})
