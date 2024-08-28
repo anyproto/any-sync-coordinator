@@ -267,7 +267,7 @@ func (c *coordinator) addCoordinatorLog(ctx context.Context, spaceId, peerId str
 	err = c.aclEventLog.AddLog(ctx, acleventlog.AclEventLogEntry{
 		SpaceId:   spaceId,
 		PeerId:    peerId,
-		Identity:  accountPubKey.Account(),
+		Owner:     accountPubKey.Account(),
 		Timestamp: time.Now().Unix(),
 		EntryType: acleventlog.EntryTypeSpaceReceipt,
 	})
@@ -292,10 +292,6 @@ func (c *coordinator) AccountLimitsSet(ctx context.Context, req *coordinatorprot
 }
 
 func (c *coordinator) AclAddRecord(ctx context.Context, spaceId string, payload []byte) (result *consensusproto.RawRecordWithId, err error) {
-	pubKey, err := peer.CtxPubKey(ctx)
-	if err != nil {
-		return nil, coordinatorproto.ErrForbidden
-	}
 	peerId, err := peer.CtxPeerId(ctx)
 	if err != nil {
 		return nil, err
@@ -343,7 +339,7 @@ func (c *coordinator) AclAddRecord(ctx context.Context, spaceId string, payload 
 	err = c.aclEventLog.AddLog(ctx, acleventlog.AclEventLogEntry{
 		SpaceId:     spaceId,
 		PeerId:      peerId,
-		Identity:    pubKey.Account(),
+		Owner:       statusEntry.Identity,
 		Timestamp:   time.Now().Unix(),
 		EntryType:   acleventlog.EntryTypeSpaceAclAddRecord,
 		AclChangeId: rawRecordWithId.Id,
@@ -401,7 +397,7 @@ func (c *coordinator) MakeSpaceShareable(ctx context.Context, spaceId string) (e
 	return c.aclEventLog.AddLog(ctx, acleventlog.AclEventLogEntry{
 		SpaceId:   spaceId,
 		PeerId:    peerId,
-		Identity:  pubKey.Account(),
+		Owner:     statusEntry.Identity,
 		Timestamp: time.Now().Unix(),
 		EntryType: acleventlog.EntryTypeSpaceShared,
 	})
@@ -452,7 +448,7 @@ func (c *coordinator) MakeSpaceUnshareable(ctx context.Context, spaceId, aclHead
 	return c.aclEventLog.AddLog(ctx, acleventlog.AclEventLogEntry{
 		SpaceId:   spaceId,
 		PeerId:    peerId,
-		Identity:  pubKey.Account(),
+		Owner:     statusEntry.Identity,
 		Timestamp: time.Now().Unix(),
 		EntryType: acleventlog.EntryTypeSpaceUnshared,
 	})
