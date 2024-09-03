@@ -3,14 +3,16 @@ package nodeconfsource
 import (
 	"context"
 	"fmt"
-	"github.com/anyproto/any-sync-coordinator/db"
+	"time"
+
 	"github.com/anyproto/any-sync/app"
 	"github.com/anyproto/any-sync/nodeconf"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	"time"
+
+	"github.com/anyproto/any-sync-coordinator/db"
 )
 
 const collName = "nodeConf"
@@ -67,6 +69,10 @@ func (n *nodeConfSource) GetLast(ctx context.Context, currentId string) (c nodec
 		Nodes:        model.Nodes,
 		CreationTime: model.CreationTime,
 	}, nil
+}
+
+func (n *nodeConfSource) IsNetworkNeedsUpdate(ctx context.Context) (bool, error) {
+	return false, nil
 }
 
 func (n *nodeConfSource) Add(conf nodeconf.Configuration, enable bool) (id string, err error) {

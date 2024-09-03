@@ -62,3 +62,4 @@ metric:
 defaultLimits:
   spaceMembersRead: 1000
   spaceMembersWrite: 100
+  sharedSpacesLimit: 10
