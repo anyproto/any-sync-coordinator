@@ -119,13 +119,13 @@ type findStatusQuery struct {
 	Identity string `bson:"identity,omitempty"`
 }
 
-func newPersonalAccountQuery(identity string, status int) bson.M {
+func newTechAccountQuery(identity string, status int) bson.M {
 	return bson.M{
 		"identity": identity,
 		"$and": []bson.M{
 			{
 				"$or": []bson.M{
-					{"type": SpaceTypePersonal},
+					{"type": SpaceTypeTech},
 					{"type": bson.M{"$exists": false}},
 				},
 			},
@@ -174,7 +174,7 @@ func (s *spaceStatus) AccountDelete(ctx context.Context, payload AccountDeletion
 		toBeDeletedTimestamp = tm.Add(s.deletionPeriod).Unix()
 	)
 	err = s.db.Tx(ctx, func(txCtx mongo.SessionContext) error {
-		// Find personal space with SpaceStatusCreated status for the given identity
+		// Find tech space with SpaceStatusCreated status for the given identity
 		if !s.accountStatusFindTx(txCtx, identity, SpaceStatusCreated) {
 			return coordinatorproto.ErrAccountIsDeleted
 		}
@@ -270,9 +270,6 @@ func (s *spaceStatus) SpaceDelete(ctx context.Context, payload SpaceDeletion) (t
 			return coordinatorproto.ErrSpaceNotExists
 		}
 		switch spType {
-		case SpaceTypePersonal:
-			log.Debug("cannot delete personal space", zap.Error(err), zap.String("spaceId", payload.SpaceId))
-			return coordinatorproto.ErrUnexpected
 		case SpaceTypeTech:
 			log.Debug("cannot delete tech space", zap.Error(err), zap.String("spaceId", payload.SpaceId))
 			return coordinatorproto.ErrUnexpected
@@ -413,7 +410,7 @@ func (s *spaceStatus) Status(ctx context.Context, spaceId string) (entry StatusE
 }
 
 func (s *spaceStatus) accountStatusFindTx(txCtx mongo.SessionContext, identity string, status int) (found bool) {
-	err := s.spaces.FindOne(txCtx, newPersonalAccountQuery(identity, status)).Err()
+	err := s.spaces.FindOne(txCtx, newTechAccountQuery(identity, status)).Err()
 	if err == nil {
 		return true
 	}

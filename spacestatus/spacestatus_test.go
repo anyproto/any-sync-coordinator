@@ -572,7 +572,7 @@ func TestSpaceStatus_SpaceDelete(t *testing.T) {
 		})
 		checkStatus(fx, res, delPeriod, err)
 	})
-	t.Run("personal space delete - error", func(t *testing.T) {
+	t.Run("personal space delete - no error", func(t *testing.T) {
 		fx := newFixture(t, 1, 0)
 		fx.Run()
 		fx.verifier.verify = true
@@ -588,7 +588,7 @@ func TestSpaceStatus_SpaceDelete(t *testing.T) {
 			},
 			SpaceId: spaceId,
 		})
-		require.Error(t, err)
+		require.NoError(t, err)
 	})
 	t.Run("tech space delete - error", func(t *testing.T) {
 		fx := newFixture(t, 1, 0)
