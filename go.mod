@@ -6,7 +6,7 @@ require (
 	github.com/ahmetb/govvv v0.3.0
 	github.com/anyproto/any-sync v0.5.22
 	github.com/gogo/protobuf v1.3.2
-	github.com/stretchr/testify v1.9.0
+	github.com/stretchr/testify v1.10.0
 	github.com/zeebo/assert v1.3.0
 	go.mongodb.org/mongo-driver v1.16.1
 	go.uber.org/mock v0.5.0
