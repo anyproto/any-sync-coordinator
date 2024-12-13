@@ -2,8 +2,6 @@ module github.com/anyproto/any-sync-coordinator
 
 go 1.22.0
 
-toolchain go1.22.2
-
 require (
 	github.com/ahmetb/govvv v0.3.0
 	github.com/anyproto/any-sync v0.5.22
