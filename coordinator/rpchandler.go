@@ -456,3 +456,18 @@ func (r *rpcHandler) AclEventLog(ctx context.Context, req *coordinatorproto.AclE
 	}
 	return
 }
+
+func (c *rpcHandler) InboxFetch(ctx context.Context, in *coordinatorproto.InboxFetchRequest) (*coordinatorproto.InboxFetchResponse, error) {
+	out := &coordinatorproto.InboxFetchResponse{
+		Messages: []*coordinatorproto.InboxMessage{
+			&coordinatorproto.InboxMessage{
+				Id: "my-id",
+			},
+		},
+	}
+	// err := c.cc.Invoke(ctx, "/coordinator.Coordinator/InboxFetch", drpcEncoding_File_coordinator_coordinatorproto_protos_coordinator_proto{}, in, out)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	return out, nil
+}
