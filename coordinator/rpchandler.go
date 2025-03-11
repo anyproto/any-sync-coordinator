@@ -5,20 +5,25 @@ import (
 	"errors"
 	"time"
 
+	"github.com/anyproto/any-sync/consensus/consensusproto"
+	"github.com/anyproto/any-sync/consensus/consensusproto/consensuserr"
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/metric"
 	"github.com/anyproto/any-sync/net/peer"
 	"github.com/anyproto/any-sync/nodeconf"
 	"github.com/gogo/protobuf/proto"
 	"go.uber.org/zap"
+	"storj.io/drpc/drpcerr"
 
 	"github.com/anyproto/any-sync-coordinator/accountlimit"
 	"github.com/anyproto/any-sync-coordinator/acleventlog"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
+	"github.com/anyproto/any-sync-coordinator/stream"
 )
 
 type rpcHandler struct {
-	c *coordinator
+	c      *coordinator
+	stream stream.Service
 }
 
 func (r *rpcHandler) SpaceDelete(ctx context.Context, request *coordinatorproto.SpaceDeleteRequest) (resp *coordinatorproto.SpaceDeleteResponse, err error) {
@@ -470,4 +475,52 @@ func (c *rpcHandler) InboxFetch(ctx context.Context, in *coordinatorproto.InboxF
 	// 	return nil, err
 	// }
 	return out, nil
+}
+
+func (c *rpcHandler) InboxNotifySubscribe(rpcStream coordinatorproto.DRPCCoordinator_InboxNotifySubscribeClient) error {
+	stream := c.stream.NewStream()
+	defer stream.Close()
+	go c.readStream(stream, rpcStream)
+	for {
+		recs := stream.WaitLogs()
+		if len(recs) == 0 {
+			return rpcStream.Close()
+		}
+		for _, rec := range recs {
+			if rec.Err == nil {
+				if err := rpcStream.Send(&consensusproto.LogWatchEvent{
+					LogId:   rec.Id,
+					Records: recordsToProto(rec.Records),
+				}); err != nil {
+					return err
+				}
+			} else {
+				errCode := consensusproto.ErrCodes(drpcerr.Code(rec.Err))
+				if errCode == 0 {
+					errCode = consensusproto.ErrCodes(drpcerr.Code(consensuserr.ErrUnexpected))
+				}
+				if err := rpcStream.Send(&consensusproto.LogWatchEvent{
+					LogId: rec.Id,
+					Error: &consensusproto.Err{
+						Error: errCode,
+					},
+				}); err != nil {
+					return err
+				}
+			}
+		}
+	}
+}
+
+func (c *rpcHandler) readStream(st *stream.Stream, rpcStream coordinatorproto.DRPCCoordinator_InboxNotifySubscribeClient) {
+	defer st.Close()
+	for {
+		req, err := rpcStream.Recv()
+		if err != nil {
+			return
+		}
+
+		st.UnwatchIds(rpcStream.Context(), req.NotifyId)
+		st.WatchIds(rpcStream.Context(), req.WatchIds)
+	}
 }
