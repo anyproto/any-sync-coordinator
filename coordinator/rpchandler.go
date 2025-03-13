@@ -458,6 +458,7 @@ func (r *rpcHandler) AclEventLog(ctx context.Context, req *coordinatorproto.AclE
 }
 
 func (c *rpcHandler) InboxFetch(ctx context.Context, in *coordinatorproto.InboxFetchRequest) (*coordinatorproto.InboxFetchResponse, error) {
+	log.Error("Got InboxFetch")
 	out := &coordinatorproto.InboxFetchResponse{
 		Messages: []*coordinatorproto.InboxMessage{
 			&coordinatorproto.InboxMessage{
@@ -472,7 +473,7 @@ func (c *rpcHandler) InboxFetch(ctx context.Context, in *coordinatorproto.InboxF
 	return out, nil
 }
 
-func (c *rpcHandler) InboxNotifySubscribe(req *coordinatorproto.InboxNotifySubscribeRequest, rpcStream coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream) error {
+func (r *rpcHandler) InboxNotifySubscribe(req *coordinatorproto.InboxNotifySubscribeRequest, rpcStream coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream) error {
 	log.Error("Got InboxNotifySubscribe")
 	//rpcStream.Send()
 	return nil
