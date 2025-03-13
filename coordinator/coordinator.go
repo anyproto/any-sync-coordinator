@@ -30,6 +30,7 @@ import (
 	"github.com/anyproto/any-sync-coordinator/config"
 	"github.com/anyproto/any-sync-coordinator/coordinatorlog"
 	"github.com/anyproto/any-sync-coordinator/deletionlog"
+	"github.com/anyproto/any-sync-coordinator/inbox"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
 )
 
@@ -68,6 +69,7 @@ type coordinator struct {
 	deletionLog    deletionlog.DeletionLog
 	accountLimit   accountlimit.AccountLimit
 	acl            acl.AclService
+	inbox          inbox.InboxService
 	drpcHandler    *rpcHandler
 }
 
@@ -82,6 +84,7 @@ func (c *coordinator) Init(a *app.App) (err error) {
 	c.metric = a.MustComponent(metric.CName).(metric.Metric)
 	c.deletionLog = app.MustComponent[deletionlog.DeletionLog](a)
 	c.acl = app.MustComponent[acl.AclService](a)
+	c.inbox = app.MustComponent[inbox.InboxService](a)
 	c.accountLimit = app.MustComponent[accountlimit.AccountLimit](a)
 	c.aclEventLog = app.MustComponent[acleventlog.AclEventLog](a)
 

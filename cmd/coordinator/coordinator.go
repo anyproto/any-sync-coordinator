@@ -35,6 +35,7 @@ import (
 	"github.com/anyproto/any-sync-coordinator/db"
 	"github.com/anyproto/any-sync-coordinator/deletionlog"
 	"github.com/anyproto/any-sync-coordinator/identityrepo"
+	"github.com/anyproto/any-sync-coordinator/inbox"
 	"github.com/anyproto/any-sync-coordinator/nodeconfsource"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
 
@@ -124,6 +125,7 @@ func Bootstrap(a *app.App) {
 		Register(spacestatus.New()).
 		Register(consensusclient.New()).
 		Register(acl.New()).
+		Register(inbox.New()).
 		Register(accountlimit.New()).
 		Register(identityrepo.New()).
 		Register(coordinator.New()).
