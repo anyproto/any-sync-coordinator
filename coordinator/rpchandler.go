@@ -3,6 +3,7 @@ package coordinator
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
@@ -461,7 +462,7 @@ func (c *rpcHandler) InboxFetch(ctx context.Context, in *coordinatorproto.InboxF
 	log.Error("Got InboxFetch")
 	out := &coordinatorproto.InboxFetchResponse{
 		Messages: []*coordinatorproto.InboxMessage{
-			&coordinatorproto.InboxMessage{
+			{
 				Id: "my-id",
 			},
 		},
@@ -473,8 +474,32 @@ func (c *rpcHandler) InboxFetch(ctx context.Context, in *coordinatorproto.InboxF
 	return out, nil
 }
 
+func startTicker(rpcStream coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream) {
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
+
+	i := 0
+	id := "0"
+	for range ticker.C {
+		log.Info("Tick: send notify event")
+		rpcStream.Send(&coordinatorproto.InboxNotifySubscribeEvent{
+			NotifyId: id,
+		})
+		i++
+		id = fmt.Sprintf("id-%d", i)
+	}
+}
+
 func (r *rpcHandler) InboxNotifySubscribe(req *coordinatorproto.InboxNotifySubscribeRequest, rpcStream coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream) error {
-	log.Error("Got InboxNotifySubscribe")
-	//rpcStream.Send()
+	log.Info("Got InboxNotifySubscribe")
+	rpcStream.Send(&coordinatorproto.InboxNotifySubscribeEvent{
+		NotifyId: "very-first",
+	})
+
+	go startTicker(rpcStream)
+
+	// rpcStream is closed by drpc after InboxNotifySubscribe returns, so..
+	select {}
+
 	return nil
 }
