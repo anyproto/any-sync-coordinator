@@ -2,12 +2,14 @@ package db
 
 import (
 	"context"
+	"time"
+
+	"github.com/anyproto/any-sync-coordinator/inbox"
 	"github.com/anyproto/any-sync/app"
 	"github.com/anyproto/any-sync/app/logger"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readconcern"
-	"time"
 )
 
 const CName = "coordinator.db"
@@ -18,6 +20,8 @@ type Database interface {
 	app.Component
 	Db() *mongo.Database
 	Tx(ctx context.Context, f func(txCtx mongo.SessionContext) error) error
+
+	AddInboxMessage(ctx context.Context, msg inbox.InboxMessage) (err error)
 }
 
 func New() Database {
@@ -29,7 +33,8 @@ type mongoProvider interface {
 }
 
 type database struct {
-	db *mongo.Database
+	inboxColl *mongo.Collection
+	db        *mongo.Database
 }
 
 func (d *database) Init(a *app.App) (err error) {
@@ -41,6 +46,7 @@ func (d *database) Init(a *app.App) (err error) {
 		return err
 	}
 	d.db = client.Database(conf.Database)
+	d.inboxColl = client.Database(conf.Database).Collection("tmp-inbox-coll")
 	return
 }
 
@@ -76,4 +82,9 @@ func (d *database) Tx(ctx context.Context, f func(txCtx mongo.SessionContext) er
 			// changed to have a timeout.
 			return txCtx.CommitTransaction(context.Background())
 		})
+}
+
+func (d *database) AddInboxMessage(ctx context.Context, msg inbox.InboxMessage) (err error) {
+	_, err = d.inboxColl.InsertOne(ctx, msg)
+	return err
 }
