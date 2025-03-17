@@ -474,17 +474,21 @@ func (c *rpcHandler) InboxFetch(ctx context.Context, in *coordinatorproto.InboxF
 	return out, nil
 }
 
-func startTicker(rpcStream coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream) {
+func startTicker(rpcStream coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream, close chan error) {
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
 
 	i := 0
-	id := "0"
+	id := "id-0"
 	for range ticker.C {
 		log.Info("Tick: send notify event")
-		rpcStream.Send(&coordinatorproto.InboxNotifySubscribeEvent{
+		err := rpcStream.Send(&coordinatorproto.InboxNotifySubscribeEvent{
 			NotifyId: id,
 		})
+		if err != nil {
+			close <- err
+			return
+		}
 		i++
 		id = fmt.Sprintf("id-%d", i)
 	}
@@ -496,10 +500,14 @@ func (r *rpcHandler) InboxNotifySubscribe(req *coordinatorproto.InboxNotifySubsc
 		NotifyId: "very-first",
 	})
 
-	go startTicker(rpcStream)
+	close := make(chan error)
+	go startTicker(rpcStream, close)
 
 	// rpcStream is closed by drpc after InboxNotifySubscribe returns, so..
-	select {}
+	err := <-close
+	if err != nil {
+		log.Warn("error in InboxNotifySubscribe", zap.Error(err))
+	}
 
-	return nil
+	return err
 }
