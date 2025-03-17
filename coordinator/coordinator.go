@@ -456,3 +456,8 @@ func (c *coordinator) MakeSpaceUnshareable(ctx context.Context, spaceId, aclHead
 		EntryType: acleventlog.EntryTypeSpaceUnshared,
 	})
 }
+
+func (c *coordinator) InboxAddMessage(ctx context.Context, message *inbox.InboxMessage) (err error) {
+	err = c.inbox.InboxAddMessage(ctx, message)
+	return
+}

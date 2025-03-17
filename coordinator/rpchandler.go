@@ -15,6 +15,7 @@ import (
 
 	"github.com/anyproto/any-sync-coordinator/accountlimit"
 	"github.com/anyproto/any-sync-coordinator/acleventlog"
+	"github.com/anyproto/any-sync-coordinator/inbox"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
 )
 
@@ -464,6 +465,11 @@ func (c *rpcHandler) InboxFetch(ctx context.Context, in *coordinatorproto.InboxF
 		Messages: []*coordinatorproto.InboxMessage{
 			{
 				Id: "my-id",
+				Packet: &coordinatorproto.InboxPacket{
+					Payload: &coordinatorproto.InboxPayload{
+						Body: []byte("some body"),
+					},
+				},
 			},
 		},
 	}
@@ -510,4 +516,25 @@ func (r *rpcHandler) InboxNotifySubscribe(req *coordinatorproto.InboxNotifySubsc
 	}
 
 	return err
+}
+
+func (r *rpcHandler) InboxAddMessage(ctx context.Context, in *coordinatorproto.InboxAddMessageRequest) (*coordinatorproto.InboxAddMessageResponse, error) {
+	log.Info("Got InboxAddMessage")
+
+	inMessage := in.Message
+	fmt.Printf("inMessage: %#v\n", inMessage)
+	message := &inbox.InboxMessage{
+		Packet: inbox.InboxPacket{
+			Payload: inbox.InboxPayload{
+				Body: inMessage.Packet.Payload.Body,
+			},
+		},
+	}
+	err := r.c.InboxAddMessage(ctx, message)
+	if err != nil {
+		log.Error("InboxAddMessage error", zap.Error(err))
+	}
+
+	out := &coordinatorproto.InboxAddMessageResponse{}
+	return out, nil
 }

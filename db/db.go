@@ -2,9 +2,9 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"time"
 
-	"github.com/anyproto/any-sync-coordinator/inbox"
 	"github.com/anyproto/any-sync/app"
 	"github.com/anyproto/any-sync/app/logger"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -19,9 +19,8 @@ var log = logger.NewNamed(CName)
 type Database interface {
 	app.Component
 	Db() *mongo.Database
+	GetInboxCollection() *mongo.Collection
 	Tx(ctx context.Context, f func(txCtx mongo.SessionContext) error) error
-
-	AddInboxMessage(ctx context.Context, msg inbox.InboxMessage) (err error)
 }
 
 func New() Database {
@@ -84,7 +83,7 @@ func (d *database) Tx(ctx context.Context, f func(txCtx mongo.SessionContext) er
 		})
 }
 
-func (d *database) AddInboxMessage(ctx context.Context, msg inbox.InboxMessage) (err error) {
-	_, err = d.inboxColl.InsertOne(ctx, msg)
-	return err
+func (d *database) GetInboxCollection() *mongo.Collection {
+	fmt.Printf("inbox coll: %#v\n", d.inboxColl)
+	return d.inboxColl
 }
