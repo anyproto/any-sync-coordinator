@@ -473,49 +473,21 @@ func (c *rpcHandler) InboxFetch(ctx context.Context, in *coordinatorproto.InboxF
 			},
 		},
 	}
-	// err := c.cc.Invoke(ctx, "/coordinator.Coordinator/InboxFetch", drpcEncoding_File_coordinator_coordinatorproto_protos_coordinator_proto{}, in, out)
-	// if err != nil {
-	// 	return nil, err
-	// }
+
 	return out, nil
-}
-
-func startTicker(rpcStream coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream, close chan error) {
-	ticker := time.NewTicker(3 * time.Second)
-	defer ticker.Stop()
-
-	i := 0
-	id := "id-0"
-	for range ticker.C {
-		log.Info("Tick: send notify event")
-		err := rpcStream.Send(&coordinatorproto.InboxNotifySubscribeEvent{
-			NotifyId: id,
-		})
-		if err != nil {
-			close <- err
-			return
-		}
-		i++
-		id = fmt.Sprintf("id-%d", i)
-	}
 }
 
 func (r *rpcHandler) InboxNotifySubscribe(req *coordinatorproto.InboxNotifySubscribeRequest, rpcStream coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream) error {
 	log.Info("Got InboxNotifySubscribe")
-	rpcStream.Send(&coordinatorproto.InboxNotifySubscribeEvent{
-		NotifyId: "very-first",
-	})
 
-	close := make(chan error)
-	go startTicker(rpcStream, close)
-
-	// rpcStream is closed by drpc after InboxNotifySubscribe returns, so..
-	err := <-close
+	peerId, err := peer.CtxPeerId(rpcStream.Context())
 	if err != nil {
-		log.Warn("error in InboxNotifySubscribe", zap.Error(err))
+		return err
 	}
+	log.Debug("peer id", zap.String("id", peerId))
+	r.c.inbox.SubscribeClient(peerId, rpcStream)
+	select {}
 
-	return err
 }
 
 func (r *rpcHandler) InboxAddMessage(ctx context.Context, in *coordinatorproto.InboxAddMessageRequest) (*coordinatorproto.InboxAddMessageResponse, error) {
@@ -523,6 +495,7 @@ func (r *rpcHandler) InboxAddMessage(ctx context.Context, in *coordinatorproto.I
 
 	inMessage := in.Message
 	fmt.Printf("inMessage: %#v\n", inMessage)
+
 	message := &inbox.InboxMessage{
 		Packet: inbox.InboxPacket{
 			Payload: inbox.InboxPayload{
