@@ -106,6 +106,8 @@ func (s *inbox) streamListener(stream *mongo.ChangeStream) {
 				log.Warn("error sending to notify stream", zap.String("receiver", receiver))
 			}
 
+		} else {
+			log.Warn("no such recepient", zap.String("id", receiver))
 		}
 
 	}

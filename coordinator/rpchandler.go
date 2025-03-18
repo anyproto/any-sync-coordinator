@@ -486,6 +486,8 @@ func (r *rpcHandler) InboxNotifySubscribe(req *coordinatorproto.InboxNotifySubsc
 	}
 	log.Debug("peer id", zap.String("id", peerId))
 	r.c.inbox.SubscribeClient(peerId, rpcStream)
+
+	// TODO: forward close chan here instead
 	select {}
 
 }
@@ -496,14 +498,21 @@ func (r *rpcHandler) InboxAddMessage(ctx context.Context, in *coordinatorproto.I
 	inMessage := in.Message
 	fmt.Printf("inMessage: %#v\n", inMessage)
 
+	peerId, err := peer.CtxPeerId(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	message := &inbox.InboxMessage{
 		Packet: inbox.InboxPacket{
+			SenderIdentity:   []byte(peerId),
+			ReceiverIdentity: []byte(peerId),
 			Payload: inbox.InboxPayload{
 				Body: inMessage.Packet.Payload.Body,
 			},
 		},
 	}
-	err := r.c.InboxAddMessage(ctx, message)
+	err = r.c.InboxAddMessage(ctx, message)
 	if err != nil {
 		log.Error("InboxAddMessage error", zap.Error(err))
 	}
