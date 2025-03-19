@@ -34,12 +34,12 @@ func (t InboxPayloadType) String() string {
 
 type InboxMessage struct {
 	Id         string          `bson:"_id"`
-	KeyType    InboxKeyType    `bson:"keyType"`
 	PacketType InboxPacketType `bson:"packetType"`
 	Packet     InboxPacket     `bson:"packet"`
 }
 
 type InboxPacket struct {
+	KeyType          InboxKeyType `bson:"keyType"`
 	SenderIdentity   []byte       `bson:"senderIdentity"`
 	ReceiverIdentity []byte       `bson:"receiverIdentity"`
 	SenderSignature  []byte       `bson:"senderSignature"`
