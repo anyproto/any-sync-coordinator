@@ -459,22 +459,42 @@ func (r *rpcHandler) AclEventLog(ctx context.Context, req *coordinatorproto.AclE
 	return
 }
 
-func (c *rpcHandler) InboxFetch(ctx context.Context, in *coordinatorproto.InboxFetchRequest) (*coordinatorproto.InboxFetchResponse, error) {
+func (r *rpcHandler) InboxFetch(ctx context.Context, in *coordinatorproto.InboxFetchRequest) (*coordinatorproto.InboxFetchResponse, error) {
 	log.Error("Got InboxFetch")
-	out := &coordinatorproto.InboxFetchResponse{
-		Messages: []*coordinatorproto.InboxMessage{
-			{
-				Id: "my-id",
-				Packet: &coordinatorproto.InboxPacket{
-					Payload: &coordinatorproto.InboxPayload{
-						Body: []byte("some body"),
-					},
-				},
-			},
-		},
+	receiver, err := peer.CtxPeerId(ctx)
+	if err != nil {
+		return nil, err
 	}
 
-	return out, nil
+	messages, err := r.c.inbox.InboxFetch(ctx, receiver, in.Offset)
+	if err != nil {
+		return nil, err
+	}
+
+	responseMessages := make([]*coordinatorproto.InboxMessage, len(messages))
+	for i, msg := range messages {
+		responseMsg := &coordinatorproto.InboxMessage{
+			Id:         msg.Id,
+			PacketType: coordinatorproto.InboxPacketType(msg.PacketType),
+			Packet: &coordinatorproto.InboxPacket{
+				KeyType:          coordinatorproto.InboxKeyType(msg.Packet.KeyType),
+				SenderIdentity:   msg.Packet.SenderIdentity,
+				ReceiverIdentity: msg.Packet.ReceiverIdentity,
+				SenderSignature:  msg.Packet.SenderSignature,
+				Payload: &coordinatorproto.InboxPayload{
+					PayloadType: coordinatorproto.InboxPayloadType(msg.Packet.Payload.PayloadType),
+					Timestamp:   msg.Packet.Payload.Timestamp.Unix(),
+					Body:        msg.Packet.Payload.Body,
+				},
+			},
+		}
+		responseMessages[i] = responseMsg
+	}
+	response := &coordinatorproto.InboxFetchResponse{
+		Messages: responseMessages,
+	}
+
+	return response, nil
 }
 
 func (r *rpcHandler) InboxNotifySubscribe(req *coordinatorproto.InboxNotifySubscribeRequest, rpcStream coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream) error {
@@ -504,11 +524,16 @@ func (r *rpcHandler) InboxAddMessage(ctx context.Context, in *coordinatorproto.I
 	}
 
 	message := &inbox.InboxMessage{
+		PacketType: inbox.InboxPacketTypeDefault,
 		Packet: inbox.InboxPacket{
-			SenderIdentity:   []byte(peerId),
-			ReceiverIdentity: []byte(peerId),
+			KeyType:          inbox.InboxKeyTypeEd25519,
+			SenderSignature:  []byte("something sig"),
+			SenderIdentity:   peerId,
+			ReceiverIdentity: inMessage.Packet.ReceiverIdentity,
 			Payload: inbox.InboxPayload{
-				Body: inMessage.Packet.Payload.Body,
+				PayloadType: inbox.InboxPayloadSpaceInvite,
+				Timestamp:   time.Now(),
+				Body:        inMessage.Packet.Payload.Body,
 			},
 		},
 	}

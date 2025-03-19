@@ -5,7 +5,7 @@ import "time"
 type InboxPacketType int
 
 const (
-	Default InboxPacketType = iota
+	InboxPacketTypeDefault InboxPacketType = iota
 )
 
 func (t InboxPacketType) String() string {
@@ -15,7 +15,7 @@ func (t InboxPacketType) String() string {
 type InboxKeyType int
 
 const (
-	Ed25519 InboxKeyType = iota
+	InboxKeyTypeEd25519 InboxKeyType = iota
 )
 
 func (t InboxKeyType) String() string {
@@ -40,8 +40,8 @@ type InboxMessage struct {
 
 type InboxPacket struct {
 	KeyType          InboxKeyType `bson:"keyType"`
-	SenderIdentity   []byte       `bson:"senderIdentity"`
-	ReceiverIdentity []byte       `bson:"receiverIdentity"`
+	SenderIdentity   string       `bson:"senderIdentity"`
+	ReceiverIdentity string       `bson:"receiverIdentity"`
 	SenderSignature  []byte       `bson:"senderSignature"`
 	Payload          InboxPayload `bson:"payload"`
 }

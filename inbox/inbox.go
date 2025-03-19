@@ -9,8 +9,10 @@ import (
 	"github.com/anyproto/any-sync/app"
 	"github.com/anyproto/any-sync/app/logger"
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.uber.org/zap"
 )
 
@@ -28,6 +30,7 @@ func New() InboxService {
 
 type InboxService interface {
 	InboxAddMessage(ctx context.Context, msg *InboxMessage) (err error)
+	InboxFetch(ctx context.Context, receiverIdentity string, offset string) (messages []*InboxMessage, err error)
 	SubscribeClient(identity string, stream coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream)
 	app.ComponentRunnable
 }
@@ -118,4 +121,38 @@ type streamResult struct {
 		Id string `bson:"_id"`
 	} `bson:"documentKey"`
 	InboxMessage InboxMessage `bson:"fullDocument"`
+}
+
+func (s *inbox) InboxFetch(ctx context.Context, receiverIdentity string, offset string) (msgs []*InboxMessage, err error) {
+	log.Info("fetching inbox after offset", zap.String("offset", offset))
+	filter := bson.M{"packet.receiverIdentity": receiverIdentity}
+
+	collection := s.db.GetInboxCollection()
+
+	if offset != "" {
+		var offsetMessage InboxMessage
+		err = collection.FindOne(ctx, bson.M{"_id": offset}).Decode(&offsetMessage)
+		if err != nil {
+			log.Warn("offset not found: return all notifications", zap.String("offset", offset))
+		} else {
+			filter["packet.payload.timestamp"] = bson.M{"$gt": offsetMessage.Packet.Payload.Timestamp}
+		}
+	}
+
+	var messages []*InboxMessage
+	sort := bson.M{"packet.payload.timestamp": 1}
+
+	cursor, err := collection.Find(ctx, filter, options.Find().SetSort(sort))
+	if err != nil {
+		log.Warn("no new messages", zap.String("offset", offset))
+		return messages, nil
+	}
+	defer cursor.Close(ctx)
+
+	if err := cursor.All(ctx, &messages); err != nil {
+		return nil, fmt.Errorf("error decoding messages: %w", err)
+	}
+
+	return messages, nil
+
 }
