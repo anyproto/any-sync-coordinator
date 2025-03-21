@@ -545,14 +545,14 @@ func (r *rpcHandler) InboxAddMessage(ctx context.Context, in *coordinatorproto.I
 	}
 
 	message := &inbox.InboxMessage{
-		PacketType: inbox.InboxPacketTypeDefault,
+		PacketType: inbox.InboxPacketType(inMessage.PacketType),
 		Packet: inbox.InboxPacket{
-			KeyType:          inbox.InboxKeyTypeEd25519,
-			SenderSignature:  []byte("something sig"),
+			KeyType:          inbox.InboxKeyType(inMessage.Packet.KeyType),
+			SenderSignature:  inMessage.Packet.SenderSignature,
 			SenderIdentity:   accountId,
 			ReceiverIdentity: inMessage.Packet.ReceiverIdentity,
 			Payload: inbox.InboxPayload{
-				PayloadType: inbox.InboxPayloadSpaceInvite,
+				PayloadType: inbox.InboxPayloadType(inMessage.Packet.Payload.PayloadType),
 				Timestamp:   time.Now(),
 				Body:        inMessage.Packet.Payload.Body,
 			},
