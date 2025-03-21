@@ -467,6 +467,7 @@ func (r *rpcHandler) InboxFetch(ctx context.Context, in *coordinatorproto.InboxF
 		return nil, err
 	}
 	accountId := accountPubKey.Account()
+	log.Debug("accountId", zap.String("id", accountId))
 
 	fetchResult, err := r.c.inbox.InboxFetch(ctx, accountId, in.Offset)
 	if err != nil {
@@ -528,8 +529,21 @@ func (r *rpcHandler) InboxAddMessage(ctx context.Context, in *coordinatorproto.I
 		log.Error("failed to get account pub key")
 		return nil, err
 	}
-
 	accountId := accountPubKey.Account()
+	log.Debug("accountid", zap.String("id", accountId))
+
+	// verify
+	verified, err := accountPubKey.Verify(inMessage.Packet.Payload.Body, inMessage.Packet.SenderSignature)
+	if !verified {
+		err = fmt.Errorf("message signature is incorrect, verification failed")
+		log.Warn("InboxAddMessage", zap.Error(err))
+		return nil, err
+	}
+	if err != nil {
+		log.Error("message Verify() failed", zap.Error(err))
+		return nil, err
+	}
+
 	message := &inbox.InboxMessage{
 		PacketType: inbox.InboxPacketTypeDefault,
 		Packet: inbox.InboxPacket{
