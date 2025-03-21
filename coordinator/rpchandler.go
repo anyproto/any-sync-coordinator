@@ -468,13 +468,13 @@ func (r *rpcHandler) InboxFetch(ctx context.Context, in *coordinatorproto.InboxF
 	}
 	accountId := accountPubKey.Account()
 
-	messages, err := r.c.inbox.InboxFetch(ctx, accountId, in.Offset)
+	fetchResult, err := r.c.inbox.InboxFetch(ctx, accountId, in.Offset)
 	if err != nil {
 		return nil, err
 	}
 
-	responseMessages := make([]*coordinatorproto.InboxMessage, len(messages))
-	for i, msg := range messages {
+	responseMessages := make([]*coordinatorproto.InboxMessage, len(fetchResult.Messages))
+	for i, msg := range fetchResult.Messages {
 		responseMsg := &coordinatorproto.InboxMessage{
 			Id:         msg.Id,
 			PacketType: coordinatorproto.InboxPacketType(msg.PacketType),
@@ -494,6 +494,7 @@ func (r *rpcHandler) InboxFetch(ctx context.Context, in *coordinatorproto.InboxF
 	}
 	response := &coordinatorproto.InboxFetchResponse{
 		Messages: responseMessages,
+		HasMore:  fetchResult.HasMore,
 	}
 
 	return response, nil

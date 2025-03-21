@@ -18,6 +18,9 @@ import (
 
 const CName = "common.inbox.here"
 
+// maximum amount of inbox messages to fetch from db
+const FetchLimit = 100
+
 var log = logger.NewNamed(CName)
 
 var (
@@ -30,7 +33,7 @@ func New() InboxService {
 
 type InboxService interface {
 	InboxAddMessage(ctx context.Context, msg *InboxMessage) (err error)
-	InboxFetch(ctx context.Context, receiverIdentity string, offset string) (messages []*InboxMessage, err error)
+	InboxFetch(ctx context.Context, receiverIdentity string, offset string) (result InboxFetchResult, err error)
 	SubscribeClient(identity string, stream coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream)
 	app.ComponentRunnable
 }
@@ -123,10 +126,16 @@ type streamResult struct {
 	InboxMessage InboxMessage `bson:"fullDocument"`
 }
 
-func (s *inbox) InboxFetch(ctx context.Context, receiverIdentity string, offset string) (msgs []*InboxMessage, err error) {
+type InboxFetchResult struct {
+	Messages []*InboxMessage
+	HasMore  bool
+}
+
+// Fetches <= FetchLimit+1 amount of messages from inbox.
+// If len(messages) > FetchLimit, sets `HasMore` to true.
+func (s *inbox) InboxFetch(ctx context.Context, receiverIdentity string, offset string) (result InboxFetchResult, err error) {
 	log.Info("fetching inbox after offset", zap.String("offset", offset))
 	filter := bson.M{"packet.receiverIdentity": receiverIdentity}
-
 	collection := s.db.GetInboxCollection()
 
 	if offset != "" {
@@ -142,17 +151,21 @@ func (s *inbox) InboxFetch(ctx context.Context, receiverIdentity string, offset 
 	var messages []*InboxMessage
 	sort := bson.M{"packet.payload.timestamp": 1}
 
-	cursor, err := collection.Find(ctx, filter, options.Find().SetSort(sort))
+	cursor, err := collection.Find(ctx, filter, options.Find().SetSort(sort).SetLimit(FetchLimit+1))
 	if err != nil {
 		log.Warn("no new messages", zap.String("offset", offset))
-		return messages, nil
+		return
 	}
 	defer cursor.Close(ctx)
 
-	if err := cursor.All(ctx, &messages); err != nil {
-		return nil, fmt.Errorf("error decoding messages: %w", err)
+	if err = cursor.All(ctx, &messages); err != nil {
+		err = fmt.Errorf("error decoding inbox messages: %w", err)
+		return
 	}
 
-	return messages, nil
+	result.Messages = messages
+	result.HasMore = (len(messages) > FetchLimit)
+
+	return
 
 }
