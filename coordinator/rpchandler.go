@@ -461,12 +461,14 @@ func (r *rpcHandler) AclEventLog(ctx context.Context, req *coordinatorproto.AclE
 
 func (r *rpcHandler) InboxFetch(ctx context.Context, in *coordinatorproto.InboxFetchRequest) (*coordinatorproto.InboxFetchResponse, error) {
 	log.Error("Got InboxFetch")
-	receiver, err := peer.CtxPeerId(ctx)
+	accountPubKey, err := peer.CtxPubKey(ctx)
 	if err != nil {
+		log.Error("failed to get account pub key")
 		return nil, err
 	}
+	accountId := accountPubKey.Account()
 
-	messages, err := r.c.inbox.InboxFetch(ctx, receiver, in.Offset)
+	messages, err := r.c.inbox.InboxFetch(ctx, accountId, in.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -500,12 +502,15 @@ func (r *rpcHandler) InboxFetch(ctx context.Context, in *coordinatorproto.InboxF
 func (r *rpcHandler) InboxNotifySubscribe(req *coordinatorproto.InboxNotifySubscribeRequest, rpcStream coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream) error {
 	log.Info("Got InboxNotifySubscribe")
 
-	peerId, err := peer.CtxPeerId(rpcStream.Context())
+	accountPubKey, err := peer.CtxPubKey(rpcStream.Context())
 	if err != nil {
+		log.Error("failed to get account pub key")
 		return err
 	}
-	log.Debug("peer id", zap.String("id", peerId))
-	r.c.inbox.SubscribeClient(peerId, rpcStream)
+	accountId := accountPubKey.Account()
+
+	log.Debug("account id", zap.String("id", accountId))
+	r.c.inbox.SubscribeClient(accountId, rpcStream)
 
 	// TODO: forward close chan here instead
 	select {}
@@ -517,18 +522,19 @@ func (r *rpcHandler) InboxAddMessage(ctx context.Context, in *coordinatorproto.I
 
 	inMessage := in.Message
 	fmt.Printf("inMessage: %#v\n", inMessage)
-
-	peerId, err := peer.CtxPeerId(ctx)
+	accountPubKey, err := peer.CtxPubKey(ctx)
 	if err != nil {
+		log.Error("failed to get account pub key")
 		return nil, err
 	}
 
+	accountId := accountPubKey.Account()
 	message := &inbox.InboxMessage{
 		PacketType: inbox.InboxPacketTypeDefault,
 		Packet: inbox.InboxPacket{
 			KeyType:          inbox.InboxKeyTypeEd25519,
 			SenderSignature:  []byte("something sig"),
-			SenderIdentity:   peerId,
+			SenderIdentity:   accountId,
 			ReceiverIdentity: inMessage.Packet.ReceiverIdentity,
 			Payload: inbox.InboxPayload{
 				PayloadType: inbox.InboxPayloadSpaceInvite,
