@@ -9,6 +9,7 @@ import (
 	"github.com/anyproto/any-sync/app"
 	"github.com/anyproto/any-sync/app/logger"
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
+	"github.com/anyproto/any-sync/net/peer"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -34,18 +35,18 @@ func New() InboxService {
 type InboxService interface {
 	InboxAddMessage(ctx context.Context, msg *InboxMessage) (err error)
 	InboxFetch(ctx context.Context, receiverIdentity string, offset string) (result InboxFetchResult, err error)
-	SubscribeClient(identity string, stream coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream)
+	SubscribeClient(stream coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream) error
 	app.ComponentRunnable
 }
 
 type inbox struct {
 	db            db.Database
-	notifyStreams map[string]coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream
+	notifyStreams map[string]map[string]coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream
 }
 
 func (s *inbox) Init(a *app.App) (err error) {
 	s.db = a.MustComponent(db.CName).(db.Database)
-	s.notifyStreams = make(map[string]coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream)
+	s.notifyStreams = make(map[string]map[string]coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream)
 	log.Info("inbox service init")
 	return
 }
@@ -71,8 +72,25 @@ func (s *inbox) InboxAddMessage(ctx context.Context, msg *InboxMessage) (err err
 	return err
 }
 
-func (s *inbox) SubscribeClient(identity string, stream coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream) {
-	s.notifyStreams[identity] = stream
+func (s *inbox) SubscribeClient(rpcStream coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream) error {
+	accountPubKey, err := peer.CtxPubKey(rpcStream.Context())
+	if err != nil {
+		log.Error("failed to get account pub key")
+		return err
+	}
+	accountId := accountPubKey.Account()
+
+	peerId, err := peer.CtxPeerId(rpcStream.Context())
+	if err != nil {
+		return err
+	}
+
+	if _, ok := s.notifyStreams[accountId]; !ok {
+		s.notifyStreams[accountId] = make(map[string]coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream)
+	}
+
+	s.notifyStreams[accountId][peerId] = rpcStream
+	return nil
 }
 
 type matchPipeline struct {
@@ -103,13 +121,17 @@ func (s *inbox) streamListener(stream *mongo.ChangeStream) {
 		fmt.Printf("FullDocument: %#v\n", res.InboxMessage)
 		receiver := string(res.InboxMessage.Packet.ReceiverIdentity)
 		log.Debug("stream receiver", zap.String("r", receiver))
-		if stream, ok := s.notifyStreams[receiver]; ok {
-			event := coordinatorproto.InboxNotifySubscribeEvent{
-				NotifyId: res.DocumentKey.Id,
-			}
-			err := stream.Send(&event)
-			if err != nil {
-				log.Warn("error sending to notify stream", zap.String("receiver", receiver))
+		if streams, ok := s.notifyStreams[receiver]; ok {
+			for peerId, stream := range streams {
+				event := coordinatorproto.InboxNotifySubscribeEvent{
+					NotifyId: res.DocumentKey.Id,
+				}
+				log.Debug("sending to notify stream", zap.String("receiver", receiver), zap.String("peerId", peerId))
+				err := stream.Send(&event)
+				if err != nil {
+					log.Warn("error sending to notify stream", zap.String("receiver", receiver), zap.String("peerId", peerId), zap.Error(err))
+				}
+
 			}
 
 		} else {

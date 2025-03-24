@@ -511,11 +511,19 @@ func (r *rpcHandler) InboxNotifySubscribe(req *coordinatorproto.InboxNotifySubsc
 	}
 	accountId := accountPubKey.Account()
 
-	log.Debug("subscribe client", zap.String("id", accountId))
-	r.c.inbox.SubscribeClient(accountId, rpcStream)
+	peerId, err := peer.CtxPeerId(rpcStream.Context())
+	if err != nil {
+		return err
+	}
+
+	log.Debug("subscribe client", zap.String("id", accountId), zap.String("peerid", peerId))
+	err = r.c.inbox.SubscribeClient(rpcStream)
+	if err != nil {
+		return err
+	}
 
 	<-rpcStream.Context().Done()
-	log.Debug("stream closed", zap.String("id", accountId))
+	log.Debug("stream closed", zap.String("id", accountId), zap.String("peerid", peerId))
 	return nil
 }
 
