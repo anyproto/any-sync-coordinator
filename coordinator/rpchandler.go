@@ -511,12 +511,12 @@ func (r *rpcHandler) InboxNotifySubscribe(req *coordinatorproto.InboxNotifySubsc
 	}
 	accountId := accountPubKey.Account()
 
-	log.Debug("account id", zap.String("id", accountId))
+	log.Debug("subscribe client", zap.String("id", accountId))
 	r.c.inbox.SubscribeClient(accountId, rpcStream)
 
-	// TODO: forward close chan here instead
-	select {}
-
+	<-rpcStream.Context().Done()
+	log.Debug("stream closed", zap.String("id", accountId))
+	return nil
 }
 
 func (r *rpcHandler) InboxAddMessage(ctx context.Context, in *coordinatorproto.InboxAddMessageRequest) (*coordinatorproto.InboxAddMessageResponse, error) {
