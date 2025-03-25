@@ -3,7 +3,6 @@ package coordinator
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
@@ -527,50 +526,14 @@ func (r *rpcHandler) InboxNotifySubscribe(req *coordinatorproto.InboxNotifySubsc
 	return nil
 }
 
-func (r *rpcHandler) InboxAddMessage(ctx context.Context, in *coordinatorproto.InboxAddMessageRequest) (*coordinatorproto.InboxAddMessageResponse, error) {
-	log.Info("Got InboxAddMessage")
-
-	inMessage := in.Message
-	fmt.Printf("inMessage: %#v\n", inMessage)
-	accountPubKey, err := peer.CtxPubKey(ctx)
-	if err != nil {
-		log.Error("failed to get account pub key")
-		return nil, err
-	}
-	accountId := accountPubKey.Account()
-	log.Debug("accountid", zap.String("id", accountId))
-
-	// verify
-	verified, err := accountPubKey.Verify(inMessage.Packet.Payload.Body, inMessage.Packet.SenderSignature)
-	if !verified {
-		err = fmt.Errorf("message signature is incorrect, verification failed")
-		log.Warn("InboxAddMessage", zap.Error(err))
-		return nil, err
-	}
-	if err != nil {
-		log.Error("message Verify() failed", zap.Error(err))
-		return nil, err
-	}
-
-	message := &inbox.InboxMessage{
-		PacketType: inbox.InboxPacketType(inMessage.PacketType),
-		Packet: inbox.InboxPacket{
-			KeyType:          inbox.InboxKeyType(inMessage.Packet.KeyType),
-			SenderSignature:  inMessage.Packet.SenderSignature,
-			SenderIdentity:   accountId,
-			ReceiverIdentity: inMessage.Packet.ReceiverIdentity,
-			Payload: inbox.InboxPayload{
-				PayloadType: inbox.InboxPayloadType(inMessage.Packet.Payload.PayloadType),
-				Timestamp:   time.Now(),
-				Body:        inMessage.Packet.Payload.Body,
-			},
-		},
-	}
+func (r *rpcHandler) InboxAddMessage(ctx context.Context, in *coordinatorproto.InboxAddMessageRequest) (response *coordinatorproto.InboxAddMessageResponse, err error) {
+	message := inbox.InboxMessageFromRequest(ctx, in)
 	err = r.c.InboxAddMessage(ctx, message)
 	if err != nil {
 		log.Error("InboxAddMessage error", zap.Error(err))
+		return
 	}
 
-	out := &coordinatorproto.InboxAddMessageResponse{}
-	return out, nil
+	response = &coordinatorproto.InboxAddMessageResponse{}
+	return
 }

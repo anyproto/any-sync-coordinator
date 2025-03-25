@@ -74,7 +74,32 @@ func (s *inbox) Close(_ context.Context) (err error) {
 	return nil
 }
 
+func verifyInboxMessageSignature(ctx context.Context, msg *InboxMessage) (err error) {
+	accountPubKey, err := peer.CtxPubKey(ctx)
+	if err != nil {
+		err = fmt.Errorf("verifyInboxMessageSignature: %w", err)
+		return
+	}
+
+	verified, err := accountPubKey.Verify(msg.Packet.Payload.Body, msg.Packet.SenderSignature)
+	if !verified {
+		err = fmt.Errorf("verifyInboxMessageSignature: message signature is incorrect, verification failed")
+		return
+	}
+	if err != nil {
+		err = fmt.Errorf("verifyInboxMessageSignature: %w", err)
+		return
+	}
+
+	return nil
+}
+
 func (s *inbox) InboxAddMessage(ctx context.Context, msg *InboxMessage) (err error) {
+	err = verifyInboxMessageSignature(ctx, msg)
+	if err != nil {
+		return
+	}
+
 	randomID := primitive.NewObjectID()
 	msg.Id = randomID.Hex()
 	_, err = s.coll.InsertOne(ctx, msg)
