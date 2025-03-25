@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/anyproto/any-sync-coordinator/db"
 	"github.com/anyproto/any-sync/app"
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/net/peer"
@@ -73,10 +74,24 @@ func TestInbox(t *testing.T) {
 
 }
 
+type config struct {
+}
+
+func (c config) Init(a *app.App) (err error) { return }
+func (c config) Name() string                { return "config" }
+
+func (c config) GetMongo() db.Mongo {
+	return db.Mongo{
+		Connect:  "mongodb://localhost:27017",
+		Database: "coordinator_unittest",
+	}
+}
+
 func newFixture(t *testing.T) (fx *fixture) {
 	ts := rpctest.NewTestServer()
 	fx = &fixture{
 		InboxService: New(),
+		db:           db.New(),
 		ctrl:         gomock.NewController(t),
 		a:            new(app.App),
 		ts:           ts,
@@ -85,6 +100,8 @@ func newFixture(t *testing.T) (fx *fixture) {
 
 	// anymock.ExpectComp(fx.space.EXPECT(), nodespace.CName)
 	fx.a.
+		Register(config{}).
+		Register(fx.db).
 		Register(fx.InboxService).
 		Register(fx.tp).
 		Register(fx.ts)
@@ -98,6 +115,7 @@ func newFixture(t *testing.T) (fx *fixture) {
 type fixture struct {
 	InboxService
 	a    *app.App
+	db   db.Database
 	ctrl *gomock.Controller
 	ts   *rpctest.TestServer
 	tp   *rpctest.TestPool
