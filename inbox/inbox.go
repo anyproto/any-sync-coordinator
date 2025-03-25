@@ -162,7 +162,6 @@ func (s *inbox) streamListener(stream *mongo.ChangeStream) {
 					s.removeStream(receiver, peerId)
 				}
 			}
-
 		} else {
 			log.Warn("no such recepient", zap.String("id", receiver))
 		}
