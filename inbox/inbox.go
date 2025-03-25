@@ -18,10 +18,12 @@ import (
 	"go.uber.org/zap"
 )
 
-const CName = "common.inbox.here"
+const CName = "common.inbox"
 
-// maximum amount of inbox messages to fetch from db
-const FetchLimit = 100
+const (
+	collName   = "inboxMessages"
+	fetchLimit = 1000
+)
 
 var log = logger.NewNamed(CName)
 
@@ -41,13 +43,13 @@ type InboxService interface {
 }
 
 type inbox struct {
-	db            db.Database
+	coll          *mongo.Collection
 	mu            sync.Mutex
 	notifyStreams map[string]map[string]coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream
 }
 
 func (s *inbox) Init(a *app.App) (err error) {
-	s.db = a.MustComponent(db.CName).(db.Database)
+	s.coll = a.MustComponent(db.CName).(db.Database).Db().Collection(collName)
 	s.notifyStreams = make(map[string]map[string]coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream)
 	log.Info("inbox service init")
 	return
@@ -75,7 +77,7 @@ func (s *inbox) Close(_ context.Context) (err error) {
 func (s *inbox) InboxAddMessage(ctx context.Context, msg *InboxMessage) (err error) {
 	randomID := primitive.NewObjectID()
 	msg.Id = randomID.Hex()
-	_, err = s.db.GetInboxCollection().InsertOne(ctx, msg)
+	_, err = s.coll.InsertOne(ctx, msg)
 	return err
 }
 
@@ -131,7 +133,7 @@ type matchPipeline struct {
 func (s *inbox) runStreamListener(ctx context.Context) (err error) {
 	var mp matchPipeline
 	mp.Match.OT = "insert"
-	stream, err := s.db.GetInboxCollection().Watch(ctx, []matchPipeline{mp})
+	stream, err := s.coll.Watch(ctx, []matchPipeline{mp})
 	if err != nil {
 		return
 	}
@@ -147,7 +149,6 @@ func (s *inbox) streamListener(stream *mongo.ChangeStream) {
 			// here we have an unexpected error and should stop any operations to avoid an inconsistent state between db and cache
 			log.Fatal("stream decode error:", zap.Error(err))
 		}
-		fmt.Printf("FullDocument: %#v\n", res.InboxMessage)
 		receiver := string(res.InboxMessage.Packet.ReceiverIdentity)
 		log.Debug("stream receiver", zap.String("r", receiver))
 		if streams, ok := s.notifyStreams[receiver]; ok {
@@ -186,11 +187,10 @@ type InboxFetchResult struct {
 func (s *inbox) InboxFetch(ctx context.Context, receiverIdentity string, offset string) (result InboxFetchResult, err error) {
 	log.Info("fetching inbox after offset", zap.String("offset", offset))
 	filter := bson.M{"packet.receiverIdentity": receiverIdentity}
-	collection := s.db.GetInboxCollection()
 
 	if offset != "" {
 		var offsetMessage InboxMessage
-		err = collection.FindOne(ctx, bson.M{"_id": offset}).Decode(&offsetMessage)
+		err = s.coll.FindOne(ctx, bson.M{"_id": offset}).Decode(&offsetMessage)
 		if err != nil {
 			log.Warn("offset not found: return all notifications", zap.String("offset", offset))
 		} else {
@@ -201,7 +201,7 @@ func (s *inbox) InboxFetch(ctx context.Context, receiverIdentity string, offset 
 	var messages []*InboxMessage
 	sort := bson.M{"packet.payload.timestamp": 1}
 
-	cursor, err := collection.Find(ctx, filter, options.Find().SetSort(sort).SetLimit(FetchLimit+1))
+	cursor, err := s.coll.Find(ctx, filter, options.Find().SetSort(sort).SetLimit(fetchLimit+1))
 	if err != nil {
 		log.Warn("no new messages", zap.String("offset", offset))
 		return
@@ -214,7 +214,7 @@ func (s *inbox) InboxFetch(ctx context.Context, receiverIdentity string, offset 
 	}
 
 	result.Messages = messages
-	result.HasMore = (len(messages) > FetchLimit)
+	result.HasMore = (len(messages) > fetchLimit)
 
 	return
 

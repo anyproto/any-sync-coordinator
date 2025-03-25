@@ -2,7 +2,6 @@ package db
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/anyproto/any-sync/app"
@@ -19,7 +18,6 @@ var log = logger.NewNamed(CName)
 type Database interface {
 	app.Component
 	Db() *mongo.Database
-	GetInboxCollection() *mongo.Collection
 	Tx(ctx context.Context, f func(txCtx mongo.SessionContext) error) error
 }
 
@@ -32,8 +30,7 @@ type mongoProvider interface {
 }
 
 type database struct {
-	inboxColl *mongo.Collection
-	db        *mongo.Database
+	db *mongo.Database
 }
 
 func (d *database) Init(a *app.App) (err error) {
@@ -45,7 +42,6 @@ func (d *database) Init(a *app.App) (err error) {
 		return err
 	}
 	d.db = client.Database(conf.Database)
-	d.inboxColl = client.Database(conf.Database).Collection("tmp-inbox-coll")
 	return
 }
 
@@ -81,9 +77,4 @@ func (d *database) Tx(ctx context.Context, f func(txCtx mongo.SessionContext) er
 			// changed to have a timeout.
 			return txCtx.CommitTransaction(context.Background())
 		})
-}
-
-func (d *database) GetInboxCollection() *mongo.Collection {
-	fmt.Printf("inbox coll: %#v\n", d.inboxColl)
-	return d.inboxColl
 }
