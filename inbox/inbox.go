@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/anyproto/any-sync-coordinator/db"
 	"github.com/anyproto/any-sync/app"
@@ -41,6 +42,7 @@ type InboxService interface {
 
 type inbox struct {
 	db            db.Database
+	mu            sync.Mutex
 	notifyStreams map[string]map[string]coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream
 }
 
@@ -62,6 +64,11 @@ func (s *inbox) Run(ctx context.Context) error {
 }
 
 func (s *inbox) Close(_ context.Context) (err error) {
+	for _, streams := range s.notifyStreams {
+		for _, stream := range streams {
+			stream.Close()
+		}
+	}
 	return nil
 }
 
@@ -70,6 +77,30 @@ func (s *inbox) InboxAddMessage(ctx context.Context, msg *InboxMessage) (err err
 	msg.Id = randomID.Hex()
 	_, err = s.db.GetInboxCollection().InsertOne(ctx, msg)
 	return err
+}
+
+func (s *inbox) addStream(accountId, peerId string, stream coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.notifyStreams[accountId]; !ok {
+		s.notifyStreams[accountId] = make(map[string]coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream)
+	}
+	s.notifyStreams[accountId][peerId] = stream
+}
+
+func (s *inbox) removeStream(accountId, peerId string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	delete(s.notifyStreams[accountId], peerId)
+	if len(s.notifyStreams[accountId]) == 0 {
+		delete(s.notifyStreams, accountId)
+	}
+}
+
+func (s *inbox) waitCloseStream(accountId, peerId string, stream coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream) {
+	<-stream.Context().Done()
+	s.removeStream(accountId, peerId)
 }
 
 func (s *inbox) SubscribeClient(rpcStream coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream) error {
@@ -85,11 +116,9 @@ func (s *inbox) SubscribeClient(rpcStream coordinatorproto.DRPCCoordinator_Inbox
 		return err
 	}
 
-	if _, ok := s.notifyStreams[accountId]; !ok {
-		s.notifyStreams[accountId] = make(map[string]coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream)
-	}
+	s.addStream(accountId, peerId, rpcStream)
+	go s.waitCloseStream(accountId, peerId, rpcStream)
 
-	s.notifyStreams[accountId][peerId] = rpcStream
 	return nil
 }
 
@@ -130,8 +159,8 @@ func (s *inbox) streamListener(stream *mongo.ChangeStream) {
 				err := stream.Send(&event)
 				if err != nil {
 					log.Warn("error sending to notify stream", zap.String("receiver", receiver), zap.String("peerId", peerId), zap.Error(err))
+					s.removeStream(receiver, peerId)
 				}
-
 			}
 
 		} else {
