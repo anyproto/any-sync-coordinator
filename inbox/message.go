@@ -1,6 +1,12 @@
 package inbox
 
-import "time"
+import (
+	"context"
+	"time"
+
+	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
+	"github.com/anyproto/any-sync/net/peer"
+)
 
 type InboxPacketType int
 
@@ -50,4 +56,27 @@ type InboxPayload struct {
 	PayloadType InboxPayloadType `bson:"payloadType"`
 	Timestamp   time.Time        `bson:"timestamp"`
 	Body        []byte           `bson:"body"`
+}
+
+func InboxMessageFromRequest(ctx context.Context, in *coordinatorproto.InboxAddMessageRequest) (message *InboxMessage) {
+	accountPubKey, err := peer.CtxPubKey(ctx)
+	if err != nil {
+		return
+	}
+
+	message = &InboxMessage{
+		PacketType: InboxPacketType(in.Message.PacketType),
+		Packet: InboxPacket{
+			KeyType:          InboxKeyType(in.Message.Packet.KeyType),
+			SenderSignature:  in.Message.Packet.SenderSignature,
+			SenderIdentity:   accountPubKey.Account(),
+			ReceiverIdentity: in.Message.Packet.ReceiverIdentity,
+			Payload: InboxPayload{
+				PayloadType: InboxPayloadType(in.Message.Packet.Payload.PayloadType),
+				Timestamp:   time.Now(),
+				Body:        in.Message.Packet.Payload.Body,
+			},
+		},
+	}
+	return
 }

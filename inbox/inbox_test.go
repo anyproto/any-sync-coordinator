@@ -11,13 +11,21 @@ import (
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/net/peer"
 	"github.com/anyproto/any-sync/net/rpc/rpctest"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"go.uber.org/zap"
 	"storj.io/drpc"
 	"storj.io/drpc/drpcerr"
 )
 
 var ctx = context.Background()
+
+func TestInbox_Foo(t *testing.T) {
+	t.Run("foo", func(t *testing.T) {
+		assert.Equal(t, 1, 1)
+	})
+}
 
 func TestInbox(t *testing.T) {
 	var makeClientServer = func(t *testing.T) (fxC, fxS *fixture, peerId string) {
@@ -33,7 +41,7 @@ func TestInbox(t *testing.T) {
 		return
 	}
 
-	t.Run("sync", func(t *testing.T) {
+	t.Run("InboxAddMessage", func(t *testing.T) {
 
 		fxC, fxS, peerId := makeClientServer(t)
 		defer fxC.Finish(t)
@@ -42,7 +50,7 @@ func TestInbox(t *testing.T) {
 		require.NoError(t, err)
 		peer.DoDrpc(ctx, func(conn drpc.Conn) error {
 			client := coordinatorproto.NewDRPCCoordinatorClient(conn)
-			resp, err := client.InboxFetch(ctx, &coordinatorproto.InboxFetchRequest{})
+			resp, err := client.InboxAddMessage(ctx, &coordinatorproto.InboxAddMessageRequest{})
 			require.NoError(t, err)
 			fmt.Printf("%#v\n", resp)
 			return nil
@@ -129,6 +137,19 @@ func (fx *fixture) Finish(t *testing.T) {
 type testServer struct {
 	coordinatorproto.DRPCCoordinatorUnimplementedServer
 	inbox InboxService
+}
+
+func (t *testServer) InboxAddMessage(ctx context.Context, in *coordinatorproto.InboxAddMessageRequest) (response *coordinatorproto.InboxAddMessageResponse, err error) {
+	// TODO: code dup from rpc
+	message := InboxMessageFromRequest(ctx, in)
+	err = t.inbox.InboxAddMessage(ctx, message)
+	if err != nil {
+		log.Error("InboxAddMessage error", zap.Error(err))
+		return
+	}
+
+	response = &coordinatorproto.InboxAddMessageResponse{}
+	return
 }
 
 func (t *testServer) InboxFetch(context.Context, *coordinatorproto.InboxFetchRequest) (*coordinatorproto.InboxFetchResponse, error) {
