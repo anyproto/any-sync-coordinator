@@ -37,7 +37,7 @@ func New() InboxService {
 
 type InboxService interface {
 	InboxAddMessage(ctx context.Context, msg *InboxMessage) (err error)
-	InboxFetch(ctx context.Context, receiverIdentity string, offset string) (result InboxFetchResult, err error)
+	InboxFetch(ctx context.Context, offset string) (result *InboxFetchResult, err error)
 	SubscribeClient(stream coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream) error
 	app.ComponentRunnable
 }
@@ -209,8 +209,14 @@ type InboxFetchResult struct {
 
 // Fetches <= FetchLimit+1 amount of messages from inbox.
 // If len(messages) > FetchLimit, sets `HasMore` to true.
-func (s *inbox) InboxFetch(ctx context.Context, receiverIdentity string, offset string) (result InboxFetchResult, err error) {
-	log.Info("fetching inbox after offset", zap.String("offset", offset))
+func (s *inbox) InboxFetch(ctx context.Context, offset string) (result *InboxFetchResult, err error) {
+	result = new(InboxFetchResult)
+	accountPubKey, err := peer.CtxPubKey(ctx)
+	if err != nil {
+		log.Error("failed to get account pub key")
+		return nil, err
+	}
+	receiverIdentity := accountPubKey.Account()
 	filter := bson.M{"packet.receiverIdentity": receiverIdentity}
 
 	if offset != "" {
@@ -242,5 +248,4 @@ func (s *inbox) InboxFetch(ctx context.Context, receiverIdentity string, offset 
 	result.HasMore = (len(messages) > fetchLimit)
 
 	return
-
 }

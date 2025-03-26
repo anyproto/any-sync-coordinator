@@ -459,39 +459,16 @@ func (r *rpcHandler) AclEventLog(ctx context.Context, req *coordinatorproto.AclE
 }
 
 func (r *rpcHandler) InboxFetch(ctx context.Context, in *coordinatorproto.InboxFetchRequest) (*coordinatorproto.InboxFetchResponse, error) {
-	log.Error("Got InboxFetch")
-	accountPubKey, err := peer.CtxPubKey(ctx)
-	if err != nil {
-		log.Error("failed to get account pub key")
-		return nil, err
-	}
-	accountId := accountPubKey.Account()
-	log.Debug("accountId", zap.String("id", accountId))
-
-	fetchResult, err := r.c.inbox.InboxFetch(ctx, accountId, in.Offset)
+	fetchResult, err := r.c.inbox.InboxFetch(ctx, in.Offset)
 	if err != nil {
 		return nil, err
 	}
 
 	responseMessages := make([]*coordinatorproto.InboxMessage, len(fetchResult.Messages))
 	for i, msg := range fetchResult.Messages {
-		responseMsg := &coordinatorproto.InboxMessage{
-			Id:         msg.Id,
-			PacketType: coordinatorproto.InboxPacketType(msg.PacketType),
-			Packet: &coordinatorproto.InboxPacket{
-				KeyType:          coordinatorproto.InboxKeyType(msg.Packet.KeyType),
-				SenderIdentity:   msg.Packet.SenderIdentity,
-				ReceiverIdentity: msg.Packet.ReceiverIdentity,
-				SenderSignature:  msg.Packet.SenderSignature,
-				Payload: &coordinatorproto.InboxPayload{
-					PayloadType: coordinatorproto.InboxPayloadType(msg.Packet.Payload.PayloadType),
-					Timestamp:   msg.Packet.Payload.Timestamp.Unix(),
-					Body:        msg.Packet.Payload.Body,
-				},
-			},
-		}
-		responseMessages[i] = responseMsg
+		responseMessages[i] = inbox.InboxMessageToResponse(msg)
 	}
+
 	response := &coordinatorproto.InboxFetchResponse{
 		Messages: responseMessages,
 		HasMore:  fetchResult.HasMore,
@@ -500,29 +477,12 @@ func (r *rpcHandler) InboxFetch(ctx context.Context, in *coordinatorproto.InboxF
 	return response, nil
 }
 
-func (r *rpcHandler) InboxNotifySubscribe(req *coordinatorproto.InboxNotifySubscribeRequest, rpcStream coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream) error {
-	log.Info("Got InboxNotifySubscribe")
-
-	accountPubKey, err := peer.CtxPubKey(rpcStream.Context())
-	if err != nil {
-		log.Error("failed to get account pub key")
-		return err
-	}
-	accountId := accountPubKey.Account()
-
-	peerId, err := peer.CtxPeerId(rpcStream.Context())
-	if err != nil {
-		return err
-	}
-
-	log.Debug("subscribe client", zap.String("id", accountId), zap.String("peerid", peerId))
+func (r *rpcHandler) InboxNotifySubscribe(req *coordinatorproto.InboxNotifySubscribeRequest, rpcStream coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream) (err error) {
 	err = r.c.inbox.SubscribeClient(rpcStream)
 	if err != nil {
 		return err
 	}
-
 	<-rpcStream.Context().Done()
-	log.Debug("stream closed", zap.String("id", accountId), zap.String("peerid", peerId))
 	return nil
 }
 

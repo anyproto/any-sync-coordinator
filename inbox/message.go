@@ -80,3 +80,21 @@ func InboxMessageFromRequest(ctx context.Context, in *coordinatorproto.InboxAddM
 	}
 	return
 }
+
+func InboxMessageToResponse(msg *InboxMessage) *coordinatorproto.InboxMessage {
+	return &coordinatorproto.InboxMessage{
+		Id:         msg.Id,
+		PacketType: coordinatorproto.InboxPacketType(msg.PacketType),
+		Packet: &coordinatorproto.InboxPacket{
+			KeyType:          coordinatorproto.InboxKeyType(msg.Packet.KeyType),
+			SenderIdentity:   msg.Packet.SenderIdentity,
+			ReceiverIdentity: msg.Packet.ReceiverIdentity,
+			SenderSignature:  msg.Packet.SenderSignature,
+			Payload: &coordinatorproto.InboxPayload{
+				PayloadType: coordinatorproto.InboxPayloadType(msg.Packet.Payload.PayloadType),
+				Timestamp:   msg.Packet.Payload.Timestamp.Unix(),
+				Body:        msg.Packet.Payload.Body,
+			},
+		},
+	}
+}
