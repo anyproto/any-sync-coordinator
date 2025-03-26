@@ -31,11 +31,11 @@ func (t InboxKeyType) String() string {
 type InboxPayloadType int
 
 const (
-	InboxPayloadSpaceInvite InboxPayloadType = iota
+	InboxPayloadTypeSpaceInvite InboxPayloadType = iota
 )
 
 func (t InboxPayloadType) String() string {
-	return [...]string{"InboxPayloadSpaceInvite"}[t]
+	return [...]string{"SpaceInvite"}[t]
 }
 
 type InboxMessage struct {

@@ -2,82 +2,74 @@ package inbox
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"testing"
+	"time"
 
 	"github.com/anyproto/any-sync-coordinator/db"
 	"github.com/anyproto/any-sync/app"
-	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/net/peer"
-	"github.com/anyproto/any-sync/net/rpc/rpctest"
-	"github.com/stretchr/testify/assert"
+	"github.com/anyproto/any-sync/testutil/accounttest"
+	"github.com/anyproto/any-sync/util/crypto"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
-	"go.uber.org/zap"
-	"storj.io/drpc"
-	"storj.io/drpc/drpcerr"
 )
 
 var ctx = context.Background()
 
-func TestInbox_Foo(t *testing.T) {
-	t.Run("foo", func(t *testing.T) {
-		assert.Equal(t, 1, 1)
-	})
+func newIdentityCtx() (rctx context.Context, identity string, sk crypto.PrivKey) {
+	as := &accounttest.AccountTestService{}
+	_ = as.Init(nil)
+	raw, _ := as.Account().SignKey.GetPublic().Marshall()
+	rctx = peer.CtxWithIdentity(ctx, raw)
+	identity = as.Account().SignKey.GetPublic().Account()
+	sk = as.Account().SignKey
+	return
 }
 
-func TestInbox(t *testing.T) {
-	var makeClientServer = func(t *testing.T) (fxC, fxS *fixture, peerId string) {
-		fxC = newFixture(t)
-		fxS = newFixture(t)
-		peerId = "peer"
-		mcS, mcC := rpctest.MultiConnPair(peerId, peerId+"client")
-		pS, err := peer.NewPeer(mcS, fxC.ts)
-		require.NoError(t, err)
-		fxC.tp.AddPeer(ctx, pS)
-		_, err = peer.NewPeer(mcC, fxS.ts)
-		require.NoError(t, err)
+func defaultMessage(ctx context.Context, sk crypto.PrivKey) (msg *InboxMessage, err error) {
+	accountPubKey, err := peer.CtxPubKey(ctx)
+	if err != nil {
+		return
+	}
+	body := []byte("hello")
+	encrypted, err := accountPubKey.Encrypt(body)
+	if err != nil {
 		return
 	}
 
-	t.Run("InboxAddMessage", func(t *testing.T) {
+	signature, err := sk.Sign(encrypted)
+	if err != nil {
+		return
+	}
 
-		fxC, fxS, peerId := makeClientServer(t)
+	msg = &InboxMessage{
+		PacketType: InboxPacketTypeDefault,
+		Packet: InboxPacket{
+			KeyType:          InboxKeyTypeEd25519,
+			SenderSignature:  signature,
+			SenderIdentity:   accountPubKey.Account(),
+			ReceiverIdentity: accountPubKey.Account(),
+			Payload: InboxPayload{
+				PayloadType: InboxPayloadTypeSpaceInvite,
+				Timestamp:   time.Now(),
+				Body:        encrypted,
+			},
+		},
+	}
+	return
+}
+
+func TestInbox_AddMessage(t *testing.T) {
+	t.Run("message verify basic", func(t *testing.T) {
+		fxC := newFixture(t)
 		defer fxC.Finish(t)
-		defer fxS.Finish(t)
-		peer, err := fxC.tp.GetOneOf(ctx, []string{peerId})
+		ctx, _, sk := newIdentityCtx()
+		msg, err := defaultMessage(ctx, sk)
 		require.NoError(t, err)
-		peer.DoDrpc(ctx, func(conn drpc.Conn) error {
-			client := coordinatorproto.NewDRPCCoordinatorClient(conn)
-			resp, err := client.InboxAddMessage(ctx, &coordinatorproto.InboxAddMessageRequest{})
-			require.NoError(t, err)
-			fmt.Printf("%#v\n", resp)
-			return nil
-		})
 
-		// writeFiles(t, fxS.store.StoreDir(spaceId), testFiles...)
-		// fxC.store.EXPECT().
-		// 	TryLockAndDo(gomock.Any(), gomock.Any()).AnyTimes().
-		// 	DoAndReturn(func(spaceId string, do func() error) (err error) {
-		// 		return do()
-		// 	})
-		// fxS.store.EXPECT().
-		// 	TryLockAndDo(gomock.Any(), gomock.Any()).AnyTimes().
-		// 	DoAndReturn(func(spaceId string, do func() error) (err error) {
-		// 		return do()
-		// 	})
-		// fxC.store.EXPECT().SpaceExists(spaceId).Return(false)
-
-		// require.NoError(t, fxC.Sync(ctx, "spaceId", peerId))
-
-		// for _, tf := range testFiles {
-		// 	cBytes, err := os.ReadFile(filepath.Join(fxC.store.StoreDir(spaceId), tf.name))
-		// 	require.NoError(t, err)
-		// 	sBytes, err := os.ReadFile(filepath.Join(fxS.store.StoreDir(spaceId), tf.name))
-		// 	require.NoError(t, err)
-		// 	assert.True(t, bytes.Equal(cBytes, sBytes))
-		// }
+		err = fxC.InboxAddMessage(ctx, msg)
+		require.NoError(t, err)
+		require.NoError(t, err)
 	})
 
 }
@@ -96,25 +88,18 @@ func (c config) GetMongo() db.Mongo {
 }
 
 func newFixture(t *testing.T) (fx *fixture) {
-	ts := rpctest.NewTestServer()
 	fx = &fixture{
 		InboxService: New(),
 		db:           db.New(),
 		ctrl:         gomock.NewController(t),
 		a:            new(app.App),
-		ts:           ts,
-		tp:           rpctest.NewTestPool(),
 	}
 
-	// anymock.ExpectComp(fx.space.EXPECT(), nodespace.CName)
 	fx.a.
 		Register(config{}).
 		Register(fx.db).
-		Register(fx.InboxService).
-		Register(fx.tp).
-		Register(fx.ts)
+		Register(fx.InboxService)
 
-	require.NoError(t, coordinatorproto.DRPCRegisterCoordinator(ts, &testServer{inbox: fx.InboxService}))
 	require.NoError(t, fx.a.Start(ctx))
 
 	return fx
@@ -125,37 +110,9 @@ type fixture struct {
 	a    *app.App
 	db   db.Database
 	ctrl *gomock.Controller
-	ts   *rpctest.TestServer
-	tp   *rpctest.TestPool
 }
 
 func (fx *fixture) Finish(t *testing.T) {
 	require.NoError(t, fx.a.Close(ctx))
 	fx.ctrl.Finish()
-}
-
-type testServer struct {
-	coordinatorproto.DRPCCoordinatorUnimplementedServer
-	inbox InboxService
-}
-
-func (t *testServer) InboxAddMessage(ctx context.Context, in *coordinatorproto.InboxAddMessageRequest) (response *coordinatorproto.InboxAddMessageResponse, err error) {
-	// TODO: code dup from rpc
-	message := InboxMessageFromRequest(ctx, in)
-	err = t.inbox.InboxAddMessage(ctx, message)
-	if err != nil {
-		log.Error("InboxAddMessage error", zap.Error(err))
-		return
-	}
-
-	response = &coordinatorproto.InboxAddMessageResponse{}
-	return
-}
-
-func (t *testServer) InboxFetch(context.Context, *coordinatorproto.InboxFetchRequest) (*coordinatorproto.InboxFetchResponse, error) {
-	return nil, drpcerr.WithCode(errors.New("Unimplemented 1"), drpcerr.Unimplemented)
-}
-
-func (t *testServer) InboxNotifySubscribe(*coordinatorproto.InboxNotifySubscribeRequest, coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream) error {
-	return drpcerr.WithCode(errors.New("Unimplemented 1"), drpcerr.Unimplemented)
 }
