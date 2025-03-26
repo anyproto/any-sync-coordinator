@@ -77,17 +77,18 @@ func (s *inbox) Close(_ context.Context) (err error) {
 func verifyInboxMessageSignature(ctx context.Context, msg *InboxMessage) (err error) {
 	accountPubKey, err := peer.CtxPubKey(ctx)
 	if err != nil {
-		err = fmt.Errorf("verifyInboxMessageSignature: %w", err)
+		err = fmt.Errorf("%w, failed to get pub key from ctx", coordinatorproto.ErrUnexpected)
 		return
 	}
 
 	verified, err := accountPubKey.Verify(msg.Packet.Payload.Body, msg.Packet.SenderSignature)
-	if !verified {
-		err = fmt.Errorf("verifyInboxMessageSignature: message signature is incorrect, verification failed")
+	if err != nil {
+		err = fmt.Errorf("%w, Verify() failed unexpectedly", coordinatorproto.ErrInboxMessageVerifyFailed)
 		return
 	}
-	if err != nil {
-		err = fmt.Errorf("verifyInboxMessageSignature: %w", err)
+
+	if !verified {
+		err = fmt.Errorf("%w, signature doesn't match", coordinatorproto.ErrInboxMessageVerifyFailed)
 		return
 	}
 

@@ -7,9 +7,11 @@ import (
 
 	"github.com/anyproto/any-sync-coordinator/db"
 	"github.com/anyproto/any-sync/app"
+	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/net/peer"
 	"github.com/anyproto/any-sync/testutil/accounttest"
 	"github.com/anyproto/any-sync/util/crypto"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
@@ -59,17 +61,24 @@ func defaultMessage(ctx context.Context, sk crypto.PrivKey) (msg *InboxMessage, 
 	return
 }
 
-func TestInbox_AddMessage(t *testing.T) {
-	t.Run("message verify basic", func(t *testing.T) {
-		fxC := newFixture(t)
-		defer fxC.Finish(t)
-		ctx, _, sk := newIdentityCtx()
-		msg, err := defaultMessage(ctx, sk)
-		require.NoError(t, err)
+func TestInbox_AddMessageVerify(t *testing.T) {
+	fxC := newFixture(t)
+	defer fxC.Finish(t)
+	ctx, _, sk := newIdentityCtx()
+	msg, err := defaultMessage(ctx, sk)
+	require.NoError(t, err)
 
+	t.Run("message verify success", func(t *testing.T) {
 		err = fxC.InboxAddMessage(ctx, msg)
 		require.NoError(t, err)
-		require.NoError(t, err)
+	})
+
+	t.Run("message verify signature verify fail", func(t *testing.T) {
+		pk, _, _ := crypto.GenerateRandomEd25519KeyPair()
+		signature, _ := pk.Sign(msg.Packet.Payload.Body)
+		msg.Packet.SenderSignature = signature
+		err = fxC.InboxAddMessage(ctx, msg)
+		assert.ErrorIs(t, err, coordinatorproto.ErrInboxMessageVerifyFailed)
 	})
 
 }
