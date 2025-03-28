@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/anyproto/any-sync-coordinator/db"
 	"github.com/anyproto/any-sync/app"
@@ -103,6 +104,8 @@ func (s *inbox) InboxAddMessage(ctx context.Context, msg *InboxMessage) (err err
 
 	randomID := primitive.NewObjectID()
 	msg.Id = randomID.Hex()
+	msg.Packet.Payload.Timestamp = time.Now()
+
 	_, err = s.coll.InsertOne(ctx, msg)
 	return err
 }

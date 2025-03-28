@@ -3,7 +3,6 @@ package inbox
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/anyproto/any-sync-coordinator/db"
 	"github.com/anyproto/any-sync/app"
@@ -18,28 +17,24 @@ import (
 
 var ctx = context.Background()
 
-func newIdentityCtx() (rctx context.Context, identity string, sk crypto.PrivKey) {
+func newIdentityCtx() (rctx context.Context, pk crypto.PubKey, sk crypto.PrivKey) {
 	as := &accounttest.AccountTestService{}
 	_ = as.Init(nil)
 	raw, _ := as.Account().SignKey.GetPublic().Marshall()
 	rctx = peer.CtxWithIdentity(ctx, raw)
-	identity = as.Account().SignKey.GetPublic().Account()
+	pk = as.Account().SignKey.GetPublic()
 	sk = as.Account().SignKey
 	return
 }
 
-func defaultMessage(ctx context.Context, sk crypto.PrivKey) (msg *InboxMessage, err error) {
-	accountPubKey, err := peer.CtxPubKey(ctx)
-	if err != nil {
-		return
-	}
+func makeMessage(pubkeyTo crypto.PubKey, privkeyFrom crypto.PrivKey) (msg *InboxMessage, err error) {
 	body := []byte("hello")
-	encrypted, err := accountPubKey.Encrypt(body)
+	encrypted, err := pubkeyTo.Encrypt(body)
 	if err != nil {
 		return
 	}
 
-	signature, err := sk.Sign(encrypted)
+	signature, err := privkeyFrom.Sign(encrypted)
 	if err != nil {
 		return
 	}
@@ -49,36 +44,72 @@ func defaultMessage(ctx context.Context, sk crypto.PrivKey) (msg *InboxMessage, 
 		Packet: InboxPacket{
 			KeyType:          InboxKeyTypeEd25519,
 			SenderSignature:  signature,
-			SenderIdentity:   accountPubKey.Account(),
-			ReceiverIdentity: accountPubKey.Account(),
+			SenderIdentity:   privkeyFrom.GetPublic().Account(),
+			ReceiverIdentity: pubkeyTo.Account(),
 			Payload: InboxPayload{
 				PayloadType: InboxPayloadTypeSpaceInvite,
-				Timestamp:   time.Now(),
 				Body:        encrypted,
 			},
 		},
 	}
+
 	return
+
 }
 
-func TestInbox_AddMessageVerify(t *testing.T) {
+func dropColl(t *testing.T, fxC *fixture) {
+	err := fxC.db.Db().Collection(collName).Drop(ctx)
+	require.NoError(t, err)
+}
+
+func TestInbox_AddMessage(t *testing.T) {
 	fxC := newFixture(t)
 	defer fxC.Finish(t)
-	ctx, _, sk := newIdentityCtx()
-	msg, err := defaultMessage(ctx, sk)
+	ctx, pk, sk := newIdentityCtx()
+	msg, err := makeMessage(pk, sk)
 	require.NoError(t, err)
 
 	t.Run("message verify success", func(t *testing.T) {
+		dropColl(t, fxC)
+
 		err = fxC.InboxAddMessage(ctx, msg)
 		require.NoError(t, err)
 	})
 
 	t.Run("message verify signature verify fail", func(t *testing.T) {
+		dropColl(t, fxC)
+
+		msgFail, _ := makeMessage(pk, sk)
 		pk, _, _ := crypto.GenerateRandomEd25519KeyPair()
-		signature, _ := pk.Sign(msg.Packet.Payload.Body)
-		msg.Packet.SenderSignature = signature
-		err = fxC.InboxAddMessage(ctx, msg)
+		signature, _ := pk.Sign(msgFail.Packet.Payload.Body)
+		msgFail.Packet.SenderSignature = signature
+		err = fxC.InboxAddMessage(ctx, msgFail)
 		assert.ErrorIs(t, err, coordinatorproto.ErrInboxMessageVerifyFailed)
+	})
+
+	t.Run("add messages and fetch them", func(t *testing.T) {
+		dropColl(t, fxC)
+
+		fxC2 := newFixture(t)
+		defer fxC2.Finish(t)
+
+		ctx2, pk2, sk2 := newIdentityCtx()
+		msg, _ := makeMessage(pk2, sk)
+		for range 10 {
+			err = fxC.InboxAddMessage(ctx, msg)
+			require.NoError(t, err)
+		}
+
+		msgs, err := fxC.InboxFetch(ctx2, "")
+		require.NoError(t, err)
+		assert.Len(t, msgs.Messages, 10)
+
+		for _, msg := range msgs.Messages {
+			decrypted, err := sk2.Decrypt(msg.Packet.Payload.Body)
+			require.NoError(t, err)
+			assert.Equal(t, "hello", string(decrypted))
+		}
+
 	})
 
 }
