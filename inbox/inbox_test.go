@@ -112,6 +112,36 @@ func TestInbox_AddMessage(t *testing.T) {
 
 	})
 
+	t.Run("fetch with offset", func(t *testing.T) {
+		dropColl(t, fxC)
+
+		fxC2 := newFixture(t)
+		defer fxC2.Finish(t)
+
+		ctx2, pk2, _ := newIdentityCtx()
+		msg, _ := makeMessage(pk2, sk)
+		for range 10 {
+			err = fxC.InboxAddMessage(ctx, msg)
+			require.NoError(t, err)
+		}
+
+		msgs, err := fxC.InboxFetch(ctx2, "")
+		require.NoError(t, err)
+		assert.Len(t, msgs.Messages, 10)
+
+		offset := msgs.Messages[len(msgs.Messages)-1].Id
+
+		for range 5 {
+			err = fxC.InboxAddMessage(ctx, msg)
+			require.NoError(t, err)
+		}
+
+		msgs, err = fxC.InboxFetch(ctx2, offset)
+		require.NoError(t, err)
+		assert.Len(t, msgs.Messages, 5)
+
+	})
+
 }
 
 type config struct {
