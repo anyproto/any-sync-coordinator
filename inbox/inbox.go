@@ -248,8 +248,12 @@ func (s *inbox) InboxFetch(ctx context.Context, offset string) (result *InboxFet
 		return
 	}
 
+	hasMore := (len(messages) > fetchLimit)
+	result.HasMore = hasMore
 	result.Messages = messages
-	result.HasMore = (len(messages) > fetchLimit)
+	if hasMore {
+		result.Messages = result.Messages[:len(result.Messages)-1]
+	}
 
 	return
 }

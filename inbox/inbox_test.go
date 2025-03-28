@@ -142,6 +142,33 @@ func TestInbox_AddMessage(t *testing.T) {
 
 	})
 
+	// TODO: this test runs long
+	t.Run("fetch returns hasMore", func(t *testing.T) {
+		dropColl(t, fxC)
+
+		fxC2 := newFixture(t)
+		defer fxC2.Finish(t)
+
+		ctx2, pk2, _ := newIdentityCtx()
+		msg, _ := makeMessage(pk2, sk)
+		for range fetchLimit + 5 {
+			err = fxC.InboxAddMessage(ctx, msg)
+			require.NoError(t, err)
+		}
+
+		msgs, err := fxC.InboxFetch(ctx2, "")
+		require.NoError(t, err)
+		assert.Len(t, msgs.Messages, fetchLimit)
+		assert.True(t, msgs.HasMore)
+
+		offset := msgs.Messages[len(msgs.Messages)-1].Id
+		msgs, err = fxC.InboxFetch(ctx2, offset)
+		require.NoError(t, err)
+		assert.False(t, msgs.HasMore)
+		assert.Len(t, msgs.Messages, 5)
+
+	})
+
 }
 
 type config struct {
