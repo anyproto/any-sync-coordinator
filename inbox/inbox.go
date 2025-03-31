@@ -62,6 +62,13 @@ func (s *inbox) Name() (name string) {
 
 func (s *inbox) Run(ctx context.Context) error {
 	log.Info("inbox service run")
+	_, err := s.coll.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{bson.E{Key: "packet.receiverIdentity", Value: 1}, bson.E{Key: "_id", Value: 1}},
+	})
+	if err != nil {
+		return err
+	}
+
 	s.runStreamListener(ctx)
 	return nil
 }
@@ -221,20 +228,14 @@ func (s *inbox) InboxFetch(ctx context.Context, offset string) (result *InboxFet
 		return nil, err
 	}
 	receiverIdentity := accountPubKey.Account()
-	filter := bson.M{"packet.receiverIdentity": receiverIdentity}
+	filter := bson.D{bson.E{Key: "packet.receiverIdentity", Value: receiverIdentity}}
 
 	if offset != "" {
-		var offsetMessage InboxMessage
-		err = s.coll.FindOne(ctx, bson.M{"_id": offset}).Decode(&offsetMessage)
-		if err != nil {
-			log.Warn("offset not found: return all notifications", zap.String("offset", offset))
-		} else {
-			filter["packet.payload.timestamp"] = bson.M{"$gt": offsetMessage.Packet.Payload.Timestamp}
-		}
+		filter = append(filter, bson.E{Key: "_id", Value: bson.D{bson.E{Key: "$gt", Value: offset}}})
 	}
 
 	var messages []*InboxMessage
-	sort := bson.M{"packet.payload.timestamp": 1}
+	sort := bson.D{bson.E{Key: "packet.payload.timestamp", Value: 1}}
 
 	cursor, err := s.coll.Find(ctx, filter, options.Find().SetSort(sort).SetLimit(fetchLimit+1))
 	if err != nil {
