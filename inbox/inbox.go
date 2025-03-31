@@ -44,7 +44,8 @@ type InboxService interface {
 }
 
 type inbox struct {
-	coll          *mongo.Collection
+	coll *mongo.Collection
+
 	mu            sync.Mutex
 	notifyStreams map[string]map[string]coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream
 }
@@ -127,9 +128,6 @@ func (s *inbox) addStream(accountId, peerId string, stream coordinatorproto.DRPC
 }
 
 func (s *inbox) removeStream(accountId, peerId string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	delete(s.notifyStreams[accountId], peerId)
 	if len(s.notifyStreams[accountId]) == 0 {
 		delete(s.notifyStreams, accountId)
@@ -138,6 +136,8 @@ func (s *inbox) removeStream(accountId, peerId string) {
 
 func (s *inbox) waitCloseStream(accountId, peerId string, stream coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream) {
 	<-stream.Context().Done()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.removeStream(accountId, peerId)
 }
 
@@ -177,6 +177,26 @@ func (s *inbox) runStreamListener(ctx context.Context) (err error) {
 	return
 }
 
+func (s *inbox) notifyClients(receiver string, notifyId string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if streams, ok := s.notifyStreams[receiver]; ok {
+		for peerId, stream := range streams {
+			event := coordinatorproto.InboxNotifySubscribeEvent{
+				NotifyId: notifyId,
+			}
+			log.Debug("sending to notify stream", zap.String("receiver", receiver), zap.String("peerId", peerId))
+			err := stream.Send(&event)
+			if err != nil {
+				log.Warn("error sending to notify stream", zap.String("receiver", receiver), zap.String("peerId", peerId), zap.Error(err))
+				s.removeStream(receiver, peerId)
+			}
+		}
+	} else {
+		log.Warn("no such recepient", zap.String("id", receiver))
+	}
+}
+
 func (s *inbox) streamListener(stream *mongo.ChangeStream) {
 	for stream.Next(context.TODO()) {
 		var res streamResult
@@ -187,22 +207,7 @@ func (s *inbox) streamListener(stream *mongo.ChangeStream) {
 		}
 		receiver := string(res.InboxMessage.Packet.ReceiverIdentity)
 		log.Debug("stream receiver", zap.String("r", receiver))
-		if streams, ok := s.notifyStreams[receiver]; ok {
-			for peerId, stream := range streams {
-				event := coordinatorproto.InboxNotifySubscribeEvent{
-					NotifyId: res.DocumentKey.Id,
-				}
-				log.Debug("sending to notify stream", zap.String("receiver", receiver), zap.String("peerId", peerId))
-				err := stream.Send(&event)
-				if err != nil {
-					log.Warn("error sending to notify stream", zap.String("receiver", receiver), zap.String("peerId", peerId), zap.Error(err))
-					s.removeStream(receiver, peerId)
-				}
-			}
-		} else {
-			log.Warn("no such recepient", zap.String("id", receiver))
-		}
-
+		s.notifyClients(receiver, res.DocumentKey.Id)
 	}
 }
 
