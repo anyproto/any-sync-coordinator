@@ -2,8 +2,9 @@ package inboxrpctest
 
 import (
 	"context"
-	"fmt"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/anyproto/any-sync-coordinator/accountlimit"
 	"github.com/anyproto/any-sync-coordinator/accountlimit/mock_accountlimit"
@@ -227,15 +228,39 @@ func TestInbox_Notifications(t *testing.T) {
 		dropColl(t, fxS)
 
 		msg, _ := makeMessage(fxC.account.Account().SignKey.GetPublic(), fxC.account.Account().SignKey)
-
-		fmt.Printf("%#v\n", msg)
-
 		// // add message
 		pubKeyC := fxC.account.Account().SignKey.GetPublic()
 		raw, _ := pubKeyC.Marshall()
 		ictx := peer.CtxWithIdentity(ctx, raw)
+		var wg sync.WaitGroup
+		wg.Add(1)
+		expectedEvent := &coordinatorproto.InboxNotifySubscribeEvent{
+			NotifyId: "hello",
+		}
+
+		fxC.mockReceiver.EXPECT().
+			Receive(expectedEvent).
+			Do(func(evt *coordinatorproto.InboxNotifySubscribeEvent) {
+				defer wg.Done()
+			}).
+			Times(1)
+		time.Sleep(9 * time.Second)
+
 		err := fxC.inboxclient.InboxAddMessage(ictx, pubKeyC, msg)
 		require.NoError(t, err)
+
+		done := make(chan struct{})
+		go func() {
+			wg.Wait()
+			close(done)
+		}()
+
+		select {
+		case <-done:
+			return
+		case <-time.After(8 * time.Second):
+			t.Fatal("Receive callback was not triggered in time")
+		}
 
 		// // stream should get notification
 

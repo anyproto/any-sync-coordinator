@@ -113,7 +113,7 @@ func (s *inbox) InboxAddMessage(ctx context.Context, msg *InboxMessage) (err err
 	randomID := primitive.NewObjectID()
 	msg.Id = randomID.Hex()
 	msg.Packet.Payload.Timestamp = time.Now()
-
+	fmt.Printf("add msg\n")
 	_, err = s.coll.InsertOne(ctx, msg)
 	return err
 }
@@ -153,7 +153,7 @@ func (s *inbox) SubscribeClient(rpcStream coordinatorproto.DRPCCoordinator_Inbox
 	if err != nil {
 		return err
 	}
-
+	fmt.Printf("subs client\n")
 	s.addStream(accountId, peerId, rpcStream)
 	go s.waitCloseStream(accountId, peerId, rpcStream)
 
@@ -198,7 +198,10 @@ func (s *inbox) notifyClients(receiver string, notifyId string) {
 }
 
 func (s *inbox) streamListener(stream *mongo.ChangeStream) {
-	for stream.Next(context.TODO()) {
+	fmt.Printf("mongo streams\n")
+	for stream.Next(context.Background()) {
+		// TODO: not triggered in tests?
+		fmt.Printf("mongo stream next\n")
 		var res streamResult
 		if err := stream.Decode(&res); err != nil {
 			// mongo driver maintains connections and handles reconnects so that the stream will work as usual in these cases
