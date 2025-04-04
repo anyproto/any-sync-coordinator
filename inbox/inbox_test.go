@@ -3,6 +3,7 @@ package inbox
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/anyproto/any-sync-coordinator/db"
 	"github.com/anyproto/any-sync/app"
@@ -12,6 +13,7 @@ import (
 	"github.com/anyproto/any-sync/util/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.uber.org/mock/gomock"
 )
 
@@ -142,7 +144,6 @@ func TestInbox_AddMessage(t *testing.T) {
 
 	})
 
-	// TODO: this test runs long
 	t.Run("fetch returns hasMore", func(t *testing.T) {
 		dropColl(t, fxC)
 
@@ -151,10 +152,20 @@ func TestInbox_AddMessage(t *testing.T) {
 
 		ctx2, pk2, _ := newIdentityCtx()
 		msg, _ := makeMessage(pk2, sk)
-		for range fetchLimit + 5 {
-			err = fxC.InboxAddMessage(ctx, msg)
-			require.NoError(t, err)
+
+		preseed := make([]any, fetchLimit+5)
+		msg.Packet.Payload.Timestamp = time.Now()
+
+		// this test runs too long via AddMessage: pre-seed db
+		for i := range preseed {
+			m := *msg
+			m.Id = primitive.NewObjectID().Hex()
+			t := time.Now().Add(time.Duration(i) * time.Second)
+			m.Packet.Payload.Timestamp = t
+			preseed[i] = m
 		}
+
+		fxC.db.Db().Collection(collName).InsertMany(ctx, preseed)
 
 		msgs, err := fxC.InboxFetch(ctx2, "")
 		require.NoError(t, err)
