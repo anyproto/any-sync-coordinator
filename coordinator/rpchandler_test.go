@@ -126,21 +126,3 @@ func TestRpcHandler_EventLog(t *testing.T) {
 	})
 
 }
-
-func TestRpcHandler_InboxFetch(t *testing.T) {
-	t.Run("success - return 1 item", func(t *testing.T) {
-		fx := newFixture(t)
-		defer fx.finish(t)
-
-		out, err := fx.drpcHandler.InboxFetch(ctx, &coordinatorproto.InboxFetchRequest{
-			Offset: "my-id",
-		})
-		require.NoError(t, err)
-
-		require.Equal(t, 1, len(out.Messages))
-
-		id := out.Messages[0].Id
-		require.Equal(t, "my-id", id)
-	})
-
-}

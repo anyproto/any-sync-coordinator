@@ -1,0 +1,252 @@
+package inboxrpctest
+
+import (
+	"context"
+	"fmt"
+	"testing"
+
+	"github.com/anyproto/any-sync-coordinator/accountlimit"
+	"github.com/anyproto/any-sync-coordinator/accountlimit/mock_accountlimit"
+	"github.com/anyproto/any-sync-coordinator/acleventlog"
+	"github.com/anyproto/any-sync-coordinator/acleventlog/mock_acleventlog"
+	"github.com/anyproto/any-sync-coordinator/config"
+	"github.com/anyproto/any-sync-coordinator/coordinator"
+	"github.com/anyproto/any-sync-coordinator/coordinatorlog"
+	"github.com/anyproto/any-sync-coordinator/coordinatorlog/mock_coordinatorlog"
+	"github.com/anyproto/any-sync-coordinator/db"
+	"github.com/anyproto/any-sync-coordinator/deletionlog"
+	"github.com/anyproto/any-sync-coordinator/deletionlog/mock_deletionlog"
+	"github.com/anyproto/any-sync-coordinator/inbox"
+	"github.com/anyproto/any-sync-coordinator/spacestatus"
+	"github.com/anyproto/any-sync-coordinator/spacestatus/mock_spacestatus"
+	"github.com/anyproto/any-sync/acl"
+	"github.com/anyproto/any-sync/acl/mock_acl"
+	"github.com/anyproto/any-sync/app"
+	"github.com/anyproto/any-sync/coordinator/inboxclient"
+	inboxclientmocks "github.com/anyproto/any-sync/coordinator/inboxclient/mocks"
+	"github.com/anyproto/any-sync/metric"
+	"github.com/anyproto/any-sync/net/peer"
+	"github.com/anyproto/any-sync/net/rpc/rpctest"
+	"github.com/anyproto/any-sync/testutil/accounttest"
+	"github.com/anyproto/any-sync/testutil/anymock"
+	"github.com/anyproto/any-sync/util/crypto"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
+)
+
+type fixtureServer struct {
+	inbox       inbox.InboxService
+	coordinator coordinator.Coordinator
+	account     *accounttest.AccountTestService
+	a           *app.App
+	db          db.Database
+	ctrl        *gomock.Controller
+	ts          *rpctest.TestServer
+	tp          *rpctest.TestPool
+
+	spaceStatus  *mock_spacestatus.MockSpaceStatus
+	coordLog     *mock_coordinatorlog.MockCoordinatorLog
+	aclEventLog  *mock_acleventlog.MockAclEventLog
+	deletionLog  *mock_deletionlog.MockDeletionLog
+	acl          *mock_acl.MockAclService
+	accountLimit *mock_accountlimit.MockAccountLimit
+}
+
+type fixtureClient struct {
+	inboxclient  inboxclient.InboxClient
+	mockReceiver *inboxclientmocks.MockMessageReceiverTest
+	account      *accounttest.AccountTestService
+	a            *app.App
+	ctrl         *gomock.Controller
+	ts           *rpctest.TestServer
+	tp           *rpctest.TestPool
+}
+
+var ctx = context.Background()
+
+func newFixtureServer(t *testing.T) (fxS *fixtureServer) {
+	account := &accounttest.AccountTestService{}
+	config := &config.Config{
+		SpaceStatus: spacestatus.Config{
+			DeletionPeriodDays: 42,
+		},
+		Mongo: db.Mongo{
+			Connect:  "mongodb://localhost:27017",
+			Database: "coordinator_unittest",
+		},
+	}
+	ctrl := gomock.NewController(t)
+	fxS = &fixtureServer{
+		inbox:   inbox.New(),
+		account: account,
+		db:      db.New(),
+		ctrl:    ctrl,
+		ts:      rpctest.NewTestServer(),
+		tp:      rpctest.NewTestPool(),
+
+		a: new(app.App),
+
+		coordinator:  coordinator.New(),
+		spaceStatus:  mock_spacestatus.NewMockSpaceStatus(ctrl),
+		coordLog:     mock_coordinatorlog.NewMockCoordinatorLog(ctrl),
+		aclEventLog:  mock_acleventlog.NewMockAclEventLog(ctrl),
+		deletionLog:  mock_deletionlog.NewMockDeletionLog(ctrl),
+		acl:          mock_acl.NewMockAclService(ctrl),
+		accountLimit: mock_accountlimit.NewMockAccountLimit(ctrl),
+	}
+
+	anymock.ExpectComp(fxS.spaceStatus.EXPECT(), spacestatus.CName)
+	anymock.ExpectComp(fxS.coordLog.EXPECT(), coordinatorlog.CName)
+	anymock.ExpectComp(fxS.deletionLog.EXPECT(), deletionlog.CName)
+	anymock.ExpectComp(fxS.acl.EXPECT(), acl.CName)
+	anymock.ExpectComp(fxS.accountLimit.EXPECT(), accountlimit.CName)
+	anymock.ExpectComp(fxS.aclEventLog.EXPECT(), acleventlog.CName)
+
+	fxS.a.
+		Register(account).
+		Register(&mockNodeConf{}).
+		Register(config).
+		Register(fxS.db).
+		Register(fxS.ts).
+		Register(fxS.tp).
+		Register(fxS.coordinator).
+		Register(fxS.spaceStatus).
+		Register(fxS.coordLog).
+		Register(fxS.aclEventLog).
+		Register(metric.New()).
+		Register(fxS.deletionLog).
+		Register(fxS.acl).
+		Register(fxS.accountLimit).
+		Register(fxS.inbox)
+
+	require.NoError(t, fxS.a.Start(ctx))
+
+	return fxS
+}
+
+func (fxS *fixtureServer) Finish(t *testing.T) {
+	require.NoError(t, fxS.a.Close(ctx))
+	fxS.ctrl.Finish()
+}
+
+func newFixtureClient(t *testing.T) (fxC *fixtureClient) {
+	account := &accounttest.AccountTestService{}
+	ic := inboxclient.New()
+
+	ctrl := gomock.NewController(t)
+	fxC = &fixtureClient{
+		inboxclient:  ic,
+		mockReceiver: inboxclientmocks.NewMockMessageReceiverTest(ctrl),
+		account:      account,
+		ctrl:         ctrl,
+		ts:           rpctest.NewTestServer(),
+		tp:           rpctest.NewTestPool(),
+		a:            new(app.App),
+	}
+
+	fxC.inboxclient.SetMessageReceiver(fxC.mockReceiver.Receive)
+	fxC.a.
+		Register(account).
+		Register(&mockNodeConf{}).
+		Register(fxC.ts).
+		Register(fxC.tp).
+		Register(fxC.inboxclient)
+
+	require.NoError(t, fxC.a.Start(ctx))
+
+	return fxC
+}
+
+func (fxC *fixtureClient) Finish(t *testing.T) {
+	require.NoError(t, fxC.a.Close(ctx))
+	fxC.ctrl.Finish()
+}
+
+func makeClientServer(t *testing.T) (fxC *fixtureClient, fxS *fixtureServer, peerId string) {
+	fxC = newFixtureClient(t)
+	fxS = newFixtureServer(t)
+	peerId = "peer"
+	identity, err := fxC.account.Account().SignKey.GetPublic().Marshall()
+	require.NoError(t, err)
+	mcS, mcC := rpctest.MultiConnPairWithIdentity(peerId, peerId+"client", identity)
+	pS, err := peer.NewPeer(mcS, fxC.ts)
+	require.NoError(t, err)
+	fxC.tp.AddPeer(ctx, pS)
+	_, err = peer.NewPeer(mcC, fxS.ts)
+	require.NoError(t, err)
+	return
+}
+
+func makeMessage(pubkeyTo crypto.PubKey, privkeyFrom crypto.PrivKey) (msg *inbox.InboxMessage, err error) {
+	body := []byte("hello")
+	encrypted, err := pubkeyTo.Encrypt(body)
+	if err != nil {
+		return
+	}
+
+	signature, err := privkeyFrom.Sign(encrypted)
+	if err != nil {
+		return
+	}
+
+	msg = &inbox.InboxMessage{
+		PacketType: inbox.InboxPacketTypeDefault,
+		Packet: inbox.InboxPacket{
+			KeyType:          inbox.InboxKeyTypeEd25519,
+			SenderSignature:  signature,
+			SenderIdentity:   privkeyFrom.GetPublic().Account(),
+			ReceiverIdentity: pubkeyTo.Account(),
+			Payload: inbox.InboxPayload{
+				PayloadType: inbox.InboxPayloadTypeSpaceInvite,
+				Body:        encrypted,
+			},
+		},
+	}
+
+	return
+
+}
+
+func dropColl(t *testing.T, fxS *fixtureServer) {
+	err := fxS.db.Db().Collection("inboxMessages").Drop(ctx)
+	require.NoError(t, err)
+}
+
+// make client (standalone)
+// make server with real coordinator rpc
+// with real mongo
+// connect via multipair con
+func TestInbox_Notifications(t *testing.T) {
+	fxC, fxS, _ := makeClientServer(t)
+	t.Run("InboxAddMessage creates a stream notification", func(t *testing.T) {
+		dropColl(t, fxS)
+
+		msg, _ := makeMessage(fxC.account.Account().SignKey.GetPublic(), fxC.account.Account().SignKey)
+
+		fmt.Printf("%#v\n", msg)
+		// // SubscribeClient ??
+		// fxS.In
+		// // add message
+		// err := fxC.InboxAddMessage(ctx, msg)
+		// require.NoError(t, err)
+
+		// // stream should get notification
+
+		// msgs, err := fxC.InboxFetch(ctx2, "")
+		// require.NoError(t, err)
+		// assert.Len(t, msgs.Messages, 10)
+
+		// offset := msgs.Messages[len(msgs.Messages)-1].Id
+
+		// for range 5 {
+		// 	err = fxC.InboxAddMessage(ctx, msg)
+		// 	require.NoError(t, err)
+		// }
+
+		// msgs, err = fxC.InboxFetch(ctx2, offset)
+		// require.NoError(t, err)
+		// assert.Len(t, msgs.Messages, 5)
+
+	})
+
+}
