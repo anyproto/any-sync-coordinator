@@ -22,6 +22,7 @@ import (
 	"github.com/anyproto/any-sync/acl"
 	"github.com/anyproto/any-sync/acl/mock_acl"
 	"github.com/anyproto/any-sync/app"
+	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/coordinator/inboxclient"
 	inboxclientmocks "github.com/anyproto/any-sync/coordinator/inboxclient/mocks"
 	"github.com/anyproto/any-sync/metric"
@@ -64,7 +65,7 @@ type fixtureClient struct {
 
 var ctx = context.Background()
 
-func newFixtureServer(t *testing.T) (fxS *fixtureServer) {
+func newFixtureServer(t *testing.T, nodeConf *mockNodeConf) (fxS *fixtureServer) {
 	account := &accounttest.AccountTestService{}
 	config := &config.Config{
 		SpaceStatus: spacestatus.Config{
@@ -104,7 +105,7 @@ func newFixtureServer(t *testing.T) (fxS *fixtureServer) {
 
 	fxS.a.
 		Register(account).
-		Register(&mockNodeConf{}).
+		Register(nodeConf).
 		Register(config).
 		Register(fxS.db).
 		Register(fxS.ts).
@@ -129,7 +130,7 @@ func (fxS *fixtureServer) Finish(t *testing.T) {
 	fxS.ctrl.Finish()
 }
 
-func newFixtureClient(t *testing.T) (fxC *fixtureClient) {
+func newFixtureClient(t *testing.T, nodeConf *mockNodeConf) (fxC *fixtureClient) {
 	account := &accounttest.AccountTestService{}
 	ic := inboxclient.New()
 
@@ -147,7 +148,7 @@ func newFixtureClient(t *testing.T) (fxC *fixtureClient) {
 	fxC.inboxclient.SetMessageReceiver(fxC.mockReceiver.Receive)
 	fxC.a.
 		Register(account).
-		Register(&mockNodeConf{}).
+		Register(nodeConf).
 		Register(fxC.ts).
 		Register(fxC.tp).
 		Register(fxC.inboxclient)
@@ -163,12 +164,16 @@ func (fxC *fixtureClient) Finish(t *testing.T) {
 }
 
 func makeClientServer(t *testing.T) (fxC *fixtureClient, fxS *fixtureServer, peerId string) {
-	fxC = newFixtureClient(t)
-	fxS = newFixtureServer(t)
+	nodeConf := &mockNodeConf{}
+	fxC = newFixtureClient(t, nodeConf)
+	fxS = newFixtureServer(t, nodeConf)
 	peerId = "peer"
-	identity, err := fxC.account.Account().SignKey.GetPublic().Marshall()
+	identityS, err := fxS.account.Account().SignKey.GetPublic().Marshall()
 	require.NoError(t, err)
-	mcS, mcC := rpctest.MultiConnPairWithIdentity(peerId, peerId+"client", identity)
+	identityC, err := fxC.account.Account().SignKey.GetPublic().Marshall()
+	require.NoError(t, err)
+
+	mcS, mcC := rpctest.MultiConnPairWithClientServerIdentity(peerId, peerId+"client", identityS, identityC)
 	pS, err := peer.NewPeer(mcS, fxC.ts)
 	require.NoError(t, err)
 	fxC.tp.AddPeer(ctx, pS)
@@ -177,7 +182,7 @@ func makeClientServer(t *testing.T) (fxC *fixtureClient, fxS *fixtureServer, pee
 	return
 }
 
-func makeMessage(pubkeyTo crypto.PubKey, privkeyFrom crypto.PrivKey) (msg *inbox.InboxMessage, err error) {
+func makeMessage(pubkeyTo crypto.PubKey, privkeyFrom crypto.PrivKey) (msg *coordinatorproto.InboxMessage, err error) {
 	body := []byte("hello")
 	encrypted, err := pubkeyTo.Encrypt(body)
 	if err != nil {
@@ -189,7 +194,7 @@ func makeMessage(pubkeyTo crypto.PubKey, privkeyFrom crypto.PrivKey) (msg *inbox
 		return
 	}
 
-	msg = &inbox.InboxMessage{
+	msgInbox := &inbox.InboxMessage{
 		PacketType: inbox.InboxPacketTypeDefault,
 		Packet: inbox.InboxPacket{
 			KeyType:          inbox.InboxKeyTypeEd25519,
@@ -202,7 +207,7 @@ func makeMessage(pubkeyTo crypto.PubKey, privkeyFrom crypto.PrivKey) (msg *inbox
 			},
 		},
 	}
-
+	msg = inbox.InboxMessageToResponse(msgInbox)
 	return
 
 }
@@ -224,11 +229,13 @@ func TestInbox_Notifications(t *testing.T) {
 		msg, _ := makeMessage(fxC.account.Account().SignKey.GetPublic(), fxC.account.Account().SignKey)
 
 		fmt.Printf("%#v\n", msg)
-		// // SubscribeClient ??
-		// fxS.In
+
 		// // add message
-		// err := fxC.InboxAddMessage(ctx, msg)
-		// require.NoError(t, err)
+		pubKeyC := fxC.account.Account().SignKey.GetPublic()
+		raw, _ := pubKeyC.Marshall()
+		ictx := peer.CtxWithIdentity(ctx, raw)
+		err := fxC.inboxclient.InboxAddMessage(ictx, pubKeyC, msg)
+		require.NoError(t, err)
 
 		// // stream should get notification
 
