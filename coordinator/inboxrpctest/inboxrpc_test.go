@@ -68,6 +68,11 @@ type fixtureClient struct {
 
 var ctx = context.Background()
 
+func (fxS *fixtureServer) inboxRunning() <-chan bool {
+	inboxServiceTestWrapper := fxS.inbox.(TestInboxService)
+	return inboxServiceTestWrapper.IsRunning()
+}
+
 func newFixtureServer(t *testing.T, nodeConf *mockNodeConf) (fxS *fixtureServer) {
 	account := &accounttest.AccountTestService{}
 	config := &config.Config{
@@ -80,8 +85,11 @@ func newFixtureServer(t *testing.T, nodeConf *mockNodeConf) (fxS *fixtureServer)
 		},
 	}
 	ctrl := gomock.NewController(t)
+	inboxService := inbox.New()
+	inboxServiceTestWrapper := NewTestInboxServiceWrapper(inboxService)
+
 	fxS = &fixtureServer{
-		inbox:   inbox.New(),
+		inbox:   inboxServiceTestWrapper,
 		account: account,
 		db:      db.New(),
 		ctrl:    ctrl,
@@ -168,8 +176,11 @@ func (fxC *fixtureClient) Finish(t *testing.T) {
 
 func makeClientServer(t *testing.T) (fxC *fixtureClient, fxS *fixtureServer, peerId string) {
 	nodeConf := &mockNodeConf{}
-	fxC = newFixtureClient(t, nodeConf)
+
 	fxS = newFixtureServer(t, nodeConf)
+	<-fxS.inboxRunning()
+	fxC = newFixtureClient(t, nodeConf)
+
 	peerId = "peer"
 	identityS, err := fxS.account.Account().SignKey.GetPublic().Marshall()
 	require.NoError(t, err)
@@ -239,8 +250,6 @@ func TestInbox_Notifications(t *testing.T) {
 			}).
 			Times(amount)
 
-		// TODO: create something like stream.ready to avoid sleep?
-		time.Sleep(2 * time.Second)
 		msgs, err := fxC.inboxclient.InboxFetch(ictx, "")
 		require.NoError(t, err)
 		assert.Len(t, msgs, 0)
