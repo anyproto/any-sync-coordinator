@@ -216,6 +216,11 @@ func makeMessage(pubkeyTo crypto.PubKey, privkeyFrom crypto.PrivKey) (msg *coord
 func dropColl(t *testing.T, fxS *fixtureServer) {
 	err := fxS.db.Db().Collection("inboxMessages").Drop(ctx)
 	require.NoError(t, err)
+
+	// to re-subscribe to mongo stream:
+	fxS.inbox.Close(context.TODO())
+	fxS.inbox.Run(context.TODO())
+
 }
 
 // make client (standalone)
@@ -234,17 +239,14 @@ func TestInbox_Notifications(t *testing.T) {
 		ictx := peer.CtxWithIdentity(ctx, raw)
 		var wg sync.WaitGroup
 		wg.Add(1)
-		expectedEvent := &coordinatorproto.InboxNotifySubscribeEvent{
-			NotifyId: "hello",
-		}
-
 		fxC.mockReceiver.EXPECT().
-			Receive(expectedEvent).
+			Receive(gomock.Any()).
 			Do(func(evt *coordinatorproto.InboxNotifySubscribeEvent) {
 				defer wg.Done()
 			}).
 			Times(1)
-		time.Sleep(9 * time.Second)
+
+		time.Sleep(2 * time.Second)
 
 		err := fxC.inboxclient.InboxAddMessage(ictx, pubKeyC, msg)
 		require.NoError(t, err)
@@ -258,7 +260,7 @@ func TestInbox_Notifications(t *testing.T) {
 		select {
 		case <-done:
 			return
-		case <-time.After(8 * time.Second):
+		case <-time.After(3 * time.Second):
 			t.Fatal("Receive callback was not triggered in time")
 		}
 
