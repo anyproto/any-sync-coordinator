@@ -21,7 +21,6 @@ import (
 	"github.com/anyproto/any-sync/net/rpc/server"
 	"github.com/anyproto/any-sync/nodeconf"
 	"github.com/anyproto/any-sync/util/crypto"
-	"github.com/gogo/protobuf/proto"
 	"go.uber.org/zap"
 	"storj.io/drpc"
 
@@ -249,7 +248,7 @@ func (c *coordinator) addCoordinatorLog(ctx context.Context, spaceId, peerId str
 			log.Debug("failed to add space receipt log entry", zap.Error(err))
 		}
 	}()
-	marshalledReceipt, err := signedReceipt.Marshal()
+	marshalledReceipt, err := signedReceipt.MarshalVT()
 	if err != nil {
 		return
 	}
@@ -298,7 +297,7 @@ func (c *coordinator) AclAddRecord(ctx context.Context, spaceId string, payload 
 	}
 
 	rec := &consensusproto.RawRecord{}
-	err = proto.Unmarshal(payload, rec)
+	err = rec.UnmarshalVT(payload)
 	if err != nil {
 		return
 	}

@@ -164,7 +164,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 			RawChange: []byte{1},
 			Id:        "id",
 		}
-		marshalled, _ := raw.Marshal()
+		marshalled, _ := raw.MarshalVT()
 		checkStatus := func(res StatusEntry, err error) {
 			require.NoError(t, err)
 			if time.Now().Unix()-res.DeletionTimestamp > 10*int64(time.Second) {
@@ -207,7 +207,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 			RawChange: []byte{1},
 			Id:        "id",
 		}
-		marshalled, _ := raw.Marshal()
+		marshalled, _ := raw.MarshalVT()
 		checkStatus := func(res StatusEntry, err error) {
 			require.NoError(t, err)
 			if time.Now().Unix()-res.DeletionTimestamp > 10*int64(time.Second) {
@@ -250,7 +250,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 			RawChange: []byte{1},
 			Id:        "id",
 		}
-		marshaled, _ := raw.Marshal()
+		marshaled, _ := raw.MarshalVT()
 		res, err := fx.ChangeStatus(ctx, StatusChange{
 			DeletionPayload:     marshaled,
 			DeletionPayloadType: coordinatorproto.DeletionPayloadType_Confirm,
@@ -286,7 +286,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 			RawChange: []byte{1},
 			Id:        "id",
 		}
-		marshaled, _ := raw.Marshal()
+		marshaled, _ := raw.MarshalVT()
 		_, err = fx.ChangeStatus(ctx, StatusChange{
 			DeletionPayload: marshaled,
 			SpaceId:         spaceId,
@@ -314,7 +314,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 			RawChange: []byte{1},
 			Id:        "id",
 		}
-		marshaled, _ := raw.Marshal()
+		marshaled, _ := raw.MarshalVT()
 		_, err = fx.ChangeStatus(ctx, StatusChange{
 			Identity:        identity,
 			DeletionPayload: marshaled,
@@ -373,7 +373,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 			RawChange: []byte{1},
 			Id:        "id",
 		}
-		marshaled, _ := raw.Marshal()
+		marshaled, _ := raw.MarshalVT()
 		_, err = fx.ChangeStatus(ctx, StatusChange{
 			DeletionPayload: marshaled,
 			Identity:        other,
@@ -411,7 +411,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 			RawChange: []byte{1},
 			Id:        "id",
 		}
-		marshaled, _ := raw.Marshal()
+		marshaled, _ := raw.MarshalVT()
 		_, err = fx.ChangeStatus(ctx, StatusChange{
 			DeletionPayload: marshaled,
 			Identity:        identity,
@@ -452,7 +452,7 @@ func TestSpaceStatus_Run(t *testing.T) {
 				RawChange: []byte{1},
 				Id:        "id",
 			}
-			marshaled, _ := raw.Marshal()
+			marshaled, _ := raw.MarshalVT()
 			_, err := fx.ChangeStatus(ctx, StatusChange{
 				DeletionPayload: marshaled,
 				Identity:        identity,
@@ -531,7 +531,7 @@ func TestSpaceStatus_SpaceDelete(t *testing.T) {
 		RawChange: []byte{1},
 		Id:        "id",
 	}
-	marshalled, _ := raw.Marshal()
+	marshalled, _ := raw.MarshalVT()
 	checkStatus := func(fx *fixture, timestamp int64, delPeriod time.Duration, err error) {
 		require.NoError(t, err)
 		res, err := fx.Status(ctx, spaceId)
