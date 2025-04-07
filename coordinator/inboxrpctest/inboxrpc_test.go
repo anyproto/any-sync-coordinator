@@ -226,18 +226,18 @@ func TestInbox_Notifications(t *testing.T) {
 		clearColl(t, fxS)
 
 		msg, _ := makeMessage(fxC.account.Account().SignKey.GetPublic(), fxC.account.Account().SignKey)
-		// // add message
 		pubKeyC := fxC.account.Account().SignKey.GetPublic()
 		raw, _ := pubKeyC.Marshall()
 		ictx := peer.CtxWithIdentity(ctx, raw)
 		var wg sync.WaitGroup
-		wg.Add(1)
+		amount := 9
+		wg.Add(amount)
 		fxC.mockReceiver.EXPECT().
 			Receive(gomock.Any()).
 			Do(func(evt *coordinatorproto.InboxNotifySubscribeEvent) {
 				defer wg.Done()
 			}).
-			Times(1)
+			Times(amount)
 
 		// TODO: create something like stream.ready to avoid sleep?
 		time.Sleep(2 * time.Second)
@@ -245,8 +245,10 @@ func TestInbox_Notifications(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, msgs, 0)
 
-		err = fxC.inboxclient.InboxAddMessage(ictx, pubKeyC, msg)
-		require.NoError(t, err)
+		for range amount {
+			err = fxC.inboxclient.InboxAddMessage(ictx, pubKeyC, msg)
+			require.NoError(t, err)
+		}
 
 		done := make(chan struct{})
 		go func() {
@@ -259,7 +261,7 @@ func TestInbox_Notifications(t *testing.T) {
 			// after notification, fetch once again
 			msgs, err := fxC.inboxclient.InboxFetch(ictx, "")
 			require.NoError(t, err)
-			assert.Len(t, msgs, 1)
+			assert.Len(t, msgs, amount)
 
 			return
 		case <-time.After(3 * time.Second):
