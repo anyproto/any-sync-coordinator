@@ -32,7 +32,9 @@ import (
 	"github.com/anyproto/any-sync/testutil/accounttest"
 	"github.com/anyproto/any-sync/testutil/anymock"
 	"github.com/anyproto/any-sync/util/crypto"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.uber.org/mock/gomock"
 )
 
@@ -213,24 +215,15 @@ func makeMessage(pubkeyTo crypto.PubKey, privkeyFrom crypto.PrivKey) (msg *coord
 
 }
 
-func dropColl(t *testing.T, fxS *fixtureServer) {
-	err := fxS.db.Db().Collection("inboxMessages").Drop(ctx)
+func clearColl(t *testing.T, fxS *fixtureServer) {
+	_, err := fxS.db.Db().Collection("inboxMessages").DeleteMany(ctx, bson.M{})
 	require.NoError(t, err)
-
-	// to re-subscribe to mongo stream:
-	fxS.inbox.Close(context.TODO())
-	fxS.inbox.Run(context.TODO())
-
 }
 
-// make client (standalone)
-// make server with real coordinator rpc
-// with real mongo
-// connect via multipair con
 func TestInbox_Notifications(t *testing.T) {
 	fxC, fxS, _ := makeClientServer(t)
 	t.Run("InboxAddMessage creates a stream notification", func(t *testing.T) {
-		dropColl(t, fxS)
+		clearColl(t, fxS)
 
 		msg, _ := makeMessage(fxC.account.Account().SignKey.GetPublic(), fxC.account.Account().SignKey)
 		// // add message
@@ -246,9 +239,13 @@ func TestInbox_Notifications(t *testing.T) {
 			}).
 			Times(1)
 
+		// TODO: create something like stream.ready to avoid sleep?
 		time.Sleep(2 * time.Second)
+		msgs, err := fxC.inboxclient.InboxFetch(ictx, "")
+		require.NoError(t, err)
+		assert.Len(t, msgs, 0)
 
-		err := fxC.inboxclient.InboxAddMessage(ictx, pubKeyC, msg)
+		err = fxC.inboxclient.InboxAddMessage(ictx, pubKeyC, msg)
 		require.NoError(t, err)
 
 		done := make(chan struct{})
@@ -259,28 +256,15 @@ func TestInbox_Notifications(t *testing.T) {
 
 		select {
 		case <-done:
+			// after notification, fetch once again
+			msgs, err := fxC.inboxclient.InboxFetch(ictx, "")
+			require.NoError(t, err)
+			assert.Len(t, msgs, 1)
+
 			return
 		case <-time.After(3 * time.Second):
 			t.Fatal("Receive callback was not triggered in time")
 		}
-
-		// // stream should get notification
-
-		// msgs, err := fxC.InboxFetch(ctx2, "")
-		// require.NoError(t, err)
-		// assert.Len(t, msgs.Messages, 10)
-
-		// offset := msgs.Messages[len(msgs.Messages)-1].Id
-
-		// for range 5 {
-		// 	err = fxC.InboxAddMessage(ctx, msg)
-		// 	require.NoError(t, err)
-		// }
-
-		// msgs, err = fxC.InboxFetch(ctx2, offset)
-		// require.NoError(t, err)
-		// assert.Len(t, msgs.Messages, 5)
-
 	})
 
 }
