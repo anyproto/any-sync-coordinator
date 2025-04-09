@@ -39,7 +39,7 @@ func New() InboxService {
 type InboxService interface {
 	InboxAddMessage(ctx context.Context, msg *InboxMessage) (err error)
 	InboxFetch(ctx context.Context, offset string) (result *InboxFetchResult, err error)
-	SubscribeClient(stream coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream) error
+	SubscribeClient(stream coordinatorproto.DRPCCoordinator_NotifySubscribeStream) error
 	app.ComponentRunnable
 }
 
@@ -47,12 +47,12 @@ type inbox struct {
 	coll *mongo.Collection
 
 	mu            sync.Mutex
-	notifyStreams map[string]map[string]coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream
+	notifyStreams map[string]map[string]coordinatorproto.DRPCCoordinator_NotifySubscribeStream
 }
 
 func (s *inbox) Init(a *app.App) (err error) {
 	s.coll = a.MustComponent(db.CName).(db.Database).Db().Collection(collName)
-	s.notifyStreams = make(map[string]map[string]coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream)
+	s.notifyStreams = make(map[string]map[string]coordinatorproto.DRPCCoordinator_NotifySubscribeStream)
 	log.Info("inbox service init")
 	return
 }
@@ -118,11 +118,11 @@ func (s *inbox) InboxAddMessage(ctx context.Context, msg *InboxMessage) (err err
 	return err
 }
 
-func (s *inbox) addStream(accountId, peerId string, stream coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream) {
+func (s *inbox) addStream(accountId, peerId string, stream coordinatorproto.DRPCCoordinator_NotifySubscribeStream) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.notifyStreams[accountId]; !ok {
-		s.notifyStreams[accountId] = make(map[string]coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream)
+		s.notifyStreams[accountId] = make(map[string]coordinatorproto.DRPCCoordinator_NotifySubscribeStream)
 	}
 	s.notifyStreams[accountId][peerId] = stream
 }
@@ -134,14 +134,14 @@ func (s *inbox) removeStream(accountId, peerId string) {
 	}
 }
 
-func (s *inbox) waitCloseStream(accountId, peerId string, stream coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream) {
+func (s *inbox) waitCloseStream(accountId, peerId string, stream coordinatorproto.DRPCCoordinator_NotifySubscribeStream) {
 	<-stream.Context().Done()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.removeStream(accountId, peerId)
 }
 
-func (s *inbox) SubscribeClient(rpcStream coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream) error {
+func (s *inbox) SubscribeClient(rpcStream coordinatorproto.DRPCCoordinator_NotifySubscribeStream) error {
 	accountPubKey, err := peer.CtxPubKey(rpcStream.Context())
 	if err != nil {
 		log.Error("failed to get account pub key")
@@ -182,11 +182,16 @@ func (s *inbox) notifyClients(receiver string, notifyId string) {
 	defer s.mu.Unlock()
 	if streams, ok := s.notifyStreams[receiver]; ok {
 		for peerId, stream := range streams {
-			event := coordinatorproto.InboxNotifySubscribeEvent{
-				NotifyId: notifyId,
+			event := &coordinatorproto.NotifySubscribeEvent{
+				Event: &coordinatorproto.NotifySubscribeEvent_InboxEvent{
+					InboxEvent: &coordinatorproto.InboxNotifySubscribeEvent{
+						NotifyId: notifyId,
+					},
+				},
 			}
+
 			log.Debug("sending to notify stream", zap.String("receiver", receiver), zap.String("peerId", peerId))
-			err := stream.Send(&event)
+			err := stream.Send(event)
 			if err != nil {
 				log.Warn("error sending to notify stream", zap.String("receiver", receiver), zap.String("peerId", peerId), zap.Error(err))
 				s.removeStream(receiver, peerId)

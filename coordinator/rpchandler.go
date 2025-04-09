@@ -478,11 +478,18 @@ func (r *rpcHandler) InboxFetch(ctx context.Context, in *coordinatorproto.InboxF
 	return response, nil
 }
 
-func (r *rpcHandler) InboxNotifySubscribe(req *coordinatorproto.InboxNotifySubscribeRequest, rpcStream coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream) (err error) {
-	err = r.c.inbox.SubscribeClient(rpcStream)
-	if err != nil {
-		return err
+func (r *rpcHandler) NotifySubscribe(req *coordinatorproto.NotifySubscribeRequest, rpcStream coordinatorproto.DRPCCoordinator_NotifySubscribeStream) (err error) {
+	switch req.EventType {
+	case coordinatorproto.NotifyEventType_InboxNewMessageEvent:
+		err = r.c.inbox.SubscribeClient(rpcStream)
+		if err != nil {
+			return err
+		}
+	default:
+		return errors.ErrUnsupported
+
 	}
+
 	<-rpcStream.Context().Done()
 	return nil
 }
