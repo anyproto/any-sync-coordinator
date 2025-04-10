@@ -26,6 +26,7 @@ import (
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/coordinator/inboxclient"
 	inboxclientmocks "github.com/anyproto/any-sync/coordinator/inboxclient/mocks"
+	"github.com/anyproto/any-sync/coordinator/subscribeclient"
 	"github.com/anyproto/any-sync/metric"
 	"github.com/anyproto/any-sync/net/peer"
 	"github.com/anyproto/any-sync/net/rpc/rpctest"
@@ -162,6 +163,7 @@ func newFixtureClient(t *testing.T, nodeConf *mockNodeConf) (fxC *fixtureClient)
 		Register(nodeConf).
 		Register(fxC.ts).
 		Register(fxC.tp).
+		Register(subscribeclient.New()).
 		Register(fxC.inboxclient)
 
 	require.NoError(t, fxC.a.Start(ctx))
@@ -250,7 +252,7 @@ func TestInbox_Notifications(t *testing.T) {
 			}).
 			Times(amount)
 
-		msgs, err := fxC.inboxclient.InboxFetch(ictx, "")
+		msgs, _, err := fxC.inboxclient.InboxFetch(ictx, "")
 		require.NoError(t, err)
 		assert.Len(t, msgs, 0)
 
@@ -268,7 +270,7 @@ func TestInbox_Notifications(t *testing.T) {
 		select {
 		case <-done:
 			// after notification, fetch once again
-			msgs, err := fxC.inboxclient.InboxFetch(ictx, "")
+			msgs, _, err := fxC.inboxclient.InboxFetch(ictx, "")
 			require.NoError(t, err)
 			assert.Len(t, msgs, amount)
 

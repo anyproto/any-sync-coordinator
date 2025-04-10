@@ -6,6 +6,7 @@ import (
 
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/net/peer"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type InboxPacketType int
@@ -39,9 +40,9 @@ func (t InboxPayloadType) String() string {
 }
 
 type InboxMessage struct {
-	Id         string          `bson:"_id"`
-	PacketType InboxPacketType `bson:"packetType"`
-	Packet     InboxPacket     `bson:"packet"`
+	Id         primitive.ObjectID `bson:"_id,omitempty"`
+	PacketType InboxPacketType    `bson:"packetType"`
+	Packet     InboxPacket        `bson:"packet"`
 }
 
 type InboxPacket struct {
@@ -54,7 +55,7 @@ type InboxPacket struct {
 
 type InboxPayload struct {
 	PayloadType InboxPayloadType `bson:"payloadType"`
-	Timestamp   time.Time        `bson:"timestamp"`
+	Timestamp   int64            `bson:"timestamp"`
 	Body        []byte           `bson:"body"`
 }
 

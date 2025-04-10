@@ -13,7 +13,6 @@ import (
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/net/peer"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.uber.org/zap"
@@ -75,9 +74,11 @@ func (s *inbox) Run(ctx context.Context) error {
 }
 
 func (s *inbox) Close(_ context.Context) (err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for _, streams := range s.notifyStreams {
 		for _, stream := range streams {
-			stream.Close()
+			_ = stream.Close()
 		}
 	}
 	return nil
@@ -110,10 +111,7 @@ func (s *inbox) InboxAddMessage(ctx context.Context, msg *InboxMessage) (err err
 		return
 	}
 
-	randomID := primitive.NewObjectID()
-	msg.Id = randomID.Hex()
-	msg.Packet.Payload.Timestamp = time.Now()
-	fmt.Printf("add msg\n")
+	msg.Packet.Payload.Timestamp = time.Now().Unix()
 	_, err = s.coll.InsertOne(ctx, msg)
 	return err
 }
@@ -215,7 +213,11 @@ func (s *inbox) streamListener(stream *mongo.ChangeStream) {
 		}
 		receiver := string(res.InboxMessage.Packet.ReceiverIdentity)
 		log.Debug("stream receiver", zap.String("r", receiver))
-		s.notifyClients(receiver, res.DocumentKey.Id)
+
+		// s.notifyClients(receiver, res.DocumentKey.Id)
+		eventtype := "inbox"
+		payload := InboxMessage.Id
+		subssrv.NotifyByIdentity(receiver, eventtype, payload)
 	}
 }
 

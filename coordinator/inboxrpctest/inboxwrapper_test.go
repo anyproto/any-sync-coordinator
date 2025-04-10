@@ -33,6 +33,7 @@ func (w *TestInboxServiceWrapper) Name() string {
 }
 
 func (w *TestInboxServiceWrapper) Run(ctx context.Context) error {
+	// TODO: have to move this to new subscribeclient mock to make this work?
 	fmt.Printf("inbox wrapper run\n")
 	w.isRunning <- true
 	fmt.Printf("inbox wrapper run \n")
@@ -51,7 +52,7 @@ func (w *TestInboxServiceWrapper) InboxFetch(ctx context.Context, offset string)
 	return w.original.InboxFetch(ctx, offset)
 }
 
-func (w *TestInboxServiceWrapper) SubscribeClient(stream coordinatorproto.DRPCCoordinator_InboxNotifySubscribeStream) error {
+func (w *TestInboxServiceWrapper) SubscribeClient(stream coordinatorproto.DRPCCoordinator_NotifySubscribeStream) error {
 	return w.original.SubscribeClient(stream)
 }
 
