@@ -31,6 +31,8 @@ import (
 	"github.com/anyproto/any-sync-coordinator/coordinatorlog/mock_coordinatorlog"
 	"github.com/anyproto/any-sync-coordinator/deletionlog"
 	"github.com/anyproto/any-sync-coordinator/deletionlog/mock_deletionlog"
+	"github.com/anyproto/any-sync-coordinator/inbox"
+	"github.com/anyproto/any-sync-coordinator/inbox/mock_inbox"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
 	"github.com/anyproto/any-sync-coordinator/spacestatus/mock_spacestatus"
 )
@@ -307,6 +309,7 @@ func newFixture(t *testing.T) *fixture {
 		coordLog:     mock_coordinatorlog.NewMockCoordinatorLog(ctrl),
 		aclEventLog:  mock_acleventlog.NewMockAclEventLog(ctrl),
 		deletionLog:  mock_deletionlog.NewMockDeletionLog(ctrl),
+		inbox:        mock_inbox.NewMockInboxService(ctrl),
 		acl:          mock_acl.NewMockAclService(ctrl),
 		accountLimit: mock_accountlimit.NewMockAccountLimit(ctrl),
 		a:            new(app.App),
@@ -317,6 +320,7 @@ func newFixture(t *testing.T) *fixture {
 	anymock.ExpectComp(fx.spaceStatus.EXPECT(), spacestatus.CName)
 	anymock.ExpectComp(fx.coordLog.EXPECT(), coordinatorlog.CName)
 	anymock.ExpectComp(fx.deletionLog.EXPECT(), deletionlog.CName)
+	anymock.ExpectComp(fx.inbox.EXPECT(), inbox.CName)
 	anymock.ExpectComp(fx.acl.EXPECT(), acl.CName)
 	anymock.ExpectComp(fx.accountLimit.EXPECT(), accountlimit.CName)
 	anymock.ExpectComp(fx.aclEventLog.EXPECT(), acleventlog.CName)
@@ -330,6 +334,7 @@ func newFixture(t *testing.T) *fixture {
 		Register(fx.aclEventLog).
 		Register(metric.New()).
 		Register(fx.deletionLog).
+		Register(fx.inbox).
 		Register(fx.acl).
 		Register(fx.accountLimit).
 		Register(rpctest.NewTestServer())
@@ -347,6 +352,7 @@ type fixture struct {
 	coordLog     *mock_coordinatorlog.MockCoordinatorLog
 	aclEventLog  *mock_acleventlog.MockAclEventLog
 	deletionLog  *mock_deletionlog.MockDeletionLog
+	inbox        *mock_inbox.MockInboxService
 	acl          *mock_acl.MockAclService
 	accountLimit *mock_accountlimit.MockAccountLimit
 }
