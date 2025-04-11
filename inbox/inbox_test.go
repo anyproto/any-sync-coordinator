@@ -64,6 +64,15 @@ func dropColl(t *testing.T, fxC *fixture) {
 	require.NoError(t, err)
 }
 
+func TestInbox_StrToObjId(t *testing.T) {
+	t.Run("empty offset", func(t *testing.T) {
+		_, err := strToObjId("")
+		t.Log(err)
+		assert.Error(t, err)
+	})
+
+}
+
 func TestInbox_AddMessage(t *testing.T) {
 	fxC := newFixture(t)
 	defer fxC.Finish(t)
@@ -138,7 +147,7 @@ func TestInbox_AddMessage(t *testing.T) {
 			require.NoError(t, err)
 		}
 
-		msgs, err = fxC.InboxFetch(ctx2, offset)
+		msgs, err = fxC.InboxFetch(ctx2, offset.Hex())
 		require.NoError(t, err)
 		assert.Len(t, msgs.Messages, 5)
 
@@ -154,14 +163,14 @@ func TestInbox_AddMessage(t *testing.T) {
 		msg, _ := makeMessage(pk2, sk)
 
 		preseed := make([]any, fetchLimit+5)
-		msg.Packet.Payload.Timestamp = time.Now()
+		msg.Packet.Payload.Timestamp = time.Now().Unix()
 
 		// this test runs too long via AddMessage: pre-seed db
 		for i := range preseed {
 			m := *msg
-			m.Id = primitive.NewObjectID().Hex()
+			m.Id = primitive.NewObjectID()
 			t := time.Now().Add(time.Duration(i) * time.Second)
-			m.Packet.Payload.Timestamp = t
+			m.Packet.Payload.Timestamp = t.Unix()
 			preseed[i] = m
 		}
 
@@ -173,7 +182,7 @@ func TestInbox_AddMessage(t *testing.T) {
 		assert.True(t, msgs.HasMore)
 
 		offset := msgs.Messages[len(msgs.Messages)-1].Id
-		msgs, err = fxC.InboxFetch(ctx2, offset)
+		msgs, err = fxC.InboxFetch(ctx2, offset.Hex())
 		require.NoError(t, err)
 		assert.False(t, msgs.HasMore)
 		assert.Len(t, msgs.Messages, 5)
@@ -191,7 +200,7 @@ func (c config) Name() string                { return "config" }
 func (c config) GetMongo() db.Mongo {
 	return db.Mongo{
 		Connect:  "mongodb://localhost:27017",
-		Database: "coordinator_unittest",
+		Database: "coordinator_unittest_inbox",
 	}
 }
 

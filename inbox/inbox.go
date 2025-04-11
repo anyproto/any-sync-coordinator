@@ -13,6 +13,7 @@ import (
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/net/peer"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.uber.org/zap"
@@ -214,10 +215,10 @@ func (s *inbox) streamListener(stream *mongo.ChangeStream) {
 		receiver := string(res.InboxMessage.Packet.ReceiverIdentity)
 		log.Debug("stream receiver", zap.String("r", receiver))
 
-		// s.notifyClients(receiver, res.DocumentKey.Id)
-		eventtype := "inbox"
-		payload := InboxMessage.Id
-		subssrv.NotifyByIdentity(receiver, eventtype, payload)
+		s.notifyClients(receiver, res.DocumentKey.Id)
+		// eventtype := "inbox"
+		// payload := InboxMessage.Id
+		// subssrv.NotifyByIdentity(receiver, eventtype, payload)
 	}
 }
 
@@ -233,6 +234,16 @@ type InboxFetchResult struct {
 	HasMore  bool
 }
 
+func strToObjId(strId string) (objectID primitive.ObjectID, err error) {
+	objectID, err = primitive.ObjectIDFromHex(strId)
+	if err != nil {
+		err = fmt.Errorf("failed to convert %s to objectId: %w", strId, err)
+		return
+	}
+
+	return
+}
+
 // Fetches <= FetchLimit+1 amount of messages from inbox.
 // If len(messages) > FetchLimit, sets `HasMore` to true.
 func (s *inbox) InboxFetch(ctx context.Context, offset string) (result *InboxFetchResult, err error) {
@@ -246,7 +257,12 @@ func (s *inbox) InboxFetch(ctx context.Context, offset string) (result *InboxFet
 	filter := bson.D{bson.E{Key: "packet.receiverIdentity", Value: receiverIdentity}}
 
 	if offset != "" {
-		filter = append(filter, bson.E{Key: "_id", Value: bson.D{bson.E{Key: "$gt", Value: offset}}})
+		objectId, errOffset := strToObjId(offset)
+		if errOffset != nil {
+			return nil, errOffset
+		}
+
+		filter = append(filter, bson.E{Key: "_id", Value: bson.D{bson.E{Key: "$gt", Value: objectId}}})
 	}
 
 	var messages []*InboxMessage

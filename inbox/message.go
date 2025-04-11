@@ -74,7 +74,7 @@ func InboxMessageFromRequest(ctx context.Context, in *coordinatorproto.InboxAddM
 			ReceiverIdentity: in.Message.Packet.ReceiverIdentity,
 			Payload: InboxPayload{
 				PayloadType: InboxPayloadType(in.Message.Packet.Payload.PayloadType),
-				Timestamp:   time.Now(),
+				Timestamp:   time.Now().Unix(),
 				Body:        in.Message.Packet.Payload.Body,
 			},
 		},
@@ -84,7 +84,7 @@ func InboxMessageFromRequest(ctx context.Context, in *coordinatorproto.InboxAddM
 
 func InboxMessageToResponse(msg *InboxMessage) *coordinatorproto.InboxMessage {
 	return &coordinatorproto.InboxMessage{
-		Id:         msg.Id,
+		Id:         msg.Id.Hex(),
 		PacketType: coordinatorproto.InboxPacketType(msg.PacketType),
 		Packet: &coordinatorproto.InboxPacket{
 			KeyType:          coordinatorproto.InboxKeyType(msg.Packet.KeyType),
@@ -93,7 +93,7 @@ func InboxMessageToResponse(msg *InboxMessage) *coordinatorproto.InboxMessage {
 			SenderSignature:  msg.Packet.SenderSignature,
 			Payload: &coordinatorproto.InboxPayload{
 				PayloadType: coordinatorproto.InboxPayloadType(msg.Packet.Payload.PayloadType),
-				Timestamp:   msg.Packet.Payload.Timestamp.Unix(),
+				Timestamp:   msg.Packet.Payload.Timestamp,
 				Body:        msg.Packet.Payload.Body,
 			},
 		},
