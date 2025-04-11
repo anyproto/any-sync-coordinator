@@ -74,8 +74,7 @@ func (fxS *fixtureServer) inboxRunning() <-chan bool {
 	return inboxServiceTestWrapper.IsRunning()
 }
 
-func newFixtureServer(t *testing.T, nodeConf *mockNodeConf) (fxS *fixtureServer) {
-	account := &accounttest.AccountTestService{}
+func newFixtureServer(t *testing.T, nodeConf *mockNodeConf, account *accounttest.AccountTestService) (fxS *fixtureServer) {
 	config := &config.Config{
 		SpaceStatus: spacestatus.Config{
 			DeletionPeriodDays: 42,
@@ -142,8 +141,7 @@ func (fxS *fixtureServer) Finish(t *testing.T) {
 	fxS.ctrl.Finish()
 }
 
-func newFixtureClient(t *testing.T, nodeConf *mockNodeConf) (fxC *fixtureClient) {
-	account := &accounttest.AccountTestService{}
+func newFixtureClient(t *testing.T, nodeConf *mockNodeConf, account *accounttest.AccountTestService) (fxC *fixtureClient) {
 	ic := inboxclient.New()
 
 	ctrl := gomock.NewController(t)
@@ -178,10 +176,11 @@ func (fxC *fixtureClient) Finish(t *testing.T) {
 
 func makeClientServer(t *testing.T) (fxC *fixtureClient, fxS *fixtureServer, peerId string) {
 	nodeConf := &mockNodeConf{}
+	account := &accounttest.AccountTestService{}
 
-	fxS = newFixtureServer(t, nodeConf)
+	fxS = newFixtureServer(t, nodeConf, account)
 	<-fxS.inboxRunning()
-	fxC = newFixtureClient(t, nodeConf)
+	fxC = newFixtureClient(t, nodeConf, account)
 
 	peerId = "peer"
 	identityS, err := fxS.account.Account().SignKey.GetPublic().Marshall()
