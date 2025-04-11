@@ -7,7 +7,7 @@ toolchain go1.23.6
 require (
 	github.com/ahmetb/govvv v0.3.0
 	github.com/anyproto/any-sync v0.5.22
-	github.com/cheggaaa/mb/v3 v3.0.2
+	github.com/anyproto/go-chash v0.1.0
 	github.com/gogo/protobuf v1.3.2
 	github.com/stretchr/testify v1.10.0
 	github.com/zeebo/assert v1.3.0
@@ -21,7 +21,6 @@ require (
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/anyproto/any-store v0.1.8 // indirect
-	github.com/anyproto/go-chash v0.1.0 // indirect
 	github.com/anyproto/go-slip10 v1.0.0 // indirect
 	github.com/anyproto/go-slip21 v1.0.0 // indirect
 	github.com/anyproto/lexid v0.0.4 // indirect
@@ -32,6 +31,7 @@ require (
 	github.com/btcsuite/btcutil v1.0.3-0.20201208143702-a53e38424cce // indirect
 	github.com/cespare/xxhash v1.1.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/cheggaaa/mb/v3 v3.0.2 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/davidlazar/go-crypto v0.0.0-20200604182044-b73af7476f6c // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect

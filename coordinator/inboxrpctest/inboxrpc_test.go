@@ -59,6 +59,7 @@ type fixtureServer struct {
 
 type fixtureClient struct {
 	inboxclient  inboxclient.InboxClient
+	subsclient   TestSubsClientService
 	mockReceiver *inboxclientmocks.MockMessageReceiverTest
 	account      *accounttest.AccountTestService
 	a            *app.App
@@ -69,9 +70,8 @@ type fixtureClient struct {
 
 var ctx = context.Background()
 
-func (fxS *fixtureServer) inboxRunning() <-chan bool {
-	inboxServiceTestWrapper := fxS.inbox.(TestInboxService)
-	return inboxServiceTestWrapper.IsRunning()
+func (fxC *fixtureClient) subsClientRunning() <-chan bool {
+	return fxC.subsclient.IsRunning()
 }
 
 func newFixtureServer(t *testing.T, nodeConf *mockNodeConf, account *accounttest.AccountTestService) (fxS *fixtureServer) {
@@ -86,10 +86,9 @@ func newFixtureServer(t *testing.T, nodeConf *mockNodeConf, account *accounttest
 	}
 	ctrl := gomock.NewController(t)
 	inboxService := inbox.New()
-	inboxServiceTestWrapper := NewTestInboxServiceWrapper(inboxService)
 
 	fxS = &fixtureServer{
-		inbox:   inboxServiceTestWrapper,
+		inbox:   inboxService,
 		account: account,
 		db:      db.New(),
 		ctrl:    ctrl,
@@ -145,8 +144,12 @@ func newFixtureClient(t *testing.T, nodeConf *mockNodeConf, account *accounttest
 	ic := inboxclient.New()
 
 	ctrl := gomock.NewController(t)
+	subsClient := subscribeclient.New()
+	subsClientWrapper := NewTestSubsClientServiceWrapper(subsClient)
+
 	fxC = &fixtureClient{
 		inboxclient:  ic,
+		subsclient:   subsClientWrapper,
 		mockReceiver: inboxclientmocks.NewMockMessageReceiverTest(ctrl),
 		account:      account,
 		ctrl:         ctrl,
@@ -161,7 +164,7 @@ func newFixtureClient(t *testing.T, nodeConf *mockNodeConf, account *accounttest
 		Register(nodeConf).
 		Register(fxC.ts).
 		Register(fxC.tp).
-		Register(subscribeclient.New()).
+		Register(fxC.subsclient).
 		Register(fxC.inboxclient)
 
 	require.NoError(t, fxC.a.Start(ctx))
@@ -179,8 +182,12 @@ func makeClientServer(t *testing.T) (fxC *fixtureClient, fxS *fixtureServer, pee
 	account := &accounttest.AccountTestService{}
 
 	fxS = newFixtureServer(t, nodeConf, account)
-	<-fxS.inboxRunning()
+
 	fxC = newFixtureClient(t, nodeConf, account)
+	// wait for subsclient listener.
+	// in real client, this race should be solved by doing
+	// InboxFetch right after stream notification subscribtion.
+	<-fxC.subsClientRunning()
 
 	peerId = "peer"
 	identityS, err := fxS.account.Account().SignKey.GetPublic().Marshall()
