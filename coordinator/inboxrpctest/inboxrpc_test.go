@@ -241,6 +241,8 @@ func clearColl(t *testing.T, fxS *fixtureServer) {
 
 func TestInbox_Notifications(t *testing.T) {
 	fxC, fxS, _ := makeClientServer(t)
+	// TODO: hack to wait mongo.coll.Watch
+	time.Sleep(3 * time.Second)
 	t.Run("InboxAddMessage creates a stream notification", func(t *testing.T) {
 		clearColl(t, fxS)
 

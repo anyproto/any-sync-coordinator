@@ -32,7 +32,6 @@ func (w *TestSubsClientServiceWrapper) Name() string {
 }
 
 func (w *TestSubsClientServiceWrapper) Run(ctx context.Context) error {
-	// TODO: have to move this to new subscribeclient mock to make this work?
 	w.isRunning <- true
 	return w.original.Run(ctx)
 }
