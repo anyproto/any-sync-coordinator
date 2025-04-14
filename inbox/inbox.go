@@ -203,7 +203,7 @@ func (s *inbox) InboxFetch(ctx context.Context, offset string) (result *InboxFet
 	}
 
 	var messages []*InboxMessage
-	sort := bson.D{bson.E{Key: "packet.payload.timestamp", Value: 1}}
+	sort := bson.D{bson.E{Key: "_id", Value: 1}}
 
 	cursor, err := s.coll.Find(ctx, filter, options.Find().SetSort(sort).SetLimit(fetchLimit+1))
 	if err != nil {
