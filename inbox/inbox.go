@@ -5,10 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/anyproto/any-sync-coordinator/db"
+	"github.com/anyproto/any-sync-coordinator/subscribe"
 	"github.com/anyproto/any-sync/app"
 	"github.com/anyproto/any-sync/app/logger"
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
@@ -45,16 +45,13 @@ type InboxService interface {
 }
 
 type inbox struct {
-	coll *mongo.Collection
-
-	mu            sync.Mutex
-	notifyStreams map[string]map[string]coordinatorproto.DRPCCoordinator_NotifySubscribeStream
+	coll             *mongo.Collection
+	subscribeService subscribe.SubscribeService
 }
 
 func (s *inbox) Init(a *app.App) (err error) {
 	s.coll = a.MustComponent(db.CName).(db.Database).Db().Collection(collName)
-	s.notifyStreams = make(map[string]map[string]coordinatorproto.DRPCCoordinator_NotifySubscribeStream)
-	log.Info("inbox service init")
+	s.subscribeService = a.MustComponent(subscribe.CName).(subscribe.SubscribeService)
 	return
 }
 
@@ -63,7 +60,6 @@ func (s *inbox) Name() (name string) {
 }
 
 func (s *inbox) Run(ctx context.Context) error {
-	log.Info("inbox service run")
 	_, err := s.coll.Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys: bson.D{bson.E{Key: "packet.receiverIdentity", Value: 1}, bson.E{Key: "_id", Value: 1}},
 	})
@@ -76,13 +72,6 @@ func (s *inbox) Run(ctx context.Context) error {
 }
 
 func (s *inbox) Close(_ context.Context) (err error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, streams := range s.notifyStreams {
-		for _, stream := range streams {
-			_ = stream.Close()
-		}
-	}
 	return nil
 }
 
@@ -118,29 +107,6 @@ func (s *inbox) InboxAddMessage(ctx context.Context, msg *InboxMessage) (err err
 	return err
 }
 
-func (s *inbox) addStream(accountId, peerId string, stream coordinatorproto.DRPCCoordinator_NotifySubscribeStream) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, ok := s.notifyStreams[accountId]; !ok {
-		s.notifyStreams[accountId] = make(map[string]coordinatorproto.DRPCCoordinator_NotifySubscribeStream)
-	}
-	s.notifyStreams[accountId][peerId] = stream
-}
-
-func (s *inbox) removeStream(accountId, peerId string) {
-	delete(s.notifyStreams[accountId], peerId)
-	if len(s.notifyStreams[accountId]) == 0 {
-		delete(s.notifyStreams, accountId)
-	}
-}
-
-func (s *inbox) waitCloseStream(accountId, peerId string, stream coordinatorproto.DRPCCoordinator_NotifySubscribeStream) {
-	<-stream.Context().Done()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.removeStream(accountId, peerId)
-}
-
 func (s *inbox) SubscribeClient(rpcStream coordinatorproto.DRPCCoordinator_NotifySubscribeStream) error {
 	accountPubKey, err := peer.CtxPubKey(rpcStream.Context())
 	if err != nil {
@@ -153,9 +119,7 @@ func (s *inbox) SubscribeClient(rpcStream coordinatorproto.DRPCCoordinator_Notif
 	if err != nil {
 		return err
 	}
-	fmt.Printf("subs client\n")
-	s.addStream(accountId, peerId, rpcStream)
-	go s.waitCloseStream(accountId, peerId, rpcStream)
+	s.subscribeService.AddStream(coordinatorproto.NotifyEventType_InboxNewMessageEvent, accountId, peerId, rpcStream)
 
 	return nil
 }
@@ -177,31 +141,6 @@ func (s *inbox) runStreamListener(ctx context.Context) (err error) {
 	return
 }
 
-func (s *inbox) notifyClients(receiver string, notifyId string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if streams, ok := s.notifyStreams[receiver]; ok {
-		for peerId, stream := range streams {
-			event := &coordinatorproto.NotifySubscribeEvent{
-				Event: &coordinatorproto.NotifySubscribeEvent_InboxEvent{
-					InboxEvent: &coordinatorproto.InboxNotifySubscribeEvent{
-						NotifyId: notifyId,
-					},
-				},
-			}
-
-			log.Debug("sending to notify stream", zap.String("receiver", receiver), zap.String("peerId", peerId))
-			err := stream.Send(event)
-			if err != nil {
-				log.Warn("error sending to notify stream", zap.String("receiver", receiver), zap.String("peerId", peerId), zap.Error(err))
-				s.removeStream(receiver, peerId)
-			}
-		}
-	} else {
-		log.Warn("no such recepient", zap.String("id", receiver))
-	}
-}
-
 func (s *inbox) streamListener(stream *mongo.ChangeStream) {
 	fmt.Printf("mongo streams\n")
 	for stream.Next(context.Background()) {
@@ -216,10 +155,7 @@ func (s *inbox) streamListener(stream *mongo.ChangeStream) {
 		receiver := string(res.InboxMessage.Packet.ReceiverIdentity)
 		log.Debug("stream receiver", zap.String("r", receiver))
 
-		s.notifyClients(receiver, res.DocumentKey.Id)
-		// eventtype := "inbox"
-		// payload := InboxMessage.Id
-		// subssrv.NotifyByIdentity(receiver, eventtype, payload)
+		s.subscribeService.NotifyAllPeers(coordinatorproto.NotifyEventType_InboxNewMessageEvent, receiver, []byte(res.DocumentKey.Id))
 	}
 }
 
