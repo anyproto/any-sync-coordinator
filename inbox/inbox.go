@@ -40,7 +40,6 @@ func New() InboxService {
 type InboxService interface {
 	InboxAddMessage(ctx context.Context, msg *InboxMessage) (err error)
 	InboxFetch(ctx context.Context, offset string) (result *InboxFetchResult, err error)
-	SubscribeClient(stream coordinatorproto.DRPCCoordinator_NotifySubscribeStream) error
 	app.ComponentRunnable
 }
 
@@ -105,23 +104,6 @@ func (s *inbox) InboxAddMessage(ctx context.Context, msg *InboxMessage) (err err
 	msg.Packet.Payload.Timestamp = time.Now().Unix()
 	_, err = s.coll.InsertOne(ctx, msg)
 	return err
-}
-
-func (s *inbox) SubscribeClient(rpcStream coordinatorproto.DRPCCoordinator_NotifySubscribeStream) error {
-	accountPubKey, err := peer.CtxPubKey(rpcStream.Context())
-	if err != nil {
-		log.Error("failed to get account pub key")
-		return err
-	}
-	accountId := accountPubKey.Account()
-
-	peerId, err := peer.CtxPeerId(rpcStream.Context())
-	if err != nil {
-		return err
-	}
-	s.subscribeService.AddStream(coordinatorproto.NotifyEventType_InboxNewMessageEvent, accountId, peerId, rpcStream)
-
-	return nil
 }
 
 type matchPipeline struct {

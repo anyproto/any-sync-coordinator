@@ -2,6 +2,7 @@ package subscribe
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/anyproto/any-sync/app"
@@ -20,7 +21,7 @@ func New() SubscribeService {
 
 type SubscribeService interface {
 	app.ComponentRunnable
-	AddStream(eventType coordinatorproto.NotifyEventType, accountId, peerId string, stream coordinatorproto.DRPCCoordinator_NotifySubscribeStream)
+	AddStream(eventType coordinatorproto.NotifyEventType, accountId, peerId string, stream coordinatorproto.DRPCCoordinator_NotifySubscribeStream) error
 	NotifyAllPeers(eventType coordinatorproto.NotifyEventType, accountId string, payload []byte)
 }
 
@@ -63,7 +64,7 @@ func (s *subscribe) Close(_ context.Context) (err error) {
 	return nil
 }
 
-func (s *subscribe) AddStream(eventType coordinatorproto.NotifyEventType, accountId, peerId string, stream coordinatorproto.DRPCCoordinator_NotifySubscribeStream) {
+func (s *subscribe) AddStream(eventType coordinatorproto.NotifyEventType, accountId, peerId string, stream coordinatorproto.DRPCCoordinator_NotifySubscribeStream) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -71,8 +72,14 @@ func (s *subscribe) AddStream(eventType coordinatorproto.NotifyEventType, accoun
 		s.notifyStreams[eventType][accountId] = make(map[string]coordinatorproto.DRPCCoordinator_NotifySubscribeStream)
 	}
 
+	if _, ok := s.notifyStreams[eventType][accountId][peerId]; ok {
+		return fmt.Errorf("addstream: peerId %s already subscribed", peerId)
+	}
+
 	s.notifyStreams[eventType][accountId][peerId] = stream
 	go s.waitCloseStream(eventType, accountId, peerId, stream)
+
+	return nil
 }
 
 func (s *subscribe) waitCloseStream(eventType coordinatorproto.NotifyEventType, accountId, peerId string, stream coordinatorproto.DRPCCoordinator_NotifySubscribeStream) {

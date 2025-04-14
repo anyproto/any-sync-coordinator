@@ -479,19 +479,18 @@ func (r *rpcHandler) InboxFetch(ctx context.Context, in *coordinatorproto.InboxF
 }
 
 func (r *rpcHandler) NotifySubscribe(req *coordinatorproto.NotifySubscribeRequest, rpcStream coordinatorproto.DRPCCoordinator_NotifySubscribeStream) (err error) {
-	// TODO:
-	// subsserv.AddStream(rpcStream)
-
-	switch req.EventType {
-	case coordinatorproto.NotifyEventType_InboxNewMessageEvent:
-		err = r.c.inbox.SubscribeClient(rpcStream)
-		if err != nil {
-			return err
-		}
-	default:
-		return errors.ErrUnsupported
-
+	accountPubKey, err := peer.CtxPubKey(rpcStream.Context())
+	if err != nil {
+		log.Error("failed to get account pub key")
+		return err
 	}
+	accountId := accountPubKey.Account()
+
+	peerId, err := peer.CtxPeerId(rpcStream.Context())
+	if err != nil {
+		return err
+	}
+	r.c.subscribe.AddStream(req.EventType, accountId, peerId, rpcStream)
 
 	<-rpcStream.Context().Done()
 	return nil

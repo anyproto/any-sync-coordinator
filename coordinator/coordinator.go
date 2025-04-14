@@ -32,6 +32,7 @@ import (
 	"github.com/anyproto/any-sync-coordinator/deletionlog"
 	"github.com/anyproto/any-sync-coordinator/inbox"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
+	"github.com/anyproto/any-sync-coordinator/subscribe"
 )
 
 var (
@@ -70,7 +71,9 @@ type coordinator struct {
 	accountLimit   accountlimit.AccountLimit
 	acl            acl.AclService
 	inbox          inbox.InboxService
-	drpcHandler    *rpcHandler
+	subscribe      subscribe.SubscribeService
+
+	drpcHandler *rpcHandler
 }
 
 func (c *coordinator) Init(a *app.App) (err error) {
@@ -82,6 +85,7 @@ func (c *coordinator) Init(a *app.App) (err error) {
 	c.spaceStatus = a.MustComponent(spacestatus.CName).(spacestatus.SpaceStatus)
 	c.coordinatorLog = a.MustComponent(coordinatorlog.CName).(coordinatorlog.CoordinatorLog)
 	c.metric = a.MustComponent(metric.CName).(metric.Metric)
+	c.subscribe = a.MustComponent(subscribe.CName).(subscribe.SubscribeService)
 	c.deletionLog = app.MustComponent[deletionlog.DeletionLog](a)
 	c.acl = app.MustComponent[acl.AclService](a)
 	c.inbox = app.MustComponent[inbox.InboxService](a)
@@ -460,4 +464,8 @@ func (c *coordinator) MakeSpaceUnshareable(ctx context.Context, spaceId, aclHead
 func (c *coordinator) InboxAddMessage(ctx context.Context, message *inbox.InboxMessage) (err error) {
 	err = c.inbox.InboxAddMessage(ctx, message)
 	return
+}
+
+func (c *coordinator) AddStream(eventType coordinatorproto.NotifyEventType, accountId, peerId string, stream coordinatorproto.DRPCCoordinator_NotifySubscribeStream) error {
+	return c.subscribe.AddStream(eventType, accountId, peerId, stream)
 }
