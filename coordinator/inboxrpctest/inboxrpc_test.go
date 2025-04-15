@@ -20,6 +20,7 @@ import (
 	"github.com/anyproto/any-sync-coordinator/inbox"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
 	"github.com/anyproto/any-sync-coordinator/spacestatus/mock_spacestatus"
+	"github.com/anyproto/any-sync-coordinator/subscribe"
 	"github.com/anyproto/any-sync/acl"
 	"github.com/anyproto/any-sync/acl/mock_acl"
 	"github.com/anyproto/any-sync/app"
@@ -41,6 +42,7 @@ import (
 
 type fixtureServer struct {
 	inbox       inbox.InboxService
+	subscribe   subscribe.SubscribeService
 	coordinator coordinator.Coordinator
 	account     *accounttest.AccountTestService
 	a           *app.App
@@ -88,12 +90,13 @@ func newFixtureServer(t *testing.T, nodeConf *mockNodeConf, account *accounttest
 	inboxService := inbox.New()
 
 	fxS = &fixtureServer{
-		inbox:   inboxService,
-		account: account,
-		db:      db.New(),
-		ctrl:    ctrl,
-		ts:      rpctest.NewTestServer(),
-		tp:      rpctest.NewTestPool(),
+		inbox:     inboxService,
+		subscribe: subscribe.New(),
+		account:   account,
+		db:        db.New(),
+		ctrl:      ctrl,
+		ts:        rpctest.NewTestServer(),
+		tp:        rpctest.NewTestPool(),
 
 		a: new(app.App),
 
@@ -128,6 +131,7 @@ func newFixtureServer(t *testing.T, nodeConf *mockNodeConf, account *accounttest
 		Register(fxS.deletionLog).
 		Register(fxS.acl).
 		Register(fxS.accountLimit).
+		Register(fxS.subscribe).
 		Register(fxS.inbox)
 
 	require.NoError(t, fxS.a.Start(ctx))
@@ -255,7 +259,7 @@ func TestInbox_Notifications(t *testing.T) {
 		wg.Add(amount)
 		fxC.mockReceiver.EXPECT().
 			Receive(gomock.Any()).
-			Do(func(evt *coordinatorproto.InboxNotifySubscribeEvent) {
+			Do(func(evt *coordinatorproto.NotifySubscribeEvent) {
 				defer wg.Done()
 			}).
 			Times(amount)
