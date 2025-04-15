@@ -109,6 +109,9 @@ func TestInbox_AddMessage(t *testing.T) {
 
 		ctx2, pk2, sk2 := newIdentityCtx()
 		msg, _ := makeMessage(pk2, sk)
+
+		fxC2.subscribe.EXPECT().NotifyAllPeers(gomock.Any(), gomock.Any(), gomock.Any()).Times(10)
+
 		for range 10 {
 			err = fxC.InboxAddMessage(ctx, msg)
 			require.NoError(t, err)
@@ -131,6 +134,8 @@ func TestInbox_AddMessage(t *testing.T) {
 
 		fxC2 := newFixture(t)
 		defer fxC2.Finish(t)
+
+		fxC2.subscribe.EXPECT().NotifyAllPeers(gomock.Any(), gomock.Any(), gomock.Any()).Times(15)
 
 		ctx2, pk2, _ := newIdentityCtx()
 		msg, _ := makeMessage(pk2, sk)
@@ -218,6 +223,7 @@ func newFixture(t *testing.T) (fx *fixture) {
 	}
 
 	anymock.ExpectComp(fx.subscribe.EXPECT(), subscribe.CName)
+
 	fx.a.
 		Register(config{}).
 		Register(fx.db).
