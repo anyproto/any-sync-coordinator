@@ -6,10 +6,13 @@ import (
 	"time"
 
 	"github.com/anyproto/any-sync-coordinator/db"
+	"github.com/anyproto/any-sync-coordinator/subscribe"
+	"github.com/anyproto/any-sync-coordinator/subscribe/mock_subscribe"
 	"github.com/anyproto/any-sync/app"
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/net/peer"
 	"github.com/anyproto/any-sync/testutil/accounttest"
+	"github.com/anyproto/any-sync/testutil/anymock"
 	"github.com/anyproto/any-sync/util/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -205,16 +208,20 @@ func (c config) GetMongo() db.Mongo {
 }
 
 func newFixture(t *testing.T) (fx *fixture) {
+	ctrl := gomock.NewController(t)
 	fx = &fixture{
 		InboxService: New(),
+		subscribe:    mock_subscribe.NewMockSubscribeService(ctrl),
 		db:           db.New(),
-		ctrl:         gomock.NewController(t),
+		ctrl:         ctrl,
 		a:            new(app.App),
 	}
 
+	anymock.ExpectComp(fx.subscribe.EXPECT(), subscribe.CName)
 	fx.a.
 		Register(config{}).
 		Register(fx.db).
+		Register(fx.subscribe).
 		Register(fx.InboxService)
 
 	require.NoError(t, fx.a.Start(ctx))
@@ -224,9 +231,10 @@ func newFixture(t *testing.T) (fx *fixture) {
 
 type fixture struct {
 	InboxService
-	a    *app.App
-	db   db.Database
-	ctrl *gomock.Controller
+	subscribe *mock_subscribe.MockSubscribeService
+	a         *app.App
+	db        db.Database
+	ctrl      *gomock.Controller
 }
 
 func (fx *fixture) Finish(t *testing.T) {

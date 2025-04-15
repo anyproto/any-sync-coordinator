@@ -1,3 +1,4 @@
+//go:generate mockgen -destination mock_subscribe/mock_subscribe.go github.com/anyproto/any-sync-coordinator/subscribe SubscribeService
 package subscribe
 
 import (
