@@ -3,7 +3,6 @@ package inbox
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/anyproto/any-sync-coordinator/db"
 	"github.com/anyproto/any-sync-coordinator/subscribe"
@@ -16,7 +15,6 @@ import (
 	"github.com/anyproto/any-sync/util/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.uber.org/mock/gomock"
 )
 
@@ -63,6 +61,7 @@ func makeMessage(pubkeyTo crypto.PubKey, privkeyFrom crypto.PrivKey) (msg *Inbox
 }
 
 func dropColl(t *testing.T, fxC *fixture) {
+	collName := fxC.conf.GetInbox().CollName
 	err := fxC.db.Db().Collection(collName).Drop(ctx)
 	require.NoError(t, err)
 }
@@ -170,19 +169,14 @@ func TestInbox_AddMessage(t *testing.T) {
 		ctx2, pk2, _ := newIdentityCtx()
 		msg, _ := makeMessage(pk2, sk)
 
-		preseed := make([]any, fetchLimit+5)
-		msg.Packet.Payload.Timestamp = time.Now().Unix()
+		fetchLimit := fxC.conf.GetInbox().FetchLimit
+		fxC2.subscribe.EXPECT().NotifyAllPeers(gomock.Any(), gomock.Any(), gomock.Any()).Times(fetchLimit + 5)
 
 		// this test runs too long via AddMessage: pre-seed db
-		for i := range preseed {
-			m := *msg
-			m.Id = primitive.NewObjectID()
-			t := time.Now().Add(time.Duration(i) * time.Second)
-			m.Packet.Payload.Timestamp = t.Unix()
-			preseed[i] = m
+		for range fetchLimit + 5 {
+			err = fxC.InboxAddMessage(ctx, msg)
+			require.NoError(t, err)
 		}
-
-		fxC.db.Db().Collection(collName).InsertMany(ctx, preseed)
 
 		msgs, err := fxC.InboxFetch(ctx2, "")
 		require.NoError(t, err)
@@ -212,9 +206,18 @@ func (c config) GetMongo() db.Mongo {
 	}
 }
 
+func (c config) GetInbox() Config {
+	return Config{
+		CollName:   "testInboxColl",
+		FetchLimit: 23,
+	}
+}
+
 func newFixture(t *testing.T) (fx *fixture) {
 	ctrl := gomock.NewController(t)
+
 	fx = &fixture{
+		conf:         config{},
 		InboxService: New(),
 		subscribe:    mock_subscribe.NewMockSubscribeService(ctrl),
 		db:           db.New(),
@@ -225,7 +228,7 @@ func newFixture(t *testing.T) (fx *fixture) {
 	anymock.ExpectComp(fx.subscribe.EXPECT(), subscribe.CName)
 
 	fx.a.
-		Register(config{}).
+		Register(fx.conf).
 		Register(fx.db).
 		Register(fx.subscribe).
 		Register(fx.InboxService)
@@ -238,6 +241,7 @@ func newFixture(t *testing.T) (fx *fixture) {
 type fixture struct {
 	InboxService
 	subscribe *mock_subscribe.MockSubscribeService
+	conf      config
 	a         *app.App
 	db        db.Database
 	ctrl      *gomock.Controller
