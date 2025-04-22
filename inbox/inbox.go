@@ -23,8 +23,8 @@ import (
 const CName = "common.inbox"
 
 const (
-	collName   = "inboxMessages"
-	fetchLimit = 1000
+	defaultCollName   = "inboxMessages"
+	defaultFetchLimit = 1000
 )
 
 var log = logger.NewNamed(CName)
@@ -42,17 +42,31 @@ type InboxService interface {
 	InboxFetch(ctx context.Context, offset string) (result *InboxFetchResult, err error)
 	app.ComponentRunnable
 }
-
+type inboxConfigProvider interface {
+	GetInbox() Config
+}
 type inbox struct {
 	coll             *mongo.Collection
 	ctx              context.Context
 	ctxCancel        context.CancelFunc
 	subscribeService subscribe.SubscribeService
+	conf             Config
 }
 
 func (s *inbox) Init(a *app.App) (err error) {
 	s.ctx, s.ctxCancel = context.WithCancel(context.Background())
-	s.coll = a.MustComponent(db.CName).(db.Database).Db().Collection(collName)
+	s.conf = a.MustComponent("config").(inboxConfigProvider).GetInbox()
+
+	if s.conf.CollName == "" {
+		s.conf.CollName = defaultCollName
+		log.Warn("using default inbox collection name", zap.String("collName", defaultCollName))
+	}
+	if s.conf.FetchLimit == 0 {
+		s.conf.FetchLimit = defaultFetchLimit
+		log.Warn("using default fetch limit for inbox fetch", zap.Int("fetchLimit", defaultFetchLimit))
+	}
+
+	s.coll = a.MustComponent(db.CName).(db.Database).Db().Collection(s.conf.CollName)
 	s.subscribeService = a.MustComponent(subscribe.CName).(subscribe.SubscribeService)
 	return
 }
@@ -191,7 +205,7 @@ func (s *inbox) InboxFetch(ctx context.Context, offset string) (result *InboxFet
 	var messages []*InboxMessage
 	sort := bson.D{bson.E{Key: "_id", Value: 1}}
 
-	cursor, err := s.coll.Find(ctx, filter, options.Find().SetSort(sort).SetLimit(fetchLimit+1))
+	cursor, err := s.coll.Find(ctx, filter, options.Find().SetSort(sort).SetLimit(int64(s.conf.FetchLimit+1)))
 	if err != nil {
 		log.Warn("no new messages", zap.String("offset", offset))
 		return
@@ -203,7 +217,7 @@ func (s *inbox) InboxFetch(ctx context.Context, offset string) (result *InboxFet
 		return
 	}
 
-	hasMore := (len(messages) > fetchLimit)
+	hasMore := (len(messages) > s.conf.FetchLimit)
 	result.HasMore = hasMore
 	result.Messages = messages
 	if hasMore {
