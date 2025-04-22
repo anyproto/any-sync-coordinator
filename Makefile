@@ -1,5 +1,5 @@
 .PHONY: build test deps build-dev
-SHELL=/bin/bash
+SHELL=/usr/bin/env bash
 export GOPRIVATE=github.com/anyproto
 export PATH:=deps:$(PATH)
 export CGO_ENABLED:=1
@@ -23,3 +23,6 @@ test:
 deps:
 	go mod download
 	go build -o deps github.com/ahmetb/govvv
+
+run: build
+	./bin/any-sync-coordinator -c ../any-sync-tools/any-sync-network/etc/any-sync-coordinator/config.yml

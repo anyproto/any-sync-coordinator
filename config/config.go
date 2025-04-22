@@ -14,6 +14,7 @@ import (
 
 	"github.com/anyproto/any-sync-coordinator/accountlimit"
 	"github.com/anyproto/any-sync-coordinator/db"
+	"github.com/anyproto/any-sync-coordinator/inbox"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
 )
 
@@ -40,6 +41,7 @@ type Config struct {
 	NetworkUpdateIntervalSec int                      `yaml:"networkUpdateIntervalSec"`
 	Mongo                    db.Mongo                 `yaml:"mongo"`
 	SpaceStatus              spacestatus.Config       `yaml:"spaceStatus"`
+	Inbox                    inbox.Config             `yaml:"inbox"`
 	Yamux                    yamux.Config             `yaml:"yamux"`
 	Quic                     quic.Config              `yaml:"quic"`
 	AccountLimits            accountlimit.SpaceLimits `yaml:"defaultLimits"`
@@ -75,6 +77,10 @@ func (c Config) GetMongo() db.Mongo {
 
 func (c Config) GetSpaceStatus() spacestatus.Config {
 	return c.SpaceStatus
+}
+
+func (c Config) GetInbox() inbox.Config {
+	return c.Inbox
 }
 
 func (c Config) GetNodeConfStorePath() string {

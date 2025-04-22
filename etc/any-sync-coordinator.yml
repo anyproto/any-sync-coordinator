@@ -8,6 +8,9 @@ drpc:
 mongo:
   connect: mongodb://localhost:27017
   database: coordinator_test
+inbox:
+  collName: inboxMessages
+  fetchLimit: 1000
 spaceStatus:
   runSeconds: 20
   deletionPeriodDays: 1

@@ -35,8 +35,10 @@ import (
 	"github.com/anyproto/any-sync-coordinator/db"
 	"github.com/anyproto/any-sync-coordinator/deletionlog"
 	"github.com/anyproto/any-sync-coordinator/identityrepo"
+	"github.com/anyproto/any-sync-coordinator/inbox"
 	"github.com/anyproto/any-sync-coordinator/nodeconfsource"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
+	"github.com/anyproto/any-sync-coordinator/subscribe"
 
 	// import this to keep govvv in go.mod on mod tidy
 	_ "github.com/ahmetb/govvv/integration-test/app-different-package/mypkg"
@@ -124,6 +126,8 @@ func Bootstrap(a *app.App) {
 		Register(spacestatus.New()).
 		Register(consensusclient.New()).
 		Register(acl.New()).
+		Register(subscribe.New()).
+		Register(inbox.New()).
 		Register(accountlimit.New()).
 		Register(identityrepo.New()).
 		Register(coordinator.New()).

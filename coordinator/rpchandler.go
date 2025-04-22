@@ -3,6 +3,7 @@ package coordinator
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/anyproto/any-sync-coordinator/accountlimit"
 	"github.com/anyproto/any-sync-coordinator/acleventlog"
+	"github.com/anyproto/any-sync-coordinator/inbox"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
 )
 
@@ -454,5 +456,55 @@ func (r *rpcHandler) AclEventLog(ctx context.Context, req *coordinatorproto.AclE
 			resp.Records[len(resp.Records)-1].AclChangeId = rec.AclChangeId
 		}
 	}
+	return
+}
+
+func (r *rpcHandler) InboxFetch(ctx context.Context, in *coordinatorproto.InboxFetchRequest) (*coordinatorproto.InboxFetchResponse, error) {
+	fetchResult, err := r.c.inbox.InboxFetch(ctx, in.Offset)
+	if err != nil {
+		return nil, err
+	}
+
+	responseMessages := make([]*coordinatorproto.InboxMessage, len(fetchResult.Messages))
+	for i, msg := range fetchResult.Messages {
+		responseMessages[i] = inbox.InboxMessageToResponse(msg)
+	}
+
+	response := &coordinatorproto.InboxFetchResponse{
+		Messages: responseMessages,
+		HasMore:  fetchResult.HasMore,
+	}
+
+	return response, nil
+}
+
+func (r *rpcHandler) NotifySubscribe(req *coordinatorproto.NotifySubscribeRequest, rpcStream coordinatorproto.DRPCCoordinator_NotifySubscribeStream) (err error) {
+	accountPubKey, err := peer.CtxPubKey(rpcStream.Context())
+	if err != nil {
+		log.Error("failed to get account pub key")
+		return err
+	}
+	accountId := accountPubKey.Account()
+
+	peerId, err := peer.CtxPeerId(rpcStream.Context())
+	if err != nil {
+		return err
+	}
+	r.c.subscribe.AddStream(req.EventType, accountId, peerId, rpcStream)
+
+	<-rpcStream.Context().Done()
+	return nil
+}
+
+func (r *rpcHandler) InboxAddMessage(ctx context.Context, in *coordinatorproto.InboxAddMessageRequest) (response *coordinatorproto.InboxAddMessageResponse, err error) {
+	fmt.Printf("%#v\n", ctx)
+	message := inbox.InboxMessageFromRequest(ctx, in)
+	err = r.c.InboxAddMessage(ctx, message)
+	if err != nil {
+		log.Error("InboxAddMessage error", zap.Error(err))
+		return
+	}
+
+	response = &coordinatorproto.InboxAddMessageResponse{}
 	return
 }
