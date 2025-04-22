@@ -45,10 +45,13 @@ type InboxService interface {
 
 type inbox struct {
 	coll             *mongo.Collection
+	ctx              context.Context
+	ctxCancel        context.CancelFunc
 	subscribeService subscribe.SubscribeService
 }
 
 func (s *inbox) Init(a *app.App) (err error) {
+	s.ctx, s.ctxCancel = context.WithCancel(context.Background())
 	s.coll = a.MustComponent(db.CName).(db.Database).Db().Collection(collName)
 	s.subscribeService = a.MustComponent(subscribe.CName).(subscribe.SubscribeService)
 	return
@@ -66,11 +69,12 @@ func (s *inbox) Run(ctx context.Context) error {
 		return err
 	}
 
-	s.runStreamListener(ctx)
+	s.runStreamListener(s.ctx)
 	return nil
 }
 
 func (s *inbox) Close(_ context.Context) (err error) {
+	s.ctxCancel()
 	return nil
 }
 
