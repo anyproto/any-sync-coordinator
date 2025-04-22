@@ -74,7 +74,7 @@ func (s *subscribe) AddStream(eventType coordinatorproto.NotifyEventType, accoun
 	}
 
 	if _, ok := s.notifyStreams[eventType][accountId][peerId]; ok {
-		return fmt.Errorf("addstream: peerId %s already subscribed", peerId)
+		return fmt.Errorf("%w, peerId: %s", coordinatorproto.ErrSubscribePeerAlreadySubscribed, peerId)
 	}
 
 	s.notifyStreams[eventType][accountId][peerId] = stream
