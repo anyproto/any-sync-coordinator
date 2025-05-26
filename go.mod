@@ -6,7 +6,7 @@ toolchain go1.23.9
 
 require (
 	github.com/ahmetb/govvv v0.3.0
-	github.com/anyproto/any-sync v0.8.0
+	github.com/anyproto/any-sync v0.8.3
 	github.com/gogo/protobuf v1.3.2
 	github.com/stretchr/testify v1.10.0
 	github.com/zeebo/assert v1.3.0
