@@ -9,7 +9,7 @@ require (
 	github.com/anyproto/any-sync v0.9.0
 	github.com/gogo/protobuf v1.3.2
 	github.com/stretchr/testify v1.10.0
-	github.com/zeebo/assert v1.3.0
+	github.com/zeebo/assert v1.3.1
 	go.mongodb.org/mongo-driver v1.17.4
 	go.uber.org/mock v0.5.2
 	go.uber.org/zap v1.27.0
