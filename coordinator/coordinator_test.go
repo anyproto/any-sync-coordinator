@@ -12,6 +12,8 @@ import (
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/metric"
 	"github.com/anyproto/any-sync/net/peer"
+	"github.com/anyproto/any-sync/net/pool"
+	"github.com/anyproto/any-sync/net/pool/mock_pool"
 	"github.com/anyproto/any-sync/net/rpc/rpctest"
 	"github.com/anyproto/any-sync/nodeconf"
 	"github.com/anyproto/any-sync/nodeconf/mock_nodeconf"
@@ -311,6 +313,7 @@ func newFixture(t *testing.T) *fixture {
 		deletionLog:  mock_deletionlog.NewMockDeletionLog(ctrl),
 		acl:          mock_acl.NewMockAclService(ctrl),
 		accountLimit: mock_accountlimit.NewMockAccountLimit(ctrl),
+		pool:         mock_pool.NewMockService(ctrl),
 		a:            new(app.App),
 		ctrl:         ctrl,
 	}
@@ -322,6 +325,7 @@ func newFixture(t *testing.T) *fixture {
 	anymock.ExpectComp(fx.acl.EXPECT(), acl.CName)
 	anymock.ExpectComp(fx.accountLimit.EXPECT(), accountlimit.CName)
 	anymock.ExpectComp(fx.aclEventLog.EXPECT(), acleventlog.CName)
+	anymock.ExpectComp(fx.pool.EXPECT(), pool.CName)
 
 	fx.a.Register(fx.coordinator).
 		Register(fx.nodeConf).
@@ -334,6 +338,7 @@ func newFixture(t *testing.T) *fixture {
 		Register(fx.deletionLog).
 		Register(fx.acl).
 		Register(fx.accountLimit).
+		Register(fx.pool).
 		Register(rpctest.NewTestServer())
 
 	require.NoError(t, fx.a.Start(ctx))
@@ -351,6 +356,7 @@ type fixture struct {
 	deletionLog  *mock_deletionlog.MockDeletionLog
 	acl          *mock_acl.MockAclService
 	accountLimit *mock_accountlimit.MockAccountLimit
+	pool         *mock_pool.MockService
 }
 
 func (fx *fixture) finish(t *testing.T) {
