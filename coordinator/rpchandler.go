@@ -482,6 +482,7 @@ func (r *rpcHandler) AclUploadInvite(ctx context.Context, req *coordinatorproto.
 
 	err = filePeer.DoDrpc(ctx, func(conn drpc.Conn) error {
 		_, err := fileproto.NewDRPCFileClient(conn).BlockPush(ctx, &fileproto.BlockPushRequest{
+			Cid:  req.Cid,
 			Data: req.Data,
 		})
 		return err
