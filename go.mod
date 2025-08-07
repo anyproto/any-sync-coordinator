@@ -6,7 +6,7 @@ toolchain go1.24.0
 
 require (
 	github.com/ahmetb/govvv v0.3.0
-	github.com/anyproto/any-sync v0.9.4
+	github.com/anyproto/any-sync v0.9.5
 	github.com/gogo/protobuf v1.3.2
 	github.com/stretchr/testify v1.10.0
 	go.mongodb.org/mongo-driver v1.17.4
