@@ -3,14 +3,17 @@ package coordinator
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
+	"github.com/anyproto/any-sync/commonfile/fileproto"
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/metric"
 	"github.com/anyproto/any-sync/net/peer"
 	"github.com/anyproto/any-sync/nodeconf"
 	"github.com/gogo/protobuf/proto"
 	"go.uber.org/zap"
+	"storj.io/drpc"
 
 	"github.com/anyproto/any-sync-coordinator/accountlimit"
 	"github.com/anyproto/any-sync-coordinator/acleventlog"
@@ -455,4 +458,37 @@ func (r *rpcHandler) AclEventLog(ctx context.Context, req *coordinatorproto.AclE
 		}
 	}
 	return
+}
+
+func (r *rpcHandler) AclUploadInvite(ctx context.Context, req *coordinatorproto.AclUploadInviteRequest) (resp *coordinatorproto.AclUploadInviteResponse, err error) {
+	st := time.Now()
+	defer func() {
+		r.c.metric.RequestLog(ctx, "coordinator.aclUploadInvite",
+			metric.TotalDur(time.Since(st)),
+			zap.String("addr", peer.CtxPeerAddr(ctx)),
+			zap.Error(err),
+		)
+	}()
+
+	filePeer, err := r.c.pool.GetOneOf(ctx, r.c.nodeConf.FilePeers())
+	if err != nil {
+		return
+	}
+
+	if len(req.Data) > 128*1024 {
+		err = fmt.Errorf("too big invite size")
+		return
+	}
+
+	err = filePeer.DoDrpc(ctx, func(conn drpc.Conn) error {
+		_, err := fileproto.NewDRPCFileClient(conn).BlockPush(ctx, &fileproto.BlockPushRequest{
+			Cid:  req.Cid,
+			Data: req.Data,
+		})
+		return err
+	})
+	if err != nil {
+		return
+	}
+	return &coordinatorproto.AclUploadInviteResponse{}, nil
 }

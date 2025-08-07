@@ -18,6 +18,7 @@ import (
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/metric"
 	"github.com/anyproto/any-sync/net/peer"
+	"github.com/anyproto/any-sync/net/pool"
 	"github.com/anyproto/any-sync/net/rpc/server"
 	"github.com/anyproto/any-sync/nodeconf"
 	"github.com/anyproto/any-sync/util/crypto"
@@ -68,6 +69,7 @@ type coordinator struct {
 	accountLimit   accountlimit.AccountLimit
 	acl            acl.AclService
 	drpcHandler    *rpcHandler
+	pool           pool.Service
 }
 
 func (c *coordinator) Init(a *app.App) (err error) {
@@ -83,7 +85,7 @@ func (c *coordinator) Init(a *app.App) (err error) {
 	c.acl = app.MustComponent[acl.AclService](a)
 	c.accountLimit = app.MustComponent[accountlimit.AccountLimit](a)
 	c.aclEventLog = app.MustComponent[acleventlog.AclEventLog](a)
-
+	c.pool = a.MustComponent(pool.CName).(pool.Service)
 	return coordinatorproto.DRPCRegisterCoordinator(a.MustComponent(server.CName).(drpc.Mux), c.drpcHandler)
 }
 

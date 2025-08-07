@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/anyproto/any-sync/app"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/zeebo/assert"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/anyproto/any-sync-coordinator/db"
