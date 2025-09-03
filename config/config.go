@@ -43,9 +43,10 @@ type Config struct {
 	Yamux                    yamux.Config             `yaml:"yamux"`
 	Quic                     quic.Config              `yaml:"quic"`
 	AccountLimits            accountlimit.SpaceLimits `yaml:"defaultLimits"`
+	ChatSpaceLimits          accountlimit.SpaceLimits `yaml:"chatSpaceLimits"`
 }
 
-func (c *Config) Init(a *app.App) (err error) {
+func (c Config) Init(a *app.App) (err error) {
 	return
 }
 
@@ -95,4 +96,8 @@ func (c Config) GetQuic() quic.Config {
 
 func (c Config) GetAccountLimit() accountlimit.SpaceLimits {
 	return c.AccountLimits
+}
+
+func (c Config) GetChatSpaceLimit() accountlimit.SpaceLimits {
+	return c.ChatSpaceLimits
 }

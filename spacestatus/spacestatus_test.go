@@ -772,13 +772,13 @@ func TestSpaceStatus_MakeShareable(t *testing.T) {
 
 		require.NoError(t, fx.NewStatus(ctx, spaceId, identity, oldIdentity, spaceType, false))
 
-		require.NoError(t, fx.MakeShareable(ctx, spaceId, 2))
+		require.NoError(t, fx.MakeShareable(ctx, spaceId, SpaceTypeRegular, 2))
 
 		entry, err := fx.Status(ctx, spaceId)
 		require.NoError(t, err)
 		assert.True(t, entry.IsShareable)
 
-		require.NoError(t, fx.MakeShareable(ctx, spaceId, 2))
+		require.NoError(t, fx.MakeShareable(ctx, spaceId, SpaceTypeRegular, 2))
 	})
 	t.Run("limit exceed", func(t *testing.T) {
 		fx := newFixture(t, 0, 0)
@@ -796,11 +796,11 @@ func TestSpaceStatus_MakeShareable(t *testing.T) {
 			require.NoError(t, fx.NewStatus(ctx, fmt.Sprintf("space.%d", i), identity, oldIdentity, spaceType, false))
 		}
 
-		require.NoError(t, fx.MakeShareable(ctx, "space.0", 2))
-		require.NoError(t, fx.MakeShareable(ctx, "space.1", 2))
-		require.ErrorIs(t, fx.MakeShareable(ctx, "space.2", 2), coordinatorproto.ErrSpaceLimitReached)
+		require.NoError(t, fx.MakeShareable(ctx, "space.0", SpaceTypeRegular, 2))
+		require.NoError(t, fx.MakeShareable(ctx, "space.1", SpaceTypeRegular, 2))
+		require.ErrorIs(t, fx.MakeShareable(ctx, "space.2", SpaceTypeRegular, 2), coordinatorproto.ErrSpaceLimitReached)
 
-		require.NoError(t, fx.MakeShareable(ctx, "space.2", 3))
+		require.NoError(t, fx.MakeShareable(ctx, "space.2", SpaceTypeRegular, 3))
 	})
 }
 
@@ -820,7 +820,7 @@ func TestSpaceStatus_MakeUnshareable(t *testing.T) {
 
 	require.NoError(t, fx.NewStatus(ctx, spaceId, identity, oldIdentity, spaceType, false))
 
-	require.NoError(t, fx.MakeShareable(ctx, spaceId, 2))
+	require.NoError(t, fx.MakeShareable(ctx, spaceId, SpaceTypeRegular, 2))
 
 	entry, err := fx.Status(ctx, spaceId)
 	require.NoError(t, err)

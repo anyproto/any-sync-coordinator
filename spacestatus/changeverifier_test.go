@@ -62,5 +62,12 @@ func TestVerifySpaceHeader(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, SpaceTypeRegular, spaceType)
 	})
-
+	t.Run("chat", func(t *testing.T) {
+		spaceType, err := VerifySpaceHeader(puKey, newRawHeader(t, &spacesyncproto.SpaceHeader{
+			Timestamp: 0,
+			SpaceType: chatSpaceType,
+		}, false))
+		require.NoError(t, err)
+		assert.Equal(t, SpaceTypeChat, spaceType)
+	})
 }

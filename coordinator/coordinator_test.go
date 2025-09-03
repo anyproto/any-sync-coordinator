@@ -79,11 +79,12 @@ func TestCoordinator_MakeSpaceShareable(t *testing.T) {
 		fx.spaceStatus.EXPECT().Status(ctx, spaceId).Return(spacestatus.StatusEntry{
 			SpaceId:  spaceId,
 			Identity: pubKey.Account(),
+			Type:     spacestatus.SpaceTypeRegular,
 		}, nil)
 		fx.accountLimit.EXPECT().GetLimitsBySpace(ctx, spaceId).Return(accountlimit.SpaceLimits{
 			SharedSpacesLimit: 3,
 		}, nil)
-		fx.spaceStatus.EXPECT().MakeShareable(ctx, spaceId, uint32(3))
+		fx.spaceStatus.EXPECT().MakeShareable(ctx, spaceId, spacestatus.SpaceTypeRegular, uint32(3))
 		fx.aclEventLog.EXPECT().AddLog(ctx, gomock.Any()).Return(nil)
 
 		require.NoError(t, fx.MakeSpaceShareable(ctx, spaceId))

@@ -47,7 +47,10 @@ func (c *changeVerifier) Verify(change StatusChange) (err error) {
 	return coordinatorproto.ErrUnexpected
 }
 
-const techSpaceType = "anytype.techspace"
+const (
+	techSpaceType = "anytype.techspace"
+	chatSpaceType = "anytype.chatspace"
+)
 
 func VerifySpaceHeader(identity crypto.PubKey, headerBytes []byte) (spaceType SpaceType, err error) {
 	rawHeader := &spacesyncproto.RawSpaceHeader{}
@@ -67,8 +70,11 @@ func VerifySpaceHeader(identity crypto.PubKey, headerBytes []byte) (spaceType Sp
 	if err = header.UnmarshalVT(rawHeader.SpaceHeader); err != nil {
 		return
 	}
-	if header.SpaceType == techSpaceType {
+	switch header.SpaceType {
+	case techSpaceType:
 		return SpaceTypeTech, nil
+	case chatSpaceType:
+		return SpaceTypeChat, nil
 	}
 	if header.Timestamp == 0 {
 		return SpaceTypePersonal, nil
