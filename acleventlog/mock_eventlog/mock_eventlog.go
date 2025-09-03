@@ -22,6 +22,7 @@ import (
 type MockAclEventLog struct {
 	ctrl     *gomock.Controller
 	recorder *MockAclEventLogMockRecorder
+	isgomock struct{}
 }
 
 // MockAclEventLogMockRecorder is the mock recorder for MockAclEventLog.
@@ -42,37 +43,37 @@ func (m *MockAclEventLog) EXPECT() *MockAclEventLogMockRecorder {
 }
 
 // AddLog mocks base method.
-func (m *MockAclEventLog) AddLog(arg0 context.Context, arg1 acleventlog.AclEventLogEntry) error {
+func (m *MockAclEventLog) AddLog(ctx context.Context, event acleventlog.AclEventLogEntry) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AddLog", arg0, arg1)
+	ret := m.ctrl.Call(m, "AddLog", ctx, event)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // AddLog indicates an expected call of AddLog.
-func (mr *MockAclEventLogMockRecorder) AddLog(arg0, arg1 any) *gomock.Call {
+func (mr *MockAclEventLogMockRecorder) AddLog(ctx, event any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddLog", reflect.TypeOf((*MockAclEventLog)(nil).AddLog), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddLog", reflect.TypeOf((*MockAclEventLog)(nil).AddLog), ctx, event)
 }
 
 // Close mocks base method.
-func (m *MockAclEventLog) Close(arg0 context.Context) error {
+func (m *MockAclEventLog) Close(ctx context.Context) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Close", arg0)
+	ret := m.ctrl.Call(m, "Close", ctx)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Close indicates an expected call of Close.
-func (mr *MockAclEventLogMockRecorder) Close(arg0 any) *gomock.Call {
+func (mr *MockAclEventLogMockRecorder) Close(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockAclEventLog)(nil).Close), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockAclEventLog)(nil).Close), ctx)
 }
 
 // GetAfter mocks base method.
-func (m *MockAclEventLog) GetAfter(arg0 context.Context, arg1, arg2 string, arg3 uint32) ([]acleventlog.AclEventLogEntry, bool, error) {
+func (m *MockAclEventLog) GetAfter(ctx context.Context, identity, afterId string, limit uint32) ([]acleventlog.AclEventLogEntry, bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetAfter", arg0, arg1, arg2, arg3)
+	ret := m.ctrl.Call(m, "GetAfter", ctx, identity, afterId, limit)
 	ret0, _ := ret[0].([]acleventlog.AclEventLogEntry)
 	ret1, _ := ret[1].(bool)
 	ret2, _ := ret[2].(error)
@@ -80,23 +81,23 @@ func (m *MockAclEventLog) GetAfter(arg0 context.Context, arg1, arg2 string, arg3
 }
 
 // GetAfter indicates an expected call of GetAfter.
-func (mr *MockAclEventLogMockRecorder) GetAfter(arg0, arg1, arg2, arg3 any) *gomock.Call {
+func (mr *MockAclEventLogMockRecorder) GetAfter(ctx, identity, afterId, limit any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAfter", reflect.TypeOf((*MockAclEventLog)(nil).GetAfter), arg0, arg1, arg2, arg3)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAfter", reflect.TypeOf((*MockAclEventLog)(nil).GetAfter), ctx, identity, afterId, limit)
 }
 
 // Init mocks base method.
-func (m *MockAclEventLog) Init(arg0 *app.App) error {
+func (m *MockAclEventLog) Init(a *app.App) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Init", arg0)
+	ret := m.ctrl.Call(m, "Init", a)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Init indicates an expected call of Init.
-func (mr *MockAclEventLogMockRecorder) Init(arg0 any) *gomock.Call {
+func (mr *MockAclEventLogMockRecorder) Init(a any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Init", reflect.TypeOf((*MockAclEventLog)(nil).Init), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Init", reflect.TypeOf((*MockAclEventLog)(nil).Init), a)
 }
 
 // Name mocks base method.
@@ -114,15 +115,15 @@ func (mr *MockAclEventLogMockRecorder) Name() *gomock.Call {
 }
 
 // Run mocks base method.
-func (m *MockAclEventLog) Run(arg0 context.Context) error {
+func (m *MockAclEventLog) Run(ctx context.Context) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Run", arg0)
+	ret := m.ctrl.Call(m, "Run", ctx)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Run indicates an expected call of Run.
-func (mr *MockAclEventLogMockRecorder) Run(arg0 any) *gomock.Call {
+func (mr *MockAclEventLogMockRecorder) Run(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Run", reflect.TypeOf((*MockAclEventLog)(nil).Run), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Run", reflect.TypeOf((*MockAclEventLog)(nil).Run), ctx)
 }

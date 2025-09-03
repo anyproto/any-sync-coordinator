@@ -32,6 +32,7 @@ var log = logger.NewNamed(CName)
 
 type configGetter interface {
 	GetAccountLimit() SpaceLimits
+	GetChatSpaceLimit() SpaceLimits
 }
 
 type SpaceLimits struct {
@@ -62,6 +63,7 @@ type accountLimit struct {
 	coll          *mongo.Collection
 	spaceStatus   spacestatus.SpaceStatus
 	defaultLimits SpaceLimits
+	chatLimits    SpaceLimits
 }
 
 func (al *accountLimit) Init(a *app.App) (err error) {
@@ -70,6 +72,10 @@ func (al *accountLimit) Init(a *app.App) (err error) {
 	al.coll = a.MustComponent(db.CName).(db.Database).Db().Collection(collName)
 	al.spaceStatus = a.MustComponent(spacestatus.CName).(spacestatus.SpaceStatus)
 	al.defaultLimits = a.MustComponent("config").(configGetter).GetAccountLimit()
+	al.chatLimits = a.MustComponent("config").(configGetter).GetChatSpaceLimit()
+	if al.chatLimits.SharedSpacesLimit+al.chatLimits.SpaceMembersRead+al.chatLimits.SpaceMembersWrite == 0 {
+		al.chatLimits = al.defaultLimits
+	}
 	return nil
 }
 
@@ -139,6 +145,8 @@ func (al *accountLimit) GetLimitsBySpace(ctx context.Context, spaceId string) (s
 			SpaceMembersRead:  1,
 			SpaceMembersWrite: 1,
 		}, nil
+	case spacestatus.SpaceTypeChat:
+		return al.chatLimits, nil
 	}
 
 	limits, err := al.GetLimits(ctx, entry.Identity)

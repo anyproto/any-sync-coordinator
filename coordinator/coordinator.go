@@ -390,7 +390,7 @@ func (c *coordinator) MakeSpaceShareable(ctx context.Context, spaceId string) (e
 		return err
 	}
 
-	err = c.spaceStatus.MakeShareable(ctx, spaceId, limits.SharedSpacesLimit)
+	err = c.spaceStatus.MakeShareable(ctx, spaceId, statusEntry.Type, limits.SharedSpacesLimit)
 	if err != nil {
 		return
 	}

@@ -23,6 +23,7 @@ import (
 type MockSpaceStatus struct {
 	ctrl     *gomock.Controller
 	recorder *MockSpaceStatusMockRecorder
+	isgomock struct{}
 }
 
 // MockSpaceStatusMockRecorder is the mock recorder for MockSpaceStatus.
@@ -43,103 +44,103 @@ func (m *MockSpaceStatus) EXPECT() *MockSpaceStatusMockRecorder {
 }
 
 // AccountDelete mocks base method.
-func (m *MockSpaceStatus) AccountDelete(arg0 context.Context, arg1 spacestatus.AccountDeletion) (int64, error) {
+func (m *MockSpaceStatus) AccountDelete(ctx context.Context, payload spacestatus.AccountDeletion) (int64, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AccountDelete", arg0, arg1)
+	ret := m.ctrl.Call(m, "AccountDelete", ctx, payload)
 	ret0, _ := ret[0].(int64)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // AccountDelete indicates an expected call of AccountDelete.
-func (mr *MockSpaceStatusMockRecorder) AccountDelete(arg0, arg1 any) *gomock.Call {
+func (mr *MockSpaceStatusMockRecorder) AccountDelete(ctx, payload any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AccountDelete", reflect.TypeOf((*MockSpaceStatus)(nil).AccountDelete), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AccountDelete", reflect.TypeOf((*MockSpaceStatus)(nil).AccountDelete), ctx, payload)
 }
 
 // AccountRevertDeletion mocks base method.
-func (m *MockSpaceStatus) AccountRevertDeletion(arg0 context.Context, arg1 spacestatus.AccountInfo) error {
+func (m *MockSpaceStatus) AccountRevertDeletion(ctx context.Context, payload spacestatus.AccountInfo) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AccountRevertDeletion", arg0, arg1)
+	ret := m.ctrl.Call(m, "AccountRevertDeletion", ctx, payload)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // AccountRevertDeletion indicates an expected call of AccountRevertDeletion.
-func (mr *MockSpaceStatusMockRecorder) AccountRevertDeletion(arg0, arg1 any) *gomock.Call {
+func (mr *MockSpaceStatusMockRecorder) AccountRevertDeletion(ctx, payload any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AccountRevertDeletion", reflect.TypeOf((*MockSpaceStatus)(nil).AccountRevertDeletion), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AccountRevertDeletion", reflect.TypeOf((*MockSpaceStatus)(nil).AccountRevertDeletion), ctx, payload)
 }
 
 // ChangeStatus mocks base method.
-func (m *MockSpaceStatus) ChangeStatus(arg0 context.Context, arg1 spacestatus.StatusChange) (spacestatus.StatusEntry, error) {
+func (m *MockSpaceStatus) ChangeStatus(ctx context.Context, change spacestatus.StatusChange) (spacestatus.StatusEntry, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ChangeStatus", arg0, arg1)
+	ret := m.ctrl.Call(m, "ChangeStatus", ctx, change)
 	ret0, _ := ret[0].(spacestatus.StatusEntry)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ChangeStatus indicates an expected call of ChangeStatus.
-func (mr *MockSpaceStatusMockRecorder) ChangeStatus(arg0, arg1 any) *gomock.Call {
+func (mr *MockSpaceStatusMockRecorder) ChangeStatus(ctx, change any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ChangeStatus", reflect.TypeOf((*MockSpaceStatus)(nil).ChangeStatus), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ChangeStatus", reflect.TypeOf((*MockSpaceStatus)(nil).ChangeStatus), ctx, change)
 }
 
 // Close mocks base method.
-func (m *MockSpaceStatus) Close(arg0 context.Context) error {
+func (m *MockSpaceStatus) Close(ctx context.Context) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Close", arg0)
+	ret := m.ctrl.Call(m, "Close", ctx)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Close indicates an expected call of Close.
-func (mr *MockSpaceStatusMockRecorder) Close(arg0 any) *gomock.Call {
+func (mr *MockSpaceStatusMockRecorder) Close(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockSpaceStatus)(nil).Close), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockSpaceStatus)(nil).Close), ctx)
 }
 
 // Init mocks base method.
-func (m *MockSpaceStatus) Init(arg0 *app.App) error {
+func (m *MockSpaceStatus) Init(a *app.App) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Init", arg0)
+	ret := m.ctrl.Call(m, "Init", a)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Init indicates an expected call of Init.
-func (mr *MockSpaceStatusMockRecorder) Init(arg0 any) *gomock.Call {
+func (mr *MockSpaceStatusMockRecorder) Init(a any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Init", reflect.TypeOf((*MockSpaceStatus)(nil).Init), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Init", reflect.TypeOf((*MockSpaceStatus)(nil).Init), a)
 }
 
 // MakeShareable mocks base method.
-func (m *MockSpaceStatus) MakeShareable(arg0 context.Context, arg1 string, arg2 uint32) error {
+func (m *MockSpaceStatus) MakeShareable(ctx context.Context, spaceId string, spaceType spacestatus.SpaceType, limit uint32) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "MakeShareable", arg0, arg1, arg2)
+	ret := m.ctrl.Call(m, "MakeShareable", ctx, spaceId, spaceType, limit)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // MakeShareable indicates an expected call of MakeShareable.
-func (mr *MockSpaceStatusMockRecorder) MakeShareable(arg0, arg1, arg2 any) *gomock.Call {
+func (mr *MockSpaceStatusMockRecorder) MakeShareable(ctx, spaceId, spaceType, limit any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MakeShareable", reflect.TypeOf((*MockSpaceStatus)(nil).MakeShareable), arg0, arg1, arg2)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MakeShareable", reflect.TypeOf((*MockSpaceStatus)(nil).MakeShareable), ctx, spaceId, spaceType, limit)
 }
 
 // MakeUnshareable mocks base method.
-func (m *MockSpaceStatus) MakeUnshareable(arg0 context.Context, arg1 string) error {
+func (m *MockSpaceStatus) MakeUnshareable(ctx context.Context, spaceId string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "MakeUnshareable", arg0, arg1)
+	ret := m.ctrl.Call(m, "MakeUnshareable", ctx, spaceId)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // MakeUnshareable indicates an expected call of MakeUnshareable.
-func (mr *MockSpaceStatusMockRecorder) MakeUnshareable(arg0, arg1 any) *gomock.Call {
+func (mr *MockSpaceStatusMockRecorder) MakeUnshareable(ctx, spaceId any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MakeUnshareable", reflect.TypeOf((*MockSpaceStatus)(nil).MakeUnshareable), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MakeUnshareable", reflect.TypeOf((*MockSpaceStatus)(nil).MakeUnshareable), ctx, spaceId)
 }
 
 // Name mocks base method.
@@ -157,59 +158,59 @@ func (mr *MockSpaceStatusMockRecorder) Name() *gomock.Call {
 }
 
 // NewStatus mocks base method.
-func (m *MockSpaceStatus) NewStatus(arg0 context.Context, arg1 string, arg2, arg3 crypto.PubKey, arg4 spacestatus.SpaceType, arg5 bool) error {
+func (m *MockSpaceStatus) NewStatus(ctx context.Context, spaceId string, identity, oldIdentity crypto.PubKey, spaceType spacestatus.SpaceType, force bool) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "NewStatus", arg0, arg1, arg2, arg3, arg4, arg5)
+	ret := m.ctrl.Call(m, "NewStatus", ctx, spaceId, identity, oldIdentity, spaceType, force)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // NewStatus indicates an expected call of NewStatus.
-func (mr *MockSpaceStatusMockRecorder) NewStatus(arg0, arg1, arg2, arg3, arg4, arg5 any) *gomock.Call {
+func (mr *MockSpaceStatusMockRecorder) NewStatus(ctx, spaceId, identity, oldIdentity, spaceType, force any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewStatus", reflect.TypeOf((*MockSpaceStatus)(nil).NewStatus), arg0, arg1, arg2, arg3, arg4, arg5)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewStatus", reflect.TypeOf((*MockSpaceStatus)(nil).NewStatus), ctx, spaceId, identity, oldIdentity, spaceType, force)
 }
 
 // Run mocks base method.
-func (m *MockSpaceStatus) Run(arg0 context.Context) error {
+func (m *MockSpaceStatus) Run(ctx context.Context) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Run", arg0)
+	ret := m.ctrl.Call(m, "Run", ctx)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Run indicates an expected call of Run.
-func (mr *MockSpaceStatusMockRecorder) Run(arg0 any) *gomock.Call {
+func (mr *MockSpaceStatusMockRecorder) Run(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Run", reflect.TypeOf((*MockSpaceStatus)(nil).Run), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Run", reflect.TypeOf((*MockSpaceStatus)(nil).Run), ctx)
 }
 
 // SpaceDelete mocks base method.
-func (m *MockSpaceStatus) SpaceDelete(arg0 context.Context, arg1 spacestatus.SpaceDeletion) (int64, error) {
+func (m *MockSpaceStatus) SpaceDelete(ctx context.Context, payload spacestatus.SpaceDeletion) (int64, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SpaceDelete", arg0, arg1)
+	ret := m.ctrl.Call(m, "SpaceDelete", ctx, payload)
 	ret0, _ := ret[0].(int64)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // SpaceDelete indicates an expected call of SpaceDelete.
-func (mr *MockSpaceStatusMockRecorder) SpaceDelete(arg0, arg1 any) *gomock.Call {
+func (mr *MockSpaceStatusMockRecorder) SpaceDelete(ctx, payload any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SpaceDelete", reflect.TypeOf((*MockSpaceStatus)(nil).SpaceDelete), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SpaceDelete", reflect.TypeOf((*MockSpaceStatus)(nil).SpaceDelete), ctx, payload)
 }
 
 // Status mocks base method.
-func (m *MockSpaceStatus) Status(arg0 context.Context, arg1 string) (spacestatus.StatusEntry, error) {
+func (m *MockSpaceStatus) Status(ctx context.Context, spaceId string) (spacestatus.StatusEntry, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Status", arg0, arg1)
+	ret := m.ctrl.Call(m, "Status", ctx, spaceId)
 	ret0, _ := ret[0].(spacestatus.StatusEntry)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // Status indicates an expected call of Status.
-func (mr *MockSpaceStatusMockRecorder) Status(arg0, arg1 any) *gomock.Call {
+func (mr *MockSpaceStatusMockRecorder) Status(ctx, spaceId any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Status", reflect.TypeOf((*MockSpaceStatus)(nil).Status), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Status", reflect.TypeOf((*MockSpaceStatus)(nil).Status), ctx, spaceId)
 }

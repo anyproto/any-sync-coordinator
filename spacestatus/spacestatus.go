@@ -71,6 +71,7 @@ const (
 	SpaceTypePersonal SpaceType = iota
 	SpaceTypeTech
 	SpaceTypeRegular
+	SpaceTypeChat
 )
 
 var (
@@ -92,7 +93,7 @@ type SpaceStatus interface {
 	AccountRevertDeletion(ctx context.Context, payload AccountInfo) (err error)
 	Status(ctx context.Context, spaceId string) (entry StatusEntry, err error)
 
-	MakeShareable(ctx context.Context, spaceId string, limit uint32) (err error)
+	MakeShareable(ctx context.Context, spaceId string, spaceType SpaceType, limit uint32) (err error)
 	MakeUnshareable(ctx context.Context, spaceId string) (err error)
 
 	app.ComponentRunnable
@@ -149,6 +150,7 @@ type insertNewSpaceOp struct {
 	OldIdentity string    `bson:"oldIdentity"`
 	Status      int       `bson:"status"`
 	Type        SpaceType `bson:"type"`
+	IsShareable bool      `bson:"isShareable"`
 	SpaceId     string    `bson:"_id"`
 }
 
@@ -474,7 +476,7 @@ func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity, o
 	})
 }
 
-func (s *spaceStatus) MakeShareable(ctx context.Context, spaceId string, limit uint32) (err error) {
+func (s *spaceStatus) MakeShareable(ctx context.Context, spaceId string, spaceType SpaceType, limit uint32) (err error) {
 	return s.db.Tx(ctx, func(txCtx mongo.SessionContext) error {
 		entry, err := s.Status(txCtx, spaceId)
 		if err != nil {
@@ -486,6 +488,7 @@ func (s *spaceStatus) MakeShareable(ctx context.Context, spaceId string, limit u
 		}
 		count, err := s.spaces.CountDocuments(txCtx, bson.D{
 			{"identity", entry.Identity},
+			{"type", spaceType},
 			{"status", SpaceStatusCreated},
 			{"isShareable", true},
 		})

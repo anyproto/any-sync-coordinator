@@ -22,6 +22,7 @@ import (
 type MockCoordinatorLog struct {
 	ctrl     *gomock.Controller
 	recorder *MockCoordinatorLogMockRecorder
+	isgomock struct{}
 }
 
 // MockCoordinatorLogMockRecorder is the mock recorder for MockCoordinatorLog.
@@ -42,17 +43,17 @@ func (m *MockCoordinatorLog) EXPECT() *MockCoordinatorLogMockRecorder {
 }
 
 // Init mocks base method.
-func (m *MockCoordinatorLog) Init(arg0 *app.App) error {
+func (m *MockCoordinatorLog) Init(a *app.App) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Init", arg0)
+	ret := m.ctrl.Call(m, "Init", a)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Init indicates an expected call of Init.
-func (mr *MockCoordinatorLogMockRecorder) Init(arg0 any) *gomock.Call {
+func (mr *MockCoordinatorLogMockRecorder) Init(a any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Init", reflect.TypeOf((*MockCoordinatorLog)(nil).Init), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Init", reflect.TypeOf((*MockCoordinatorLog)(nil).Init), a)
 }
 
 // Name mocks base method.
@@ -70,15 +71,15 @@ func (mr *MockCoordinatorLogMockRecorder) Name() *gomock.Call {
 }
 
 // SpaceReceipt mocks base method.
-func (m *MockCoordinatorLog) SpaceReceipt(arg0 context.Context, arg1 coordinatorlog.SpaceReceiptEntry) error {
+func (m *MockCoordinatorLog) SpaceReceipt(ctx context.Context, entry coordinatorlog.SpaceReceiptEntry) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SpaceReceipt", arg0, arg1)
+	ret := m.ctrl.Call(m, "SpaceReceipt", ctx, entry)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // SpaceReceipt indicates an expected call of SpaceReceipt.
-func (mr *MockCoordinatorLogMockRecorder) SpaceReceipt(arg0, arg1 any) *gomock.Call {
+func (mr *MockCoordinatorLogMockRecorder) SpaceReceipt(ctx, entry any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SpaceReceipt", reflect.TypeOf((*MockCoordinatorLog)(nil).SpaceReceipt), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SpaceReceipt", reflect.TypeOf((*MockCoordinatorLog)(nil).SpaceReceipt), ctx, entry)
 }

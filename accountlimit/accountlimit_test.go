@@ -103,6 +103,21 @@ func TestAccountLimit_GetLimitsBySpace(t *testing.T) {
 		assert.Equal(t, SpaceLimits{10, 5, 3}, limits)
 	})
 
+	t.Run("chat", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+
+		fx.spaceStatus.EXPECT().Status(ctx, spaceId).Return(spacestatus.StatusEntry{
+			SpaceId:  spaceId,
+			Identity: identity,
+			Type:     spacestatus.SpaceTypeChat,
+		}, nil)
+
+		limits, err := fx.GetLimitsBySpace(ctx, spaceId)
+		require.NoError(t, err)
+		assert.Equal(t, SpaceLimits{100, 50, 0}, limits)
+	})
+
 }
 
 var ctx = context.Background()
@@ -171,5 +186,12 @@ func (c *testConfig) GetAccountLimit() SpaceLimits {
 		SpaceMembersRead:  10,
 		SpaceMembersWrite: 5,
 		SharedSpacesLimit: 3,
+	}
+}
+
+func (c *testConfig) GetChatSpaceLimit() SpaceLimits {
+	return SpaceLimits{
+		SpaceMembersRead:  100,
+		SpaceMembersWrite: 50,
 	}
 }

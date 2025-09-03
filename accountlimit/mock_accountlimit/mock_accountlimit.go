@@ -22,6 +22,7 @@ import (
 type MockAccountLimit struct {
 	ctrl     *gomock.Controller
 	recorder *MockAccountLimitMockRecorder
+	isgomock struct{}
 }
 
 // MockAccountLimitMockRecorder is the mock recorder for MockAccountLimit.
@@ -42,47 +43,47 @@ func (m *MockAccountLimit) EXPECT() *MockAccountLimitMockRecorder {
 }
 
 // GetLimits mocks base method.
-func (m *MockAccountLimit) GetLimits(arg0 context.Context, arg1 string) (accountlimit.Limits, error) {
+func (m *MockAccountLimit) GetLimits(ctx context.Context, identity string) (accountlimit.Limits, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetLimits", arg0, arg1)
+	ret := m.ctrl.Call(m, "GetLimits", ctx, identity)
 	ret0, _ := ret[0].(accountlimit.Limits)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetLimits indicates an expected call of GetLimits.
-func (mr *MockAccountLimitMockRecorder) GetLimits(arg0, arg1 any) *gomock.Call {
+func (mr *MockAccountLimitMockRecorder) GetLimits(ctx, identity any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLimits", reflect.TypeOf((*MockAccountLimit)(nil).GetLimits), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLimits", reflect.TypeOf((*MockAccountLimit)(nil).GetLimits), ctx, identity)
 }
 
 // GetLimitsBySpace mocks base method.
-func (m *MockAccountLimit) GetLimitsBySpace(arg0 context.Context, arg1 string) (accountlimit.SpaceLimits, error) {
+func (m *MockAccountLimit) GetLimitsBySpace(ctx context.Context, spaceId string) (accountlimit.SpaceLimits, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetLimitsBySpace", arg0, arg1)
+	ret := m.ctrl.Call(m, "GetLimitsBySpace", ctx, spaceId)
 	ret0, _ := ret[0].(accountlimit.SpaceLimits)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetLimitsBySpace indicates an expected call of GetLimitsBySpace.
-func (mr *MockAccountLimitMockRecorder) GetLimitsBySpace(arg0, arg1 any) *gomock.Call {
+func (mr *MockAccountLimitMockRecorder) GetLimitsBySpace(ctx, spaceId any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLimitsBySpace", reflect.TypeOf((*MockAccountLimit)(nil).GetLimitsBySpace), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLimitsBySpace", reflect.TypeOf((*MockAccountLimit)(nil).GetLimitsBySpace), ctx, spaceId)
 }
 
 // Init mocks base method.
-func (m *MockAccountLimit) Init(arg0 *app.App) error {
+func (m *MockAccountLimit) Init(a *app.App) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Init", arg0)
+	ret := m.ctrl.Call(m, "Init", a)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Init indicates an expected call of Init.
-func (mr *MockAccountLimitMockRecorder) Init(arg0 any) *gomock.Call {
+func (mr *MockAccountLimitMockRecorder) Init(a any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Init", reflect.TypeOf((*MockAccountLimit)(nil).Init), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Init", reflect.TypeOf((*MockAccountLimit)(nil).Init), a)
 }
 
 // Name mocks base method.
@@ -100,15 +101,15 @@ func (mr *MockAccountLimitMockRecorder) Name() *gomock.Call {
 }
 
 // SetLimits mocks base method.
-func (m *MockAccountLimit) SetLimits(arg0 context.Context, arg1 accountlimit.Limits) error {
+func (m *MockAccountLimit) SetLimits(ctx context.Context, limits accountlimit.Limits) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SetLimits", arg0, arg1)
+	ret := m.ctrl.Call(m, "SetLimits", ctx, limits)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // SetLimits indicates an expected call of SetLimits.
-func (mr *MockAccountLimitMockRecorder) SetLimits(arg0, arg1 any) *gomock.Call {
+func (mr *MockAccountLimitMockRecorder) SetLimits(ctx, limits any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetLimits", reflect.TypeOf((*MockAccountLimit)(nil).SetLimits), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetLimits", reflect.TypeOf((*MockAccountLimit)(nil).SetLimits), ctx, limits)
 }
