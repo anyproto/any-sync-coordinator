@@ -237,6 +237,7 @@ func TestCoordinator_AclAddRecord(t *testing.T) {
 
 		fx.spaceStatus.EXPECT().Status(ctx, spaceId).Return(spacestatus.StatusEntry{
 			SpaceId:     spaceId,
+			Identity:    pubKey.Account(),
 			IsShareable: true,
 		}, nil)
 		fx.accountLimit.EXPECT().GetLimitsBySpace(ctx, spaceId).Return(accountlimit.SpaceLimits{
@@ -253,6 +254,8 @@ func TestCoordinator_AclAddRecord(t *testing.T) {
 		}).Return(rawRec, nil)
 		fx.aclEventLog.EXPECT().AddLog(ctx, gomock.Any()).Return(nil)
 
+		fx.acl.EXPECT().OwnerPubKey(ctx, spaceId).Return(pubKey, nil)
+
 		res, err := fx.AclAddRecord(ctx, spaceId, recBytes)
 		require.NoError(t, err)
 		assert.Equal(t, rawRec, res)
@@ -268,6 +271,39 @@ func TestCoordinator_AclAddRecord(t *testing.T) {
 
 		_, err := fx.AclAddRecord(ctx, spaceId, recBytes)
 		require.ErrorIs(t, err, coordinatorproto.ErrSpaceIsDeleted)
+	})
+	t.Run("change owner", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+
+		fx.spaceStatus.EXPECT().Status(ctx, spaceId).Return(spacestatus.StatusEntry{
+			SpaceId:     spaceId,
+			Identity:    pubKey.Account(),
+			IsShareable: true,
+		}, nil)
+		fx.accountLimit.EXPECT().GetLimitsBySpace(ctx, spaceId).Return(accountlimit.SpaceLimits{
+			SpaceMembersRead:  4,
+			SpaceMembersWrite: 2,
+		}, nil)
+		rawRec := &consensusproto.RawRecordWithId{
+			Payload: recBytes,
+			Id:      "id",
+		}
+		fx.acl.EXPECT().AddRecord(ctx, spaceId, rec, acl.Limits{
+			ReadMembers:  4,
+			WriteMembers: 2,
+		}).Return(rawRec, nil)
+		fx.aclEventLog.EXPECT().AddLog(ctx, gomock.Any()).Return(nil)
+
+		_, newPubKey, err := crypto.GenerateRandomEd25519KeyPair()
+		require.NoError(t, err)
+
+		fx.acl.EXPECT().OwnerPubKey(ctx, spaceId).Return(newPubKey, nil)
+		fx.spaceStatus.EXPECT().ChangeOwner(ctx, spaceId, newPubKey.Account())
+
+		res, err := fx.AclAddRecord(ctx, spaceId, recBytes)
+		require.NoError(t, err)
+		assert.Equal(t, rawRec, res)
 	})
 }
 

@@ -832,6 +832,33 @@ func TestSpaceStatus_MakeUnshareable(t *testing.T) {
 	assert.False(t, entry.IsShareable)
 }
 
+func TestSpaceStatus_ChangeOwner(t *testing.T) {
+	fx := newFixture(t, 0, 0)
+	defer fx.Finish(t)
+
+	var (
+		spaceId   = "space.id.shareable"
+		spaceType = SpaceTypeRegular
+	)
+
+	_, identity, err := crypto.GenerateRandomEd25519KeyPair()
+	require.NoError(t, err)
+	_, oldIdentity, err := crypto.GenerateRandomEd25519KeyPair()
+	require.NoError(t, err)
+
+	_, newIdentity, err := crypto.GenerateRandomEd25519KeyPair()
+	require.NoError(t, err)
+
+	require.NoError(t, fx.NewStatus(ctx, spaceId, identity, oldIdentity, spaceType, false))
+
+	require.NoError(t, fx.ChangeOwner(ctx, spaceId, newIdentity.Account()))
+
+	status, err := fx.Status(ctx, spaceId)
+	require.NoError(t, err)
+
+	assert.Equal(t, newIdentity.Account(), status.Identity)
+}
+
 type fixture struct {
 	SpaceStatus
 	a          *app.App

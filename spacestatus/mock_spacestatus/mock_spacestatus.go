@@ -72,6 +72,20 @@ func (mr *MockSpaceStatusMockRecorder) AccountRevertDeletion(ctx, payload any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AccountRevertDeletion", reflect.TypeOf((*MockSpaceStatus)(nil).AccountRevertDeletion), ctx, payload)
 }
 
+// ChangeOwner mocks base method.
+func (m *MockSpaceStatus) ChangeOwner(ctx context.Context, spaceId, newOwnerId string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ChangeOwner", ctx, spaceId, newOwnerId)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ChangeOwner indicates an expected call of ChangeOwner.
+func (mr *MockSpaceStatusMockRecorder) ChangeOwner(ctx, spaceId, newOwnerId any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ChangeOwner", reflect.TypeOf((*MockSpaceStatus)(nil).ChangeOwner), ctx, spaceId, newOwnerId)
+}
+
 // ChangeStatus mocks base method.
 func (m *MockSpaceStatus) ChangeStatus(ctx context.Context, change spacestatus.StatusChange) (spacestatus.StatusEntry, error) {
 	m.ctrl.T.Helper()

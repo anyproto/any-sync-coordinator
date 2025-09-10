@@ -88,6 +88,7 @@ type SpaceStatus interface {
 	NewStatus(ctx context.Context, spaceId string, identity, oldIdentity crypto.PubKey, spaceType SpaceType, force bool) (err error)
 	// ChangeStatus is deprecated, use only for backwards compatibility
 	ChangeStatus(ctx context.Context, change StatusChange) (entry StatusEntry, err error)
+	ChangeOwner(ctx context.Context, spaceId, newOwnerId string) (err error)
 	SpaceDelete(ctx context.Context, payload SpaceDeletion) (toBeDeleted int64, err error)
 	AccountDelete(ctx context.Context, payload AccountDeletion) (toBeDeleted int64, err error)
 	AccountRevertDeletion(ctx context.Context, payload AccountInfo) (err error)
@@ -540,6 +541,13 @@ func (s *spaceStatus) checkLimitTx(txCtx mongo.SessionContext, identity crypto.P
 	if count > int64(s.conf.SpaceLimit) {
 		return coordinatorproto.ErrSpaceLimitReached
 	}
+	return
+}
+
+func (s *spaceStatus) ChangeOwner(ctx context.Context, spaceId, ownerId string) (err error) {
+	_, err = s.spaces.UpdateOne(ctx, bson.D{{"_id", spaceId}}, bson.D{{"$set", bson.D{
+		{"identity", ownerId},
+	}}})
 	return
 }
 
