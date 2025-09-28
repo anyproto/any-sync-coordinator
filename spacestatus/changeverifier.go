@@ -48,8 +48,9 @@ func (c *changeVerifier) Verify(change StatusChange) (err error) {
 }
 
 const (
-	techSpaceType = "anytype.techspace"
-	chatSpaceType = "anytype.chatspace"
+	regularSpaceType = "anytype.space"
+	techSpaceType    = "anytype.techspace"
+	chatSpaceType    = "anytype.chatspace"
 )
 
 func VerifySpaceHeader(identity crypto.PubKey, headerBytes []byte) (spaceType SpaceType, err error) {
@@ -74,10 +75,13 @@ func VerifySpaceHeader(identity crypto.PubKey, headerBytes []byte) (spaceType Sp
 	case techSpaceType:
 		return SpaceTypeTech, nil
 	case chatSpaceType:
-		return SpaceTypeChat, nil
+		return SpaceTypeRegular, nil
+	case "", regularSpaceType:
+		if header.Timestamp == 0 {
+			return SpaceTypePersonal, nil
+		}
+		return SpaceTypeRegular, nil
+	default:
+		return 0, fmt.Errorf("unknown space type: %s", header.SpaceType)
 	}
-	if header.Timestamp == 0 {
-		return SpaceTypePersonal, nil
-	}
-	return SpaceTypeRegular, nil
 }
