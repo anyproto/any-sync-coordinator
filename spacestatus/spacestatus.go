@@ -72,6 +72,7 @@ const (
 	SpaceTypeTech
 	SpaceTypeRegular
 	SpaceTypeChat
+	SpaceTypeOneToOne
 )
 
 var (
@@ -496,6 +497,7 @@ func (s *spaceStatus) MakeShareable(ctx context.Context, spaceId string, spaceTy
 		if err != nil {
 			return err
 		}
+		// dont count onetoone in limits
 		if uint32(count) >= limit {
 			return coordinatorproto.ErrSpaceLimitReached
 		}

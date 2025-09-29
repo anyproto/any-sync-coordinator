@@ -48,8 +48,9 @@ func (c *changeVerifier) Verify(change StatusChange) (err error) {
 }
 
 const (
-	techSpaceType = "anytype.techspace"
-	chatSpaceType = "anytype.chatspace"
+	techSpaceType     = "anytype.techspace"
+	oneToOneSpaceType = "anytype.onetoone"
+	chatSpaceType     = "anytype.chatspace"
 )
 
 func VerifySpaceHeader(identity crypto.PubKey, headerBytes []byte) (spaceType SpaceType, err error) {
@@ -58,26 +59,32 @@ func VerifySpaceHeader(identity crypto.PubKey, headerBytes []byte) (spaceType Sp
 		return
 	}
 
-	ok, err := identity.Verify(rawHeader.SpaceHeader, rawHeader.Signature)
-	if err != nil {
-		return
-	}
-	if !ok {
-		return 0, fmt.Errorf("space header signature mismatched")
-	}
-
 	header := &spacesyncproto.SpaceHeader{}
 	if err = header.UnmarshalVT(rawHeader.SpaceHeader); err != nil {
 		return
 	}
+
+	if header.SpaceType != oneToOneSpaceType {
+		ok, err := identity.Verify(rawHeader.SpaceHeader, rawHeader.Signature)
+		if err != nil {
+			return 0, err
+		}
+		if !ok {
+			return 0, fmt.Errorf("space header signature mismatched")
+		}
+	} // todo: check signate for onetoone
+
 	switch header.SpaceType {
 	case techSpaceType:
 		return SpaceTypeTech, nil
 	case chatSpaceType:
 		return SpaceTypeChat, nil
+	case oneToOneSpaceType:
+		return SpaceTypeOneToOne, nil
 	}
 	if header.Timestamp == 0 {
 		return SpaceTypePersonal, nil
 	}
+	// return err if unknown
 	return SpaceTypeRegular, nil
 }
