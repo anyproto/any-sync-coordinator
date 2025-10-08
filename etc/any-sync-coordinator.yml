@@ -62,8 +62,12 @@ network:
   creationTime: 2023-04-13T20:29:23.453806629+02:00
 networkStorePath: .
 metric:
-  addr: :8001
+  addr: :8023
 defaultLimits:
+  spaceMembersRead: 1000
+  spaceMembersWrite: 100
+  sharedSpacesLimit: 10
+chatSpaceLimits:
   spaceMembersRead: 1000
   spaceMembersWrite: 100
   sharedSpacesLimit: 10
