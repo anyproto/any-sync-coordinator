@@ -68,6 +68,6 @@ func TestVerifySpaceHeader(t *testing.T) {
 			SpaceType: chatSpaceType,
 		}, false))
 		require.NoError(t, err)
-		assert.Equal(t, SpaceTypeChat, spaceType)
+		assert.Equal(t, SpaceTypeRegular, spaceType)
 	})
 }
