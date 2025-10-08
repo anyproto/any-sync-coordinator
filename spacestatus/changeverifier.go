@@ -3,6 +3,7 @@ package spacestatus
 import (
 	"fmt"
 
+	"github.com/anyproto/any-sync/commonspace/object/acl/aclrecordproto"
 	"github.com/anyproto/any-sync/commonspace/object/tree/treechangeproto"
 	"github.com/anyproto/any-sync/commonspace/settings"
 	"github.com/anyproto/any-sync/commonspace/spacesyncproto"
@@ -54,6 +55,67 @@ const (
 	oneToOneSpaceType = "anytype.onetoone"
 )
 
+func verifyHeaderSignatureOneToOne(identity crypto.PubKey, rawHeader *spacesyncproto.RawSpaceHeader) (err error) {
+	var header spacesyncproto.SpaceHeader
+	err = header.UnmarshalVT(rawHeader.SpaceHeader)
+	if err != nil {
+		return
+	}
+
+	var oneToOneInfo aclrecordproto.AclOneToOneInfo
+	err = oneToOneInfo.UnmarshalVT(header.SpaceHeaderPayload)
+	if err != nil {
+		return
+	}
+
+	ownerIdentity, err := crypto.UnmarshalEd25519PublicKeyProto(oneToOneInfo.Owner)
+	if err != nil {
+		return
+	}
+
+	// oneToOne space is signed by sharedSk, Owner of the space
+	ok, err := ownerIdentity.Verify(rawHeader.SpaceHeader, rawHeader.Signature)
+	if err != nil {
+		return
+	}
+	if !ok {
+		return fmt.Errorf("space header signature mismatched")
+	}
+
+	if len(oneToOneInfo.Writers) != 2 {
+		return fmt.Errorf("verify oneToOne signature check: oneToOne space should have exactly two writers")
+	}
+
+	// check if identity is one of the writers.
+	// first, unmarshal both to check if they are pubkeys
+	writer0, err := crypto.UnmarshalEd25519PublicKeyProto(oneToOneInfo.Writers[0])
+	if err != nil {
+		return
+	}
+	writer1, err := crypto.UnmarshalEd25519PublicKeyProto(oneToOneInfo.Writers[1])
+	if err != nil {
+		return
+	}
+
+	if !identity.Equals(writer0) && !identity.Equals(writer1) {
+		return fmt.Errorf("verify oneToOne signature check: identity must be in one of the writers")
+	}
+
+	return nil
+}
+
+func verifyHeaderSignature(identity crypto.PubKey, rawHeader *spacesyncproto.RawSpaceHeader) (err error) {
+	ok, err := identity.Verify(rawHeader.SpaceHeader, rawHeader.Signature)
+	if err != nil {
+		return
+	}
+	if !ok {
+		return fmt.Errorf("space header signature mismatched")
+	}
+
+	return nil
+
+}
 func VerifySpaceHeader(identity crypto.PubKey, headerBytes []byte) (spaceType SpaceType, err error) {
 	rawHeader := &spacesyncproto.RawSpaceHeader{}
 	if err = rawHeader.UnmarshalVT(headerBytes); err != nil {
@@ -65,15 +127,17 @@ func VerifySpaceHeader(identity crypto.PubKey, headerBytes []byte) (spaceType Sp
 		return
 	}
 
-	// todo: check signate for onetoone
 	if header.SpaceType != oneToOneSpaceType {
-		ok, err := identity.Verify(rawHeader.SpaceHeader, rawHeader.Signature)
+		err = verifyHeaderSignatureOneToOne(identity, rawHeader)
 		if err != nil {
-			return 0, err
+			return
 		}
-		if !ok {
-			return 0, fmt.Errorf("space header signature mismatched")
+	} else {
+		err = verifyHeaderSignature(identity, rawHeader)
+		if err != nil {
+			return
 		}
+
 	}
 
 	switch header.SpaceType {
