@@ -164,7 +164,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 			RawChange: []byte{1},
 			Id:        "id",
 		}
-		marshalled, _ := raw.Marshal()
+		marshalled, _ := raw.MarshalVT()
 		checkStatus := func(res StatusEntry, err error) {
 			require.NoError(t, err)
 			if time.Now().Unix()-res.DeletionTimestamp > 10*int64(time.Second) {
@@ -207,7 +207,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 			RawChange: []byte{1},
 			Id:        "id",
 		}
-		marshalled, _ := raw.Marshal()
+		marshalled, _ := raw.MarshalVT()
 		checkStatus := func(res StatusEntry, err error) {
 			require.NoError(t, err)
 			if time.Now().Unix()-res.DeletionTimestamp > 10*int64(time.Second) {
@@ -250,7 +250,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 			RawChange: []byte{1},
 			Id:        "id",
 		}
-		marshaled, _ := raw.Marshal()
+		marshaled, _ := raw.MarshalVT()
 		res, err := fx.ChangeStatus(ctx, StatusChange{
 			DeletionPayload:     marshaled,
 			DeletionPayloadType: coordinatorproto.DeletionPayloadType_Confirm,
@@ -286,7 +286,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 			RawChange: []byte{1},
 			Id:        "id",
 		}
-		marshaled, _ := raw.Marshal()
+		marshaled, _ := raw.MarshalVT()
 		_, err = fx.ChangeStatus(ctx, StatusChange{
 			DeletionPayload: marshaled,
 			SpaceId:         spaceId,
@@ -314,7 +314,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 			RawChange: []byte{1},
 			Id:        "id",
 		}
-		marshaled, _ := raw.Marshal()
+		marshaled, _ := raw.MarshalVT()
 		_, err = fx.ChangeStatus(ctx, StatusChange{
 			Identity:        identity,
 			DeletionPayload: marshaled,
@@ -373,7 +373,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 			RawChange: []byte{1},
 			Id:        "id",
 		}
-		marshaled, _ := raw.Marshal()
+		marshaled, _ := raw.MarshalVT()
 		_, err = fx.ChangeStatus(ctx, StatusChange{
 			DeletionPayload: marshaled,
 			Identity:        other,
@@ -411,7 +411,7 @@ func TestSpaceStatus_StatusOperations(t *testing.T) {
 			RawChange: []byte{1},
 			Id:        "id",
 		}
-		marshaled, _ := raw.Marshal()
+		marshaled, _ := raw.MarshalVT()
 		_, err = fx.ChangeStatus(ctx, StatusChange{
 			DeletionPayload: marshaled,
 			Identity:        identity,
@@ -452,7 +452,7 @@ func TestSpaceStatus_Run(t *testing.T) {
 				RawChange: []byte{1},
 				Id:        "id",
 			}
-			marshaled, _ := raw.Marshal()
+			marshaled, _ := raw.MarshalVT()
 			_, err := fx.ChangeStatus(ctx, StatusChange{
 				DeletionPayload: marshaled,
 				Identity:        identity,
@@ -531,7 +531,7 @@ func TestSpaceStatus_SpaceDelete(t *testing.T) {
 		RawChange: []byte{1},
 		Id:        "id",
 	}
-	marshalled, _ := raw.Marshal()
+	marshalled, _ := raw.MarshalVT()
 	checkStatus := func(fx *fixture, timestamp int64, delPeriod time.Duration, err error) {
 		require.NoError(t, err)
 		res, err := fx.Status(ctx, spaceId)
@@ -772,13 +772,13 @@ func TestSpaceStatus_MakeShareable(t *testing.T) {
 
 		require.NoError(t, fx.NewStatus(ctx, spaceId, identity, oldIdentity, spaceType, false))
 
-		require.NoError(t, fx.MakeShareable(ctx, spaceId, 2))
+		require.NoError(t, fx.MakeShareable(ctx, spaceId, SpaceTypeRegular, 2))
 
 		entry, err := fx.Status(ctx, spaceId)
 		require.NoError(t, err)
 		assert.True(t, entry.IsShareable)
 
-		require.NoError(t, fx.MakeShareable(ctx, spaceId, 2))
+		require.NoError(t, fx.MakeShareable(ctx, spaceId, SpaceTypeRegular, 2))
 	})
 	t.Run("limit exceed", func(t *testing.T) {
 		fx := newFixture(t, 0, 0)
@@ -796,11 +796,11 @@ func TestSpaceStatus_MakeShareable(t *testing.T) {
 			require.NoError(t, fx.NewStatus(ctx, fmt.Sprintf("space.%d", i), identity, oldIdentity, spaceType, false))
 		}
 
-		require.NoError(t, fx.MakeShareable(ctx, "space.0", 2))
-		require.NoError(t, fx.MakeShareable(ctx, "space.1", 2))
-		require.ErrorIs(t, fx.MakeShareable(ctx, "space.2", 2), coordinatorproto.ErrSpaceLimitReached)
+		require.NoError(t, fx.MakeShareable(ctx, "space.0", SpaceTypeRegular, 2))
+		require.NoError(t, fx.MakeShareable(ctx, "space.1", SpaceTypeRegular, 2))
+		require.ErrorIs(t, fx.MakeShareable(ctx, "space.2", SpaceTypeRegular, 2), coordinatorproto.ErrSpaceLimitReached)
 
-		require.NoError(t, fx.MakeShareable(ctx, "space.2", 3))
+		require.NoError(t, fx.MakeShareable(ctx, "space.2", SpaceTypeRegular, 3))
 	})
 }
 
@@ -820,7 +820,7 @@ func TestSpaceStatus_MakeUnshareable(t *testing.T) {
 
 	require.NoError(t, fx.NewStatus(ctx, spaceId, identity, oldIdentity, spaceType, false))
 
-	require.NoError(t, fx.MakeShareable(ctx, spaceId, 2))
+	require.NoError(t, fx.MakeShareable(ctx, spaceId, SpaceTypeRegular, 2))
 
 	entry, err := fx.Status(ctx, spaceId)
 	require.NoError(t, err)
@@ -830,6 +830,33 @@ func TestSpaceStatus_MakeUnshareable(t *testing.T) {
 	entry, err = fx.Status(ctx, spaceId)
 	require.NoError(t, err)
 	assert.False(t, entry.IsShareable)
+}
+
+func TestSpaceStatus_ChangeOwner(t *testing.T) {
+	fx := newFixture(t, 0, 0)
+	defer fx.Finish(t)
+
+	var (
+		spaceId   = "space.id.shareable"
+		spaceType = SpaceTypeRegular
+	)
+
+	_, identity, err := crypto.GenerateRandomEd25519KeyPair()
+	require.NoError(t, err)
+	_, oldIdentity, err := crypto.GenerateRandomEd25519KeyPair()
+	require.NoError(t, err)
+
+	_, newIdentity, err := crypto.GenerateRandomEd25519KeyPair()
+	require.NoError(t, err)
+
+	require.NoError(t, fx.NewStatus(ctx, spaceId, identity, oldIdentity, spaceType, false))
+
+	require.NoError(t, fx.ChangeOwner(ctx, spaceId, newIdentity.Account()))
+
+	status, err := fx.Status(ctx, spaceId)
+	require.NoError(t, err)
+
+	assert.Equal(t, newIdentity.Account(), status.Identity)
 }
 
 type fixture struct {

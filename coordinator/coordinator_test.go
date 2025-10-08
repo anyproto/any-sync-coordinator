@@ -12,6 +12,8 @@ import (
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/metric"
 	"github.com/anyproto/any-sync/net/peer"
+	"github.com/anyproto/any-sync/net/pool"
+	"github.com/anyproto/any-sync/net/pool/mock_pool"
 	"github.com/anyproto/any-sync/net/rpc/rpctest"
 	"github.com/anyproto/any-sync/nodeconf"
 	"github.com/anyproto/any-sync/nodeconf/mock_nodeconf"
@@ -81,11 +83,12 @@ func TestCoordinator_MakeSpaceShareable(t *testing.T) {
 		fx.spaceStatus.EXPECT().Status(ctx, spaceId).Return(spacestatus.StatusEntry{
 			SpaceId:  spaceId,
 			Identity: pubKey.Account(),
+			Type:     spacestatus.SpaceTypeRegular,
 		}, nil)
 		fx.accountLimit.EXPECT().GetLimitsBySpace(ctx, spaceId).Return(accountlimit.SpaceLimits{
 			SharedSpacesLimit: 3,
 		}, nil)
-		fx.spaceStatus.EXPECT().MakeShareable(ctx, spaceId, uint32(3))
+		fx.spaceStatus.EXPECT().MakeShareable(ctx, spaceId, spacestatus.SpaceTypeRegular, uint32(3))
 		fx.aclEventLog.EXPECT().AddLog(ctx, gomock.Any()).Return(nil)
 
 		require.NoError(t, fx.MakeSpaceShareable(ctx, spaceId))
@@ -165,32 +168,34 @@ func TestCoordinator_MakeSpaceUnshareable(t *testing.T) {
 		})
 		require.ErrorIs(t, fx.MakeSpaceUnshareable(ctx, spaceId, headId), coordinatorproto.ErrAclNonEmpty)
 	})
-	// TODO: skipping, -- list.NewTestAclStateWithUsers is undefined
-	//
-	// t.Run("success", func(t *testing.T) {
-	// 	fx := newFixture(t)
-	// 	defer fx.finish(t)
-	// 	fx.spaceStatus.EXPECT().Status(ctx, spaceId).Return(spacestatus.StatusEntry{
-	// 		SpaceId:     spaceId,
-	// 		Identity:    pubKey.Account(),
-	// 		IsShareable: true,
-	// 	}, nil)
-	// 	fx.acl.EXPECT().HasRecord(ctx, spaceId, headId).Return(true, nil)
-	// 	fx.acl.EXPECT().ReadState(ctx, spaceId, gomock.Any()).Do(func(ctx context.Context, spaceId string, f func(s *list.AclState) error) {
-	// 		s := list.NewTestAclStateWithUsers(1, 0, 0)
-	// 		require.NoError(t, f(s))
-	// 	})
-	// 	fx.aclEventLog.EXPECT().AddLog(ctx, gomock.Any()).Return(nil)
+	t.Run("success", func(t *testing.T) {
+		/*
+			TODO: list.NewTestAclStateWithUsers unavailable more
+			fx := newFixture(t)
+			defer fx.finish(t)
+			fx.spaceStatus.EXPECT().Status(ctx, spaceId).Return(spacestatus.StatusEntry{
+				SpaceId:     spaceId,
+				Identity:    pubKey.Account(),
+				IsShareable: true,
+			}, nil)
+			fx.acl.EXPECT().HasRecord(ctx, spaceId, headId).Return(true, nil)
+			fx.acl.EXPECT().ReadState(ctx, spaceId, gomock.Any()).Do(func(ctx context.Context, spaceId string, f func(s *list.AclState) error) {
+				s := list.NewTestAclStateWithUsers(1, 0, 0)
+				require.NoError(t, f(s))
+			})
+			fx.aclEventLog.EXPECT().AddLog(ctx, gomock.Any()).Return(nil)
 
-	// 	fx.spaceStatus.EXPECT().MakeUnshareable(ctx, spaceId)
-	// 	require.NoError(t, fx.MakeSpaceUnshareable(ctx, spaceId, headId))
-	// })
+			fx.spaceStatus.EXPECT().MakeUnshareable(ctx, spaceId)
+			require.NoError(t, fx.MakeSpaceUnshareable(ctx, spaceId, headId))
+
+		*/
+	})
 }
 
 func TestCoordinator_AclAddRecord(t *testing.T) {
 	spaceId := "space.id"
 	rec := &consensusproto.RawRecord{Payload: []byte("payload")}
-	recBytes, _ := rec.Marshal()
+	recBytes, _ := rec.MarshalVT()
 
 	_, pubKey, err := crypto.GenerateRandomEd25519KeyPair()
 	require.NoError(t, err)
@@ -236,6 +241,7 @@ func TestCoordinator_AclAddRecord(t *testing.T) {
 
 		fx.spaceStatus.EXPECT().Status(ctx, spaceId).Return(spacestatus.StatusEntry{
 			SpaceId:     spaceId,
+			Identity:    pubKey.Account(),
 			IsShareable: true,
 		}, nil)
 		fx.accountLimit.EXPECT().GetLimitsBySpace(ctx, spaceId).Return(accountlimit.SpaceLimits{
@@ -252,6 +258,8 @@ func TestCoordinator_AclAddRecord(t *testing.T) {
 		}).Return(rawRec, nil)
 		fx.aclEventLog.EXPECT().AddLog(ctx, gomock.Any()).Return(nil)
 
+		fx.acl.EXPECT().OwnerPubKey(ctx, spaceId).Return(pubKey, nil)
+
 		res, err := fx.AclAddRecord(ctx, spaceId, recBytes)
 		require.NoError(t, err)
 		assert.Equal(t, rawRec, res)
@@ -267,6 +275,39 @@ func TestCoordinator_AclAddRecord(t *testing.T) {
 
 		_, err := fx.AclAddRecord(ctx, spaceId, recBytes)
 		require.ErrorIs(t, err, coordinatorproto.ErrSpaceIsDeleted)
+	})
+	t.Run("change owner", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+
+		fx.spaceStatus.EXPECT().Status(ctx, spaceId).Return(spacestatus.StatusEntry{
+			SpaceId:     spaceId,
+			Identity:    pubKey.Account(),
+			IsShareable: true,
+		}, nil)
+		fx.accountLimit.EXPECT().GetLimitsBySpace(ctx, spaceId).Return(accountlimit.SpaceLimits{
+			SpaceMembersRead:  4,
+			SpaceMembersWrite: 2,
+		}, nil)
+		rawRec := &consensusproto.RawRecordWithId{
+			Payload: recBytes,
+			Id:      "id",
+		}
+		fx.acl.EXPECT().AddRecord(ctx, spaceId, rec, acl.Limits{
+			ReadMembers:  4,
+			WriteMembers: 2,
+		}).Return(rawRec, nil)
+		fx.aclEventLog.EXPECT().AddLog(ctx, gomock.Any()).Return(nil)
+
+		_, newPubKey, err := crypto.GenerateRandomEd25519KeyPair()
+		require.NoError(t, err)
+
+		fx.acl.EXPECT().OwnerPubKey(ctx, spaceId).Return(newPubKey, nil)
+		fx.spaceStatus.EXPECT().ChangeOwner(ctx, spaceId, newPubKey.Account())
+
+		res, err := fx.AclAddRecord(ctx, spaceId, recBytes)
+		require.NoError(t, err)
+		assert.Equal(t, rawRec, res)
 	})
 }
 
@@ -315,6 +356,7 @@ func newFixture(t *testing.T) *fixture {
 		subscribe:    mock_subscribe.NewMockSubscribeService(ctrl),
 		acl:          mock_acl.NewMockAclService(ctrl),
 		accountLimit: mock_accountlimit.NewMockAccountLimit(ctrl),
+		pool:         mock_pool.NewMockService(ctrl),
 		a:            new(app.App),
 		ctrl:         ctrl,
 	}
@@ -328,6 +370,7 @@ func newFixture(t *testing.T) *fixture {
 	anymock.ExpectComp(fx.acl.EXPECT(), acl.CName)
 	anymock.ExpectComp(fx.accountLimit.EXPECT(), accountlimit.CName)
 	anymock.ExpectComp(fx.aclEventLog.EXPECT(), acleventlog.CName)
+	anymock.ExpectComp(fx.pool.EXPECT(), pool.CName)
 
 	fx.a.Register(fx.coordinator).
 		Register(fx.nodeConf).
@@ -342,6 +385,7 @@ func newFixture(t *testing.T) *fixture {
 		Register(fx.subscribe).
 		Register(fx.acl).
 		Register(fx.accountLimit).
+		Register(fx.pool).
 		Register(rpctest.NewTestServer())
 
 	require.NoError(t, fx.a.Start(ctx))
@@ -361,6 +405,7 @@ type fixture struct {
 	inbox        *mock_inbox.MockInboxService
 	acl          *mock_acl.MockAclService
 	accountLimit *mock_accountlimit.MockAccountLimit
+	pool         *mock_pool.MockService
 }
 
 func (fx *fixture) finish(t *testing.T) {

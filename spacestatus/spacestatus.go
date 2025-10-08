@@ -71,6 +71,8 @@ const (
 	SpaceTypePersonal SpaceType = iota
 	SpaceTypeTech
 	SpaceTypeRegular
+	SpaceTypeChat
+	SpaceTypeOneToOne
 )
 
 var (
@@ -87,12 +89,13 @@ type SpaceStatus interface {
 	NewStatus(ctx context.Context, spaceId string, identity, oldIdentity crypto.PubKey, spaceType SpaceType, force bool) (err error)
 	// ChangeStatus is deprecated, use only for backwards compatibility
 	ChangeStatus(ctx context.Context, change StatusChange) (entry StatusEntry, err error)
+	ChangeOwner(ctx context.Context, spaceId, newOwnerId string) (err error)
 	SpaceDelete(ctx context.Context, payload SpaceDeletion) (toBeDeleted int64, err error)
 	AccountDelete(ctx context.Context, payload AccountDeletion) (toBeDeleted int64, err error)
 	AccountRevertDeletion(ctx context.Context, payload AccountInfo) (err error)
 	Status(ctx context.Context, spaceId string) (entry StatusEntry, err error)
 
-	MakeShareable(ctx context.Context, spaceId string, limit uint32) (err error)
+	MakeShareable(ctx context.Context, spaceId string, spaceType SpaceType, limit uint32) (err error)
 	MakeUnshareable(ctx context.Context, spaceId string) (err error)
 
 	app.ComponentRunnable
@@ -149,6 +152,7 @@ type insertNewSpaceOp struct {
 	OldIdentity string    `bson:"oldIdentity"`
 	Status      int       `bson:"status"`
 	Type        SpaceType `bson:"type"`
+	IsShareable bool      `bson:"isShareable"`
 	SpaceId     string    `bson:"_id"`
 }
 
@@ -474,7 +478,7 @@ func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity, o
 	})
 }
 
-func (s *spaceStatus) MakeShareable(ctx context.Context, spaceId string, limit uint32) (err error) {
+func (s *spaceStatus) MakeShareable(ctx context.Context, spaceId string, spaceType SpaceType, limit uint32) (err error) {
 	return s.db.Tx(ctx, func(txCtx mongo.SessionContext) error {
 		entry, err := s.Status(txCtx, spaceId)
 		if err != nil {
@@ -486,12 +490,14 @@ func (s *spaceStatus) MakeShareable(ctx context.Context, spaceId string, limit u
 		}
 		count, err := s.spaces.CountDocuments(txCtx, bson.D{
 			{"identity", entry.Identity},
+			{"type", spaceType},
 			{"status", SpaceStatusCreated},
 			{"isShareable", true},
 		})
 		if err != nil {
 			return err
 		}
+		// dont count onetoone in limits
 		if uint32(count) >= limit {
 			return coordinatorproto.ErrSpaceLimitReached
 		}
@@ -537,6 +543,13 @@ func (s *spaceStatus) checkLimitTx(txCtx mongo.SessionContext, identity crypto.P
 	if count > int64(s.conf.SpaceLimit) {
 		return coordinatorproto.ErrSpaceLimitReached
 	}
+	return
+}
+
+func (s *spaceStatus) ChangeOwner(ctx context.Context, spaceId, ownerId string) (err error) {
+	_, err = s.spaces.UpdateOne(ctx, bson.D{{"_id", spaceId}}, bson.D{{"$set", bson.D{
+		{"identity", ownerId},
+	}}})
 	return
 }
 

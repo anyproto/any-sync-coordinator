@@ -14,7 +14,7 @@ func TestVerifySpaceHeader(t *testing.T) {
 	require.NoError(t, err)
 
 	newRawHeader := func(t *testing.T, spaceHeader *spacesyncproto.SpaceHeader, badSig bool) []byte {
-		spaceHeaderBytes, err := spaceHeader.Marshal()
+		spaceHeaderBytes, err := spaceHeader.MarshalVT()
 		require.NoError(t, err)
 
 		sig, err := privKey.Sign(spaceHeaderBytes)
@@ -26,7 +26,7 @@ func TestVerifySpaceHeader(t *testing.T) {
 			SpaceHeader: spaceHeaderBytes,
 			Signature:   sig,
 		}
-		rawHeaderBytes, err := rawHeader.Marshal()
+		rawHeaderBytes, err := rawHeader.MarshalVT()
 		require.NoError(t, err)
 		return rawHeaderBytes
 	}
@@ -62,5 +62,12 @@ func TestVerifySpaceHeader(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, SpaceTypeRegular, spaceType)
 	})
-
+	t.Run("chat", func(t *testing.T) {
+		spaceType, err := VerifySpaceHeader(puKey, newRawHeader(t, &spacesyncproto.SpaceHeader{
+			Timestamp: 0,
+			SpaceType: chatSpaceType,
+		}, false))
+		require.NoError(t, err)
+		assert.Equal(t, SpaceTypeRegular, spaceType)
+	})
 }

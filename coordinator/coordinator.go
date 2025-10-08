@@ -10,18 +10,18 @@ import (
 	"github.com/anyproto/any-sync/acl"
 	"github.com/anyproto/any-sync/app"
 	"github.com/anyproto/any-sync/app/logger"
-	"github.com/anyproto/any-sync/commonspace"
 	"github.com/anyproto/any-sync/commonspace/object/accountdata"
 	"github.com/anyproto/any-sync/commonspace/object/acl/list"
+	"github.com/anyproto/any-sync/commonspace/spacepayloads"
 	"github.com/anyproto/any-sync/commonspace/spacesyncproto"
 	"github.com/anyproto/any-sync/consensus/consensusproto"
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/metric"
 	"github.com/anyproto/any-sync/net/peer"
+	"github.com/anyproto/any-sync/net/pool"
 	"github.com/anyproto/any-sync/net/rpc/server"
 	"github.com/anyproto/any-sync/nodeconf"
 	"github.com/anyproto/any-sync/util/crypto"
-	"github.com/gogo/protobuf/proto"
 	"go.uber.org/zap"
 	"storj.io/drpc"
 
@@ -72,8 +72,8 @@ type coordinator struct {
 	acl            acl.AclService
 	inbox          inbox.InboxService
 	subscribe      subscribe.SubscribeService
-
-	drpcHandler *rpcHandler
+	drpcHandler    *rpcHandler
+	pool           pool.Service
 }
 
 func (c *coordinator) Init(a *app.App) (err error) {
@@ -91,7 +91,7 @@ func (c *coordinator) Init(a *app.App) (err error) {
 	c.inbox = app.MustComponent[inbox.InboxService](a)
 	c.accountLimit = app.MustComponent[accountlimit.AccountLimit](a)
 	c.aclEventLog = app.MustComponent[acleventlog.AclEventLog](a)
-
+	c.pool = a.MustComponent(pool.CName).(pool.Service)
 	return coordinatorproto.DRPCRegisterCoordinator(a.MustComponent(server.CName).(drpc.Mux), c.drpcHandler)
 }
 
@@ -214,7 +214,7 @@ func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader
 	if err != nil {
 		return
 	}
-	err = commonspace.ValidateSpaceHeader(&spacesyncproto.RawSpaceHeaderWithId{RawHeader: spaceHeader, Id: spaceId}, accountPubKey)
+	_, err = spacepayloads.ValidateSpaceHeader(&spacesyncproto.RawSpaceHeaderWithId{RawHeader: spaceHeader, Id: spaceId}, accountPubKey, nil, nil)
 	if err != nil {
 		return
 	}
@@ -256,7 +256,7 @@ func (c *coordinator) addCoordinatorLog(ctx context.Context, spaceId, peerId str
 			log.Debug("failed to add space receipt log entry", zap.Error(err))
 		}
 	}()
-	marshalledReceipt, err := signedReceipt.Marshal()
+	marshalledReceipt, err := signedReceipt.MarshalVT()
 	if err != nil {
 		return
 	}
@@ -305,7 +305,7 @@ func (c *coordinator) AclAddRecord(ctx context.Context, spaceId string, payload 
 	}
 
 	rec := &consensusproto.RawRecord{}
-	err = proto.Unmarshal(payload, rec)
+	err = rec.UnmarshalVT(payload)
 	if err != nil {
 		return
 	}
@@ -354,6 +354,17 @@ func (c *coordinator) AclAddRecord(ctx context.Context, spaceId string, payload 
 	if err != nil {
 		return
 	}
+
+	ownerPubKey, err := c.acl.OwnerPubKey(ctx, spaceId)
+	if err != nil {
+		return
+	}
+	if ownerPubKey.Account() != statusEntry.Identity {
+		if err = c.spaceStatus.ChangeOwner(ctx, spaceId, ownerPubKey.Account()); err != nil {
+			return
+		}
+	}
+
 	return rawRecordWithId, nil
 }
 
@@ -396,7 +407,7 @@ func (c *coordinator) MakeSpaceShareable(ctx context.Context, spaceId string) (e
 		return err
 	}
 
-	err = c.spaceStatus.MakeShareable(ctx, spaceId, limits.SharedSpacesLimit)
+	err = c.spaceStatus.MakeShareable(ctx, spaceId, statusEntry.Type, limits.SharedSpacesLimit)
 	if err != nil {
 		return
 	}

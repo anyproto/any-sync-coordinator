@@ -102,7 +102,6 @@ func TestAccountLimit_GetLimitsBySpace(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, SpaceLimits{10, 5, 3}, limits)
 	})
-
 }
 
 var ctx = context.Background()

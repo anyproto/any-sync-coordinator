@@ -5,6 +5,7 @@ account:
 drpc:
   stream:
     maxMsgSizeMb: 256
+  snappy: true
 mongo:
   connect: mongodb://localhost:27017
   database: coordinator_test

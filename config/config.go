@@ -47,7 +47,7 @@ type Config struct {
 	AccountLimits            accountlimit.SpaceLimits `yaml:"defaultLimits"`
 }
 
-func (c *Config) Init(a *app.App) (err error) {
+func (c Config) Init(a *app.App) (err error) {
 	return
 }
 

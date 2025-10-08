@@ -22,6 +22,7 @@ import (
 type MockDeletionLog struct {
 	ctrl     *gomock.Controller
 	recorder *MockDeletionLogMockRecorder
+	isgomock struct{}
 }
 
 // MockDeletionLogMockRecorder is the mock recorder for MockDeletionLog.
@@ -42,38 +43,38 @@ func (m *MockDeletionLog) EXPECT() *MockDeletionLogMockRecorder {
 }
 
 // Add mocks base method.
-func (m *MockDeletionLog) Add(arg0 context.Context, arg1, arg2 string, arg3 deletionlog.Status) (string, error) {
+func (m *MockDeletionLog) Add(ctx context.Context, spaceId, fileGroup string, status deletionlog.Status) (string, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Add", arg0, arg1, arg2, arg3)
+	ret := m.ctrl.Call(m, "Add", ctx, spaceId, fileGroup, status)
 	ret0, _ := ret[0].(string)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // Add indicates an expected call of Add.
-func (mr *MockDeletionLogMockRecorder) Add(arg0, arg1, arg2, arg3 any) *gomock.Call {
+func (mr *MockDeletionLogMockRecorder) Add(ctx, spaceId, fileGroup, status any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Add", reflect.TypeOf((*MockDeletionLog)(nil).Add), arg0, arg1, arg2, arg3)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Add", reflect.TypeOf((*MockDeletionLog)(nil).Add), ctx, spaceId, fileGroup, status)
 }
 
 // Close mocks base method.
-func (m *MockDeletionLog) Close(arg0 context.Context) error {
+func (m *MockDeletionLog) Close(ctx context.Context) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Close", arg0)
+	ret := m.ctrl.Call(m, "Close", ctx)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Close indicates an expected call of Close.
-func (mr *MockDeletionLogMockRecorder) Close(arg0 any) *gomock.Call {
+func (mr *MockDeletionLogMockRecorder) Close(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockDeletionLog)(nil).Close), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockDeletionLog)(nil).Close), ctx)
 }
 
 // GetAfter mocks base method.
-func (m *MockDeletionLog) GetAfter(arg0 context.Context, arg1 string, arg2 uint32) ([]deletionlog.Record, bool, error) {
+func (m *MockDeletionLog) GetAfter(ctx context.Context, afterId string, limit uint32) ([]deletionlog.Record, bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetAfter", arg0, arg1, arg2)
+	ret := m.ctrl.Call(m, "GetAfter", ctx, afterId, limit)
 	ret0, _ := ret[0].([]deletionlog.Record)
 	ret1, _ := ret[1].(bool)
 	ret2, _ := ret[2].(error)
@@ -81,23 +82,23 @@ func (m *MockDeletionLog) GetAfter(arg0 context.Context, arg1 string, arg2 uint3
 }
 
 // GetAfter indicates an expected call of GetAfter.
-func (mr *MockDeletionLogMockRecorder) GetAfter(arg0, arg1, arg2 any) *gomock.Call {
+func (mr *MockDeletionLogMockRecorder) GetAfter(ctx, afterId, limit any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAfter", reflect.TypeOf((*MockDeletionLog)(nil).GetAfter), arg0, arg1, arg2)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAfter", reflect.TypeOf((*MockDeletionLog)(nil).GetAfter), ctx, afterId, limit)
 }
 
 // Init mocks base method.
-func (m *MockDeletionLog) Init(arg0 *app.App) error {
+func (m *MockDeletionLog) Init(a *app.App) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Init", arg0)
+	ret := m.ctrl.Call(m, "Init", a)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Init indicates an expected call of Init.
-func (mr *MockDeletionLogMockRecorder) Init(arg0 any) *gomock.Call {
+func (mr *MockDeletionLogMockRecorder) Init(a any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Init", reflect.TypeOf((*MockDeletionLog)(nil).Init), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Init", reflect.TypeOf((*MockDeletionLog)(nil).Init), a)
 }
 
 // Name mocks base method.
@@ -115,15 +116,15 @@ func (mr *MockDeletionLogMockRecorder) Name() *gomock.Call {
 }
 
 // Run mocks base method.
-func (m *MockDeletionLog) Run(arg0 context.Context) error {
+func (m *MockDeletionLog) Run(ctx context.Context) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Run", arg0)
+	ret := m.ctrl.Call(m, "Run", ctx)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Run indicates an expected call of Run.
-func (mr *MockDeletionLogMockRecorder) Run(arg0 any) *gomock.Call {
+func (mr *MockDeletionLogMockRecorder) Run(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Run", reflect.TypeOf((*MockDeletionLog)(nil).Run), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Run", reflect.TypeOf((*MockDeletionLog)(nil).Run), ctx)
 }

@@ -1,7 +1,7 @@
 .PHONY: build test deps build-dev
 SHELL=/usr/bin/env bash
 export GOPRIVATE=github.com/anyproto
-export PATH:=deps:$(PATH)
+export PATH:=$(CURDIR)/deps:$(PATH)
 export CGO_ENABLED:=1
 BUILD_GOOS:=$(shell go env GOOS)
 BUILD_GOARCH:=$(shell go env GOARCH)
@@ -23,6 +23,8 @@ test:
 deps:
 	go mod download
 	go build -o deps github.com/ahmetb/govvv
+	go build -o deps go.uber.org/mock/mockgen
 
-run: build
-	./bin/any-sync-coordinator -c ../any-sync-tools/any-sync-network/etc/any-sync-coordinator/config.yml
+mocks:
+	echo 'Generating mocks...'
+	go generate ./...
