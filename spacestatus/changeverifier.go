@@ -127,7 +127,7 @@ func VerifySpaceHeader(identity crypto.PubKey, headerBytes []byte) (spaceType Sp
 		return
 	}
 
-	if header.SpaceType != oneToOneSpaceType {
+	if header.SpaceType == oneToOneSpaceType {
 		err = verifyHeaderSignatureOneToOne(identity, rawHeader)
 		if err != nil {
 			return
