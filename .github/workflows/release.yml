@@ -13,3 +13,4 @@ jobs:
     secrets: inherit # pass all secrets
     with:
       start_mongodb: true
+      dockerfile-cmd: '["/bin/any-sync-coordinator", "-c", "/etc/any-sync-coordinator/config.yml"]'
