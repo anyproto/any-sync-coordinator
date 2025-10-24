@@ -499,7 +499,6 @@ func (r *rpcHandler) NotifySubscribe(req *coordinatorproto.NotifySubscribeReques
 }
 
 func (r *rpcHandler) InboxAddMessage(ctx context.Context, in *coordinatorproto.InboxAddMessageRequest) (response *coordinatorproto.InboxAddMessageResponse, err error) {
-	fmt.Printf("%#v\n", ctx)
 	message := inbox.InboxMessageFromRequest(ctx, in)
 	err = r.c.InboxAddMessage(ctx, message)
 	if err != nil {

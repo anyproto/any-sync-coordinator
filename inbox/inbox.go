@@ -142,10 +142,7 @@ func (s *inbox) runStreamListener(ctx context.Context) (err error) {
 }
 
 func (s *inbox) streamListener(stream *mongo.ChangeStream) {
-	fmt.Printf("mongo streams\n")
 	for stream.Next(context.Background()) {
-		// TODO: not triggered in tests?
-		fmt.Printf("mongo stream next\n")
 		var res streamResult
 		if err := stream.Decode(&res); err != nil {
 			// mongo driver maintains connections and handles reconnects so that the stream will work as usual in these cases
