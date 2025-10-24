@@ -6,7 +6,7 @@ toolchain go1.24.9
 
 require (
 	github.com/ahmetb/govvv v0.3.0
-	github.com/anyproto/any-sync v0.11.1-0.20251024134443-9fcd779c1087
+	github.com/anyproto/any-sync v0.11.1
 	github.com/anyproto/go-chash v0.1.0
 	github.com/gogo/protobuf v1.3.2
 	github.com/stretchr/testify v1.11.1
