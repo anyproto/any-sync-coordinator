@@ -139,6 +139,10 @@ func (al *accountLimit) GetLimitsBySpace(ctx context.Context, spaceId string) (s
 			SpaceMembersRead:  1,
 			SpaceMembersWrite: 1,
 		}, nil
+	case spacestatus.SpaceTypeOneToOne:
+		return SpaceLimits{
+			SharedSpacesLimit: 3000,
+		}, nil
 	}
 
 	limits, err := al.GetLimits(ctx, entry.Identity)
