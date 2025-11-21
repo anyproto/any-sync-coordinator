@@ -608,6 +608,25 @@ func TestSpaceStatus_SpaceDelete(t *testing.T) {
 		})
 		require.Error(t, err)
 	})
+	t.Run("onetoone space delete - error", func(t *testing.T) {
+		fx := newFixture(t, 1, 0)
+		fx.Run()
+		fx.verifier.verify = true
+		defer fx.Finish(t)
+		err := fx.NewStatus(ctx, spaceId, identity, oldIdentity, SpaceTypeOneToOne, false)
+		require.NoError(t, err)
+		delPeriod := time.Hour
+		_, err = fx.SpaceDelete(ctx, SpaceDeletion{
+			DeletionPayload: marshalled,
+			DeletionPeriod:  delPeriod,
+			AccountInfo: AccountInfo{
+				Identity: identity,
+			},
+			SpaceId: spaceId,
+		})
+		require.Error(t, err)
+	})
+
 }
 
 func TestSpaceStatus_AccountDelete(t *testing.T) {
