@@ -72,6 +72,7 @@ const (
 	SpaceTypeTech
 	SpaceTypeRegular
 	SpaceTypeChat
+	SpaceTypeOneToOne
 )
 
 var (

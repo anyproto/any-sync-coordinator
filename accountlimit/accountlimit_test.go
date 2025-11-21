@@ -88,6 +88,21 @@ func TestAccountLimit_GetLimitsBySpace(t *testing.T) {
 		assert.Equal(t, SpaceLimits{1, 1, 0}, limits)
 	})
 
+	t.Run("oneToOne", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+
+		fx.spaceStatus.EXPECT().Status(ctx, spaceId).Return(spacestatus.StatusEntry{
+			SpaceId:  spaceId,
+			Identity: identity,
+			Type:     spacestatus.SpaceTypeOneToOne,
+		}, nil)
+
+		limits, err := fx.GetLimitsBySpace(ctx, spaceId)
+		require.NoError(t, err)
+		assert.Equal(t, SpaceLimits{SharedSpacesLimit: 3000}, limits)
+	})
+
 	t.Run("regular", func(t *testing.T) {
 		fx := newFixture(t)
 		defer fx.finish(t)

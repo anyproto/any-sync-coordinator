@@ -30,7 +30,9 @@ import (
 	"github.com/anyproto/any-sync-coordinator/config"
 	"github.com/anyproto/any-sync-coordinator/coordinatorlog"
 	"github.com/anyproto/any-sync-coordinator/deletionlog"
+	"github.com/anyproto/any-sync-coordinator/inbox"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
+	"github.com/anyproto/any-sync-coordinator/subscribe"
 )
 
 var (
@@ -68,6 +70,8 @@ type coordinator struct {
 	deletionLog    deletionlog.DeletionLog
 	accountLimit   accountlimit.AccountLimit
 	acl            acl.AclService
+	inbox          inbox.InboxService
+	subscribe      subscribe.SubscribeService
 	drpcHandler    *rpcHandler
 	pool           pool.Service
 }
@@ -81,8 +85,10 @@ func (c *coordinator) Init(a *app.App) (err error) {
 	c.spaceStatus = a.MustComponent(spacestatus.CName).(spacestatus.SpaceStatus)
 	c.coordinatorLog = a.MustComponent(coordinatorlog.CName).(coordinatorlog.CoordinatorLog)
 	c.metric = a.MustComponent(metric.CName).(metric.Metric)
+	c.subscribe = a.MustComponent(subscribe.CName).(subscribe.SubscribeService)
 	c.deletionLog = app.MustComponent[deletionlog.DeletionLog](a)
 	c.acl = app.MustComponent[acl.AclService](a)
+	c.inbox = app.MustComponent[inbox.InboxService](a)
 	c.accountLimit = app.MustComponent[accountlimit.AccountLimit](a)
 	c.aclEventLog = app.MustComponent[acleventlog.AclEventLog](a)
 	c.pool = a.MustComponent(pool.CName).(pool.Service)
@@ -208,7 +214,7 @@ func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader
 	if err != nil {
 		return
 	}
-	err = spacepayloads.ValidateSpaceHeader(&spacesyncproto.RawSpaceHeaderWithId{RawHeader: spaceHeader, Id: spaceId}, accountPubKey)
+	_, err = spacepayloads.ValidateSpaceHeader(&spacesyncproto.RawSpaceHeaderWithId{RawHeader: spaceHeader, Id: spaceId}, accountPubKey, nil, nil)
 	if err != nil {
 		return
 	}
@@ -464,4 +470,13 @@ func (c *coordinator) MakeSpaceUnshareable(ctx context.Context, spaceId, aclHead
 		Timestamp: time.Now().Unix(),
 		EntryType: acleventlog.EntryTypeSpaceUnshared,
 	})
+}
+
+func (c *coordinator) InboxAddMessage(ctx context.Context, message *inbox.InboxMessage) (err error) {
+	err = c.inbox.InboxAddMessage(ctx, message)
+	return
+}
+
+func (c *coordinator) AddStream(eventType coordinatorproto.NotifyEventType, accountId, peerId string, stream coordinatorproto.DRPCCoordinator_NotifySubscribeStream) error {
+	return c.subscribe.AddStream(eventType, accountId, peerId, stream)
 }
