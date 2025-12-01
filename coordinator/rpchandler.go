@@ -114,7 +114,9 @@ func (r *rpcHandler) SpaceStatusCheck(ctx context.Context, req *coordinatorproto
 		Payload: r.convertStatus(status),
 	}
 	if status.Identity == accountIdentity {
-		resp.Payload.Permissions = coordinatorproto.SpacePermissions_SpacePermissionsOwner
+		if status.Type != spacestatus.SpaceTypeOneToOne {
+			resp.Payload.Permissions = coordinatorproto.SpacePermissions_SpacePermissionsOwner
+		}
 		var aLimits accountlimit.Limits
 		aLimits, err = r.c.accountLimit.GetLimits(ctx, accountIdentity)
 		if err != nil {
@@ -171,7 +173,11 @@ func (r *rpcHandler) SpaceStatusCheckMany(ctx context.Context, req *coordinatorp
 		}
 		st := r.convertStatus(status)
 		if status.Identity == accountIdentity {
-			st.Permissions = coordinatorproto.SpacePermissions_SpacePermissionsOwner
+			// this logic doesn't work for 1:1 spaces
+			// TODO: rewrite permissions logic according ACL status
+			if status.Type != spacestatus.SpaceTypeOneToOne {
+				st.Permissions = coordinatorproto.SpacePermissions_SpacePermissionsOwner
+			}
 			st.Limits = limits
 		}
 		resp.Payloads = append(resp.Payloads, st)
