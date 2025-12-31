@@ -66,6 +66,21 @@ func TestDeletionLog_GetAfter(t *testing.T) {
 
 }
 
+func TestDeletionLog_AddOwnershipChange(t *testing.T) {
+	fx := newFixture(t)
+	defer fx.finish(t)
+	id, err := fx.AddOwnershipChange(ctx, "spaceId", "aclRecordId")
+	require.NoError(t, err)
+	assert.NotEmpty(t, id)
+
+	res, _, err := fx.GetAfter(ctx, "", 0)
+	require.NoError(t, err)
+	require.Len(t, res, 1)
+	assert.Equal(t, "spaceId", res[0].SpaceId)
+	assert.Equal(t, "aclRecordId", res[0].AclRecordId)
+	assert.Equal(t, StatusOwnershipChange, res[0].Status)
+}
+
 func newFixture(t *testing.T) *fixture {
 	fx := &fixture{
 		DeletionLog: New(),

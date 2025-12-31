@@ -10,6 +10,7 @@ import (
 	"github.com/anyproto/any-sync/app/logger"
 	"github.com/anyproto/any-sync/commonfile/fileproto"
 	"github.com/anyproto/any-sync/net/pool"
+	"github.com/anyproto/any-sync/net/rpc/rpcerr"
 	"github.com/anyproto/any-sync/nodeconf"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -107,6 +108,9 @@ func (al *accountLimit) updateFileLimits(ctx context.Context, limits Limits) (er
 			Identity: limits.Identity,
 			Limit:    limits.FileStorageBytes,
 		})
+		if err != nil {
+			return errors.Join(rpcerr.Unwrap(err), err)
+		}
 		return err
 	})
 }

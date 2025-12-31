@@ -15,7 +15,6 @@ import (
 
 	inbox "github.com/anyproto/any-sync-coordinator/inbox"
 	app "github.com/anyproto/any-sync/app"
-	coordinatorproto "github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -126,18 +125,4 @@ func (m *MockInboxService) Run(ctx context.Context) error {
 func (mr *MockInboxServiceMockRecorder) Run(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Run", reflect.TypeOf((*MockInboxService)(nil).Run), ctx)
-}
-
-// SubscribeClient mocks base method.
-func (m *MockInboxService) SubscribeClient(stream coordinatorproto.DRPCCoordinator_NotifySubscribeStream) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SubscribeClient", stream)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// SubscribeClient indicates an expected call of SubscribeClient.
-func (mr *MockInboxServiceMockRecorder) SubscribeClient(stream any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SubscribeClient", reflect.TypeOf((*MockInboxService)(nil).SubscribeClient), stream)
 }

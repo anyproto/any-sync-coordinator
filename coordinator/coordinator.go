@@ -363,6 +363,9 @@ func (c *coordinator) AclAddRecord(ctx context.Context, spaceId string, payload 
 		if err = c.spaceStatus.ChangeOwner(ctx, spaceId, ownerPubKey.Account()); err != nil {
 			return
 		}
+		if _, err = c.deletionLog.AddOwnershipChange(ctx, spaceId, rawRecordWithId.Id); err != nil {
+			return
+		}
 	}
 
 	return rawRecordWithId, nil

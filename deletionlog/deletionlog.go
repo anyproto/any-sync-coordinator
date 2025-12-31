@@ -31,22 +31,25 @@ func New() DeletionLog {
 type DeletionLog interface {
 	GetAfter(ctx context.Context, afterId string, limit uint32) (records []Record, hasMore bool, err error)
 	Add(ctx context.Context, spaceId, fileGroup string, status Status) (id string, err error)
+	AddOwnershipChange(ctx context.Context, spaceId, aclRecordId string) (id string, err error)
 	app.ComponentRunnable
 }
 
 type Record struct {
-	Id        *primitive.ObjectID `bson:"_id,omitempty"`
-	SpaceId   string              `bson:"spaceId"`
-	FileGroup string              `bson:"fileGroup"`
-	Status    Status              `bson:"status"`
+	Id          *primitive.ObjectID `bson:"_id,omitempty"`
+	SpaceId     string              `bson:"spaceId"`
+	FileGroup   string              `bson:"fileGroup"`
+	Status      Status              `bson:"status"`
+	AclRecordId string              `bson:"aclRecordId,omitempty"`
 }
 
 type Status int32
 
 const (
-	StatusOk            = Status(coordinatorproto.DeletionLogRecordStatus_Ok)
-	StatusRemovePrepare = Status(coordinatorproto.DeletionLogRecordStatus_RemovePrepare)
-	StatusRemove        = Status(coordinatorproto.DeletionLogRecordStatus_Remove)
+	StatusOk              = Status(coordinatorproto.DeletionLogRecordStatus_Ok)
+	StatusRemovePrepare   = Status(coordinatorproto.DeletionLogRecordStatus_RemovePrepare)
+	StatusRemove          = Status(coordinatorproto.DeletionLogRecordStatus_Remove)
+	StatusOwnershipChange = Status(coordinatorproto.DeletionLogRecordStatus_OwnershipChange)
 )
 
 type deletionLog struct {
@@ -120,6 +123,19 @@ func (d *deletionLog) Add(ctx context.Context, spaceId, fileGroup string, status
 		SpaceId:   spaceId,
 		Status:    status,
 		FileGroup: fileGroup,
+	}
+	res, err := d.coll.InsertOne(ctx, rec)
+	if err != nil {
+		return
+	}
+	return res.InsertedID.(primitive.ObjectID).Hex(), nil
+}
+
+func (d *deletionLog) AddOwnershipChange(ctx context.Context, spaceId, aclRecordId string) (id string, err error) {
+	rec := Record{
+		SpaceId:     spaceId,
+		Status:      StatusOwnershipChange,
+		AclRecordId: aclRecordId,
 	}
 	res, err := d.coll.InsertOne(ctx, rec)
 	if err != nil {
