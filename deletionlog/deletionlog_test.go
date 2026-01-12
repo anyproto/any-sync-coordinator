@@ -69,7 +69,7 @@ func TestDeletionLog_GetAfter(t *testing.T) {
 func TestDeletionLog_AddOwnershipChange(t *testing.T) {
 	fx := newFixture(t)
 	defer fx.finish(t)
-	id, err := fx.AddOwnershipChange(ctx, "spaceId", "aclRecordId")
+	id, err := fx.AddOwnershipChange(ctx, "spaceId", "fileGroup", "aclRecordId")
 	require.NoError(t, err)
 	assert.NotEmpty(t, id)
 
@@ -78,6 +78,7 @@ func TestDeletionLog_AddOwnershipChange(t *testing.T) {
 	require.Len(t, res, 1)
 	assert.Equal(t, "spaceId", res[0].SpaceId)
 	assert.Equal(t, "aclRecordId", res[0].AclRecordId)
+	assert.Equal(t, "fileGroup", res[0].FileGroup)
 	assert.Equal(t, StatusOwnershipChange, res[0].Status)
 }
 

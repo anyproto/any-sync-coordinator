@@ -58,18 +58,18 @@ func (mr *MockDeletionLogMockRecorder) Add(ctx, spaceId, fileGroup, status any) 
 }
 
 // AddOwnershipChange mocks base method.
-func (m *MockDeletionLog) AddOwnershipChange(ctx context.Context, spaceId, aclRecordId string) (string, error) {
+func (m *MockDeletionLog) AddOwnershipChange(ctx context.Context, spaceId, fileGroup, aclRecordId string) (string, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AddOwnershipChange", ctx, spaceId, aclRecordId)
+	ret := m.ctrl.Call(m, "AddOwnershipChange", ctx, spaceId, fileGroup, aclRecordId)
 	ret0, _ := ret[0].(string)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // AddOwnershipChange indicates an expected call of AddOwnershipChange.
-func (mr *MockDeletionLogMockRecorder) AddOwnershipChange(ctx, spaceId, aclRecordId any) *gomock.Call {
+func (mr *MockDeletionLogMockRecorder) AddOwnershipChange(ctx, spaceId, fileGroup, aclRecordId any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddOwnershipChange", reflect.TypeOf((*MockDeletionLog)(nil).AddOwnershipChange), ctx, spaceId, aclRecordId)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddOwnershipChange", reflect.TypeOf((*MockDeletionLog)(nil).AddOwnershipChange), ctx, spaceId, fileGroup, aclRecordId)
 }
 
 // Close mocks base method.

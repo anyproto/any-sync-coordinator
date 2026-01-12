@@ -304,7 +304,7 @@ func TestCoordinator_AclAddRecord(t *testing.T) {
 
 		fx.acl.EXPECT().OwnerPubKey(ctx, spaceId).Return(newPubKey, nil)
 		fx.spaceStatus.EXPECT().ChangeOwner(ctx, spaceId, newPubKey.Account())
-		fx.deletionLog.EXPECT().AddOwnershipChange(ctx, spaceId, rawRec.Id).Return("logId", nil)
+		fx.deletionLog.EXPECT().AddOwnershipChange(ctx, spaceId, pubKey.Account(), rawRec.Id).Return("logId", nil)
 
 		res, err := fx.AclAddRecord(ctx, spaceId, recBytes)
 		require.NoError(t, err)

@@ -31,7 +31,7 @@ func New() DeletionLog {
 type DeletionLog interface {
 	GetAfter(ctx context.Context, afterId string, limit uint32) (records []Record, hasMore bool, err error)
 	Add(ctx context.Context, spaceId, fileGroup string, status Status) (id string, err error)
-	AddOwnershipChange(ctx context.Context, spaceId, aclRecordId string) (id string, err error)
+	AddOwnershipChange(ctx context.Context, spaceId, fileGroup, aclRecordId string) (id string, err error)
 	app.ComponentRunnable
 }
 
@@ -131,11 +131,12 @@ func (d *deletionLog) Add(ctx context.Context, spaceId, fileGroup string, status
 	return res.InsertedID.(primitive.ObjectID).Hex(), nil
 }
 
-func (d *deletionLog) AddOwnershipChange(ctx context.Context, spaceId, aclRecordId string) (id string, err error) {
+func (d *deletionLog) AddOwnershipChange(ctx context.Context, spaceId, fileGroup, aclRecordId string) (id string, err error) {
 	rec := Record{
 		SpaceId:     spaceId,
 		Status:      StatusOwnershipChange,
 		AclRecordId: aclRecordId,
+		FileGroup:   fileGroup,
 	}
 	res, err := d.coll.InsertOne(ctx, rec)
 	if err != nil {
