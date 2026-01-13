@@ -314,11 +314,12 @@ func (r *rpcHandler) DeletionLog(ctx context.Context, req *coordinatorproto.Dele
 	}
 	for _, rec := range recs {
 		resp.Records = append(resp.Records, &coordinatorproto.DeletionLogRecord{
-			Id:        rec.Id.Hex(),
-			SpaceId:   rec.SpaceId,
-			FileGroup: rec.FileGroup,
-			Status:    coordinatorproto.DeletionLogRecordStatus(rec.Status),
-			Timestamp: rec.Id.Timestamp().Unix(),
+			Id:          rec.Id.Hex(),
+			SpaceId:     rec.SpaceId,
+			FileGroup:   rec.FileGroup,
+			Status:      coordinatorproto.DeletionLogRecordStatus(rec.Status),
+			AclRecordId: rec.AclRecordId,
+			Timestamp:   rec.Id.Timestamp().Unix(),
 		})
 	}
 	return

@@ -360,7 +360,11 @@ func (c *coordinator) AclAddRecord(ctx context.Context, spaceId string, payload 
 		return
 	}
 	if ownerPubKey.Account() != statusEntry.Identity {
+		log.InfoCtx(ctx, "owner change detected", zap.String("spaceId", spaceId), zap.String("newOwner", ownerPubKey.Account()), zap.String("oldOwner", statusEntry.Identity))
 		if err = c.spaceStatus.ChangeOwner(ctx, spaceId, ownerPubKey.Account()); err != nil {
+			return
+		}
+		if _, err = c.deletionLog.AddOwnershipChange(ctx, spaceId, statusEntry.Identity, rawRecordWithId.Id); err != nil {
 			return
 		}
 	}
