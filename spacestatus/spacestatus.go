@@ -86,7 +86,7 @@ type configProvider interface {
 }
 
 type SpaceStatus interface {
-	NewStatus(ctx context.Context, spaceId string, identity, oldIdentity crypto.PubKey, spaceType SpaceType, force bool) (err error)
+	NewStatus(ctx context.Context, spaceId string, identity crypto.PubKey, spaceType SpaceType, force bool) (err error)
 	// ChangeStatus is deprecated, use only for backwards compatibility
 	ChangeStatus(ctx context.Context, change StatusChange) (entry StatusEntry, err error)
 	ChangeOwner(ctx context.Context, spaceId, newOwnerId string) (err error)
@@ -149,7 +149,6 @@ type modifyStatusOp struct {
 
 type insertNewSpaceOp struct {
 	Identity    string    `bson:"identity"`
-	OldIdentity string    `bson:"oldIdentity"`
 	Status      int       `bson:"status"`
 	Type        SpaceType `bson:"type"`
 	IsShareable bool      `bson:"isShareable"`
@@ -435,7 +434,7 @@ func (s *spaceStatus) getSpaceTypeTx(txCtx mongo.SessionContext, spaceId string)
 	return entry.Type, nil
 }
 
-func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity, oldIdentity crypto.PubKey, spaceType SpaceType, force bool) error {
+func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity crypto.PubKey, spaceType SpaceType, force bool) error {
 	return s.db.Tx(ctx, func(txCtx mongo.SessionContext) error {
 		if s.accountStatusFindTx(txCtx, identity.Account(), SpaceStatusDeletionPending) {
 			return coordinatorproto.ErrAccountIsDeleted
@@ -452,11 +451,10 @@ func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity, o
 		var inserted bool
 		if notFound {
 			if _, err = s.spaces.InsertOne(txCtx, insertNewSpaceOp{
-				Identity:    identity.Account(),
-				OldIdentity: oldIdentity.Account(),
-				Status:      SpaceStatusCreated,
-				SpaceId:     spaceId,
-				Type:        spaceType,
+				Identity: identity.Account(),
+				Status:   SpaceStatusCreated,
+				SpaceId:  spaceId,
+				Type:     spaceType,
 			}); err != nil {
 				return err
 			} else {

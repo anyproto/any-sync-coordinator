@@ -172,17 +172,17 @@ func (mr *MockSpaceStatusMockRecorder) Name() *gomock.Call {
 }
 
 // NewStatus mocks base method.
-func (m *MockSpaceStatus) NewStatus(ctx context.Context, spaceId string, identity, oldIdentity crypto.PubKey, spaceType spacestatus.SpaceType, force bool) error {
+func (m *MockSpaceStatus) NewStatus(ctx context.Context, spaceId string, identity crypto.PubKey, spaceType spacestatus.SpaceType, force bool) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "NewStatus", ctx, spaceId, identity, oldIdentity, spaceType, force)
+	ret := m.ctrl.Call(m, "NewStatus", ctx, spaceId, identity, spaceType, force)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // NewStatus indicates an expected call of NewStatus.
-func (mr *MockSpaceStatusMockRecorder) NewStatus(ctx, spaceId, identity, oldIdentity, spaceType, force any) *gomock.Call {
+func (mr *MockSpaceStatusMockRecorder) NewStatus(ctx, spaceId, identity, spaceType, force any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewStatus", reflect.TypeOf((*MockSpaceStatus)(nil).NewStatus), ctx, spaceId, identity, oldIdentity, spaceType, force)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewStatus", reflect.TypeOf((*MockSpaceStatus)(nil).NewStatus), ctx, spaceId, identity, spaceType, force)
 }
 
 // Run mocks base method.
