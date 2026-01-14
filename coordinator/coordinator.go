@@ -49,8 +49,6 @@ const CName = "coordinator.coordinator"
 
 var log = logger.NewNamed(CName)
 
-var ErrIncorrectAccountSignature = errors.New("incorrect account signature")
-
 func New() Coordinator {
 	return new(coordinator)
 }
@@ -194,7 +192,7 @@ func (c *coordinator) StatusChange(ctx context.Context, spaceId string, deletion
 	})
 }
 
-func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader, oldIdentity, signature []byte, force bool) (signedReceipt *coordinatorproto.SpaceReceiptWithSignature, err error) {
+func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader []byte, force bool) (signedReceipt *coordinatorproto.SpaceReceiptWithSignature, err error) {
 	// TODO: Think about how to make it more evident that account.SignKey is actually a network key
 	//  on a coordinator level
 	networkKey := c.account.SignKey
@@ -206,14 +204,6 @@ func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader
 	if err != nil {
 		return
 	}
-	oldPubKey, err := crypto.UnmarshalEd25519PublicKeyProto(oldIdentity)
-	if err != nil {
-		return
-	}
-	err = c.verifyOldAccount(accountPubKey, oldPubKey, signature)
-	if err != nil {
-		return
-	}
 	_, err = spacepayloads.ValidateSpaceHeader(&spacesyncproto.RawSpaceHeaderWithId{RawHeader: spaceHeader, Id: spaceId}, accountPubKey, nil, nil)
 	if err != nil {
 		return
@@ -222,7 +212,7 @@ func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader
 	if err != nil {
 		return
 	}
-	err = c.spaceStatus.NewStatus(ctx, spaceId, accountPubKey, oldPubKey, spaceType, force)
+	err = c.spaceStatus.NewStatus(ctx, spaceId, accountPubKey, spaceType, force)
 	if err != nil {
 		return
 	}
@@ -231,21 +221,6 @@ func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader
 		return
 	}
 	c.addCoordinatorLog(ctx, spaceId, peerId, accountPubKey, signedReceipt)
-	return
-}
-
-func (c *coordinator) verifyOldAccount(newAccountKey, oldAccountKey crypto.PubKey, signature []byte) (err error) {
-	rawPub, err := newAccountKey.Raw()
-	if err != nil {
-		return
-	}
-	verify, err := oldAccountKey.Verify(rawPub, signature)
-	if err != nil {
-		return
-	}
-	if !verify {
-		return ErrIncorrectAccountSignature
-	}
 	return
 }
 

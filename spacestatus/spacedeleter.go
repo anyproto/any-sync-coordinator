@@ -59,7 +59,6 @@ func (n newPendingSpacesQuery) toMap() bson.M {
 type StatusEntry struct {
 	SpaceId              string    `bson:"_id"`
 	Identity             string    `bson:"identity"`
-	OldIdentity          string    `bson:"oldIdentity"`
 	DeletionPayloadType  int       `bson:"deletionPayloadType"`
 	DeletionPayload      []byte    `bson:"deletionPayload"`
 	DeletionTimestamp    int64     `bson:"deletionTimestamp"`
