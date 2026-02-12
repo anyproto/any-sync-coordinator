@@ -154,7 +154,7 @@ func (c *coordinator) SpaceDelete(ctx context.Context, spaceId string, deletionD
 		DeletionPayload:   payload,
 		DeletionPayloadId: payloadId,
 		SpaceId:           spaceId,
-		DeletionPeriod:    time.Duration(deletionDurationSecs) * time.Second,
+		DeletionPeriod:    time.Duration(deletionDurationSecs) * time.Minute,
 		AccountInfo: spacestatus.AccountInfo{
 			Identity:  accountPubKey,
 			PeerId:    peerId,
