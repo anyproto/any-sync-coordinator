@@ -395,7 +395,7 @@ func (s *spaceStatus) modifyStatus(ctx context.Context, change StatusChange, old
 	if res.Err() != nil {
 		// A WriteConflict (or other transient transaction error) must be
 		// propagated with its label intact so the enclosing Tx can retry it;
-		// it does not mean the status precondition failed (see SYN-38).
+		// it does not mean the status precondition failed.
 		if db.IsTransientTransactionError(res.Err()) {
 			return StatusEntry{}, res.Err()
 		}
@@ -604,7 +604,7 @@ func notFoundOrUnexpected(err error) error {
 	if errors.Is(err, mongo.ErrNoDocuments) {
 		return coordinatorproto.ErrSpaceNotExists
 	} else if db.IsTransientTransactionError(err) {
-		// keep the retry label so the enclosing Tx can retry (SYN-38)
+		// keep the retry label so the enclosing Tx can retry
 		return err
 	} else {
 		log.Info("unexpected error received", zap.Error(err))
@@ -614,7 +614,7 @@ func notFoundOrUnexpected(err error) error {
 
 // unexpectedOrTransient preserves a transient transaction error (e.g. a mongo
 // WriteConflict) so the enclosing Tx can retry it, while mapping any other
-// error to the generic ErrUnexpected sentinel (see SYN-38).
+// error to the generic ErrUnexpected sentinel.
 func unexpectedOrTransient(err error) error {
 	if db.IsTransientTransactionError(err) {
 		return err

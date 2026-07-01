@@ -21,8 +21,7 @@ const transientTransactionErrorLabel = "TransientTransactionError"
 // IsTransientTransactionError reports whether err is a transient mongo
 // transaction error (such as a WriteConflict) that Tx/WithTransaction will
 // retry. Callers that translate mongo errors into their own sentinel errors
-// must propagate such errors unchanged, otherwise the retry cannot happen
-// (see SYN-38).
+// must propagate such errors unchanged, otherwise the retry cannot happen.
 func IsTransientTransactionError(err error) bool {
 	if err == nil {
 		return false
@@ -89,7 +88,7 @@ func (d *database) Tx(ctx context.Context, f func(txCtx mongo.SessionContext) er
 			// UnknownTransactionCommitResult, with backoff and a safety
 			// deadline. This is the mongo-recommended retry loop; without it
 			// a WriteConflict under concurrency fails the caller instead of
-			// being retried (see SYN-38).
+			// being retried.
 			_, err := sessCtx.WithTransaction(ctx, func(txCtx mongo.SessionContext) (interface{}, error) {
 				return nil, f(txCtx)
 			})
