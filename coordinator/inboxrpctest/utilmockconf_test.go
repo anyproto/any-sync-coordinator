@@ -74,6 +74,14 @@ func (m *mockNodeConf) FilePeers() []string {
 	return nil
 }
 
+func (m *mockNodeConf) FileV2Peers() []string {
+	return nil
+}
+
+func (m *mockNodeConf) FileV2NodeIds(spaceId string) []string {
+	return nil
+}
+
 func (m *mockNodeConf) ConsensusPeers() []string {
 	return nil
 }

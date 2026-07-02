@@ -261,6 +261,8 @@ func (r *rpcHandler) NetworkConfiguration(ctx context.Context, req *coordinatorp
 					types = append(types, coordinatorproto.NodeType_CoordinatorAPI)
 				case nodeconf.NodeTypeFile:
 					types = append(types, coordinatorproto.NodeType_FileAPI)
+				case nodeconf.NodeTypeFileV2:
+					types = append(types, coordinatorproto.NodeType_FileV2API)
 				case nodeconf.NodeTypeTree:
 					types = append(types, coordinatorproto.NodeType_TreeAPI)
 				case nodeconf.NodeTypeConsensus:

@@ -38,6 +38,11 @@ func TestNodeConfSource_GetLast(t *testing.T) {
 				Addresses: []string{"addr3", "addr4"},
 				Types:     []nodeconf.NodeType{nodeconf.NodeTypeFile, nodeconf.NodeTypeTree},
 			},
+			{
+				PeerId:    "p5",
+				Addresses: []string{"addr5", "addr6"},
+				Types:     []nodeconf.NodeType{nodeconf.NodeTypeFileV2},
+			},
 		},
 		CreationTime: time.Now(),
 		Enable:       false,
