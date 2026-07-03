@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/anyproto/any-sync/app"
@@ -10,6 +11,28 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readconcern"
 )
+
+// transientTransactionErrorLabel is attached by the mongo driver to errors
+// that are safe to retry by re-running the whole transaction (e.g. a
+// WriteConflict raised on a write inside a transaction). WithTransaction
+// retries on this label automatically.
+const transientTransactionErrorLabel = "TransientTransactionError"
+
+// IsTransientTransactionError reports whether err is a transient mongo
+// transaction error (such as a WriteConflict) that Tx/WithTransaction will
+// retry. Callers that translate mongo errors into their own sentinel errors
+// must propagate such errors unchanged, otherwise the retry cannot happen.
+func IsTransientTransactionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	// Both mongo.CommandError and mongo.WriteException expose HasErrorLabel.
+	var labeler interface{ HasErrorLabel(string) bool }
+	if errors.As(err, &labeler) {
+		return labeler.HasErrorLabel(transientTransactionErrorLabel)
+	}
+	return false
+}
 
 const CName = "coordinator.db"
 
@@ -58,23 +81,17 @@ func (d *database) Tx(ctx context.Context, f func(txCtx mongo.SessionContext) er
 	return client.UseSessionWithOptions(
 		ctx,
 		options.Session().SetDefaultReadConcern(readconcern.Majority()),
-		func(txCtx mongo.SessionContext) error {
-			if err := txCtx.StartTransaction(); err != nil {
-				return err
-			}
-
-			if err := f(txCtx); err != nil {
-				// Abort the transaction after an error. Use
-				// context.Background() to ensure that the abort can complete
-				// successfully even if the context passed to mongo.WithSession
-				// is changed to have a timeout.
-				_ = txCtx.AbortTransaction(context.Background())
-				return err
-			}
-
-			// Use context.Background() to ensure that the commit can complete
-			// successfully even if the context passed to mongo.WithSession is
-			// changed to have a timeout.
-			return txCtx.CommitTransaction(context.Background())
+		func(sessCtx mongo.SessionContext) error {
+			// WithTransaction transparently retries the whole callback on
+			// transient errors (e.g. mongo WriteConflict, labeled
+			// TransientTransactionError) and retries the commit on
+			// UnknownTransactionCommitResult, with backoff and a safety
+			// deadline. This is the mongo-recommended retry loop; without it
+			// a WriteConflict under concurrency fails the caller instead of
+			// being retried.
+			_, err := sessCtx.WithTransaction(ctx, func(txCtx mongo.SessionContext) (interface{}, error) {
+				return nil, f(txCtx)
+			})
+			return err
 		})
 }
