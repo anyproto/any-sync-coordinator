@@ -283,6 +283,7 @@ func (r *rpcHandler) NetworkConfiguration(ctx context.Context, req *coordinatorp
 	return &coordinatorproto.NetworkConfigurationResponse{
 		ConfigurationId:  last.Id,
 		NetworkId:        last.NetworkId,
+		FileNetworkId:    last.FileNetworkId,
 		Nodes:            nodes,
 		CreationTimeUnix: uint64(last.CreationTime.Unix()),
 	}, nil

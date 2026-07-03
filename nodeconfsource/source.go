@@ -28,11 +28,12 @@ type NodeConfSource interface {
 }
 
 type ConfModel struct {
-	Id           primitive.ObjectID `bson:"_id"`
-	NetworkId    string             `bson:"networkId"`
-	Nodes        []nodeconf.Node    `bson:"nodes"`
-	CreationTime time.Time          `bson:"creationTime"`
-	Enable       bool               `bson:"enable"`
+	Id            primitive.ObjectID `bson:"_id"`
+	NetworkId     string             `bson:"networkId"`
+	FileNetworkId string             `bson:"fileNetworkId,omitempty"`
+	Nodes         []nodeconf.Node    `bson:"nodes"`
+	CreationTime  time.Time          `bson:"creationTime"`
+	Enable        bool               `bson:"enable"`
 }
 
 type nodeConfSource struct {
@@ -64,10 +65,11 @@ func (n *nodeConfSource) GetLast(ctx context.Context, currentId string) (c nodec
 		return
 	}
 	return nodeconf.Configuration{
-		Id:           model.Id.Hex(),
-		NetworkId:    model.NetworkId,
-		Nodes:        model.Nodes,
-		CreationTime: model.CreationTime,
+		Id:            model.Id.Hex(),
+		NetworkId:     model.NetworkId,
+		FileNetworkId: model.FileNetworkId,
+		Nodes:         model.Nodes,
+		CreationTime:  model.CreationTime,
 	}, nil
 }
 
@@ -83,11 +85,12 @@ func (n *nodeConfSource) Add(conf nodeconf.Configuration, enable bool) (id strin
 		return "", fmt.Errorf("you must provide at leat one node")
 	}
 	m := ConfModel{
-		Id:           primitive.NewObjectID(),
-		NetworkId:    conf.NetworkId,
-		Nodes:        conf.Nodes,
-		CreationTime: time.Now(),
-		Enable:       enable,
+		Id:            primitive.NewObjectID(),
+		NetworkId:     conf.NetworkId,
+		FileNetworkId: conf.FileNetworkId,
+		Nodes:         conf.Nodes,
+		CreationTime:  time.Now(),
+		Enable:        enable,
 	}
 	ctx := context.Background()
 	if _, err = n.coll.InsertOne(ctx, m); err != nil {

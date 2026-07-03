@@ -25,8 +25,9 @@ func TestNodeConfSource_GetLast(t *testing.T) {
 	require.EqualError(t, err, nodeconf.ErrConfigurationNotFound.Error())
 
 	conf := ConfModel{
-		Id:        primitive.NewObjectID(),
-		NetworkId: "testnetwork",
+		Id:            primitive.NewObjectID(),
+		NetworkId:     "testnetwork",
+		FileNetworkId: "NfleetReceiptSigningIdentity",
 		Nodes: []nodeconf.Node{
 			{
 				PeerId:    "p1",
@@ -61,6 +62,7 @@ func TestNodeConfSource_GetLast(t *testing.T) {
 
 	assert.Equal(t, conf.Id.Hex(), got.Id)
 	assert.Equal(t, conf.NetworkId, got.NetworkId)
+	assert.Equal(t, conf.FileNetworkId, got.FileNetworkId)
 	assert.Equal(t, conf.Nodes, got.Nodes)
 
 	conf2 := ConfModel{
@@ -93,6 +95,18 @@ func TestNodeConfSource_GetLast(t *testing.T) {
 
 	_, err = fx.GetLast(ctx, got.Id)
 	require.EqualError(t, err, nodeconf.ErrConfigurationNotChanged.Error())
+
+	// Add (the confapply path) round-trips fileNetworkId through mongo.
+	addedId, err := fx.Add(nodeconf.Configuration{
+		NetworkId:     "testnetwork",
+		FileNetworkId: "NfleetReceiptSigningIdentity2",
+		Nodes:         conf2.Nodes,
+	}, true)
+	require.NoError(t, err)
+	got, err = fx.GetLast(ctx, "")
+	require.NoError(t, err)
+	assert.Equal(t, addedId, got.Id)
+	assert.Equal(t, "NfleetReceiptSigningIdentity2", got.FileNetworkId)
 }
 
 func newFixture(t *testing.T) *fixture {
