@@ -283,6 +283,7 @@ func (r *rpcHandler) NetworkConfiguration(ctx context.Context, req *coordinatorp
 		NetworkId:        last.NetworkId,
 		Nodes:            nodes,
 		CreationTimeUnix: uint64(last.CreationTime.Unix()),
+		Epoch:            last.Epoch,
 	}, nil
 }
 

@@ -24,6 +24,7 @@ var (
 
 	flagNetwork       = flag.String("n", "", "path to the yml network configuration file")
 	flagNetworkEnable = flag.Bool("e", false, "enable new configuration")
+	flagForce         = flag.Bool("force", false, "skip the partition-overlap safety validation (dangerous: may leave partitions without a live replica)")
 )
 
 func main() {
@@ -61,9 +62,9 @@ func main() {
 		log.Fatal("can't parse network configuration file", zap.Error(err))
 	}
 
-	id, err := ncs.Add(nodeConf, *flagNetworkEnable)
+	id, epoch, err := ncs.Add(ctx, nodeConf, *flagNetworkEnable, *flagForce)
 	if err != nil {
 		log.Fatal("can't save configuration", zap.Error(err))
 	}
-	fmt.Println(id)
+	fmt.Printf("id: %s epoch: %d\n", id, epoch)
 }
