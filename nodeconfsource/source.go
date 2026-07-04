@@ -46,7 +46,16 @@ type nodeConfSource struct {
 
 func (n *nodeConfSource) Init(a *app.App) (err error) {
 	n.coll = a.MustComponent(db.CName).(db.Database).Db().Collection(collName)
-	return nil
+	// epochs must be unique: concurrent Adds otherwise mint duplicates and
+	// corrupt per-epoch config history on the nodes (index is partial to
+	// tolerate pre-epoch documents, which all carry 0)
+	_, err = n.coll.Indexes().CreateOne(context.Background(), mongo.IndexModel{
+		Keys: bson.D{{"epoch", 1}},
+		Options: options.Index().
+			SetUnique(true).
+			SetPartialFilterExpression(bson.M{"epoch": bson.M{"$gt": 0}}),
+	})
+	return err
 }
 
 func (n *nodeConfSource) Name() (name string) {
@@ -104,20 +113,28 @@ func (n *nodeConfSource) Add(ctx context.Context, conf nodeconf.Configuration, e
 			return "", 0, err
 		}
 	}
-	var last ConfModel
-	if lastErr := n.coll.FindOne(ctx, bson.D{}, lastEpochSort).Decode(&last); lastErr != nil && lastErr != mongo.ErrNoDocuments {
-		return "", 0, lastErr
+	// read-max-then-insert is racy; the unique epoch index turns a concurrent
+	// Add into a duplicate-key error which we resolve by retrying
+	for attempt := 0; attempt < 5; attempt++ {
+		var last ConfModel
+		if lastErr := n.coll.FindOne(ctx, bson.D{}, lastEpochSort).Decode(&last); lastErr != nil && lastErr != mongo.ErrNoDocuments {
+			return "", 0, lastErr
+		}
+		m := ConfModel{
+			Id:           primitive.NewObjectID(),
+			NetworkId:    conf.NetworkId,
+			Nodes:        conf.Nodes,
+			CreationTime: time.Now(),
+			Enable:       enable,
+			Epoch:        last.Epoch + 1,
+		}
+		if _, err = n.coll.InsertOne(ctx, m); err != nil {
+			if mongo.IsDuplicateKeyError(err) {
+				continue
+			}
+			return
+		}
+		return m.Id.Hex(), m.Epoch, nil
 	}
-	m := ConfModel{
-		Id:           primitive.NewObjectID(),
-		NetworkId:    conf.NetworkId,
-		Nodes:        conf.Nodes,
-		CreationTime: time.Now(),
-		Enable:       enable,
-		Epoch:        last.Epoch + 1,
-	}
-	if _, err = n.coll.InsertOne(ctx, m); err != nil {
-		return
-	}
-	return m.Id.Hex(), m.Epoch, nil
+	return "", 0, fmt.Errorf("can't assign a unique epoch after retries: %w", err)
 }
