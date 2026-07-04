@@ -16,6 +16,7 @@ import (
 	spacestatus "github.com/anyproto/any-sync-coordinator/spacestatus"
 	app "github.com/anyproto/any-sync/app"
 	crypto "github.com/anyproto/any-sync/util/crypto"
+	mongo "go.mongodb.org/mongo-driver/mongo"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -183,6 +184,18 @@ func (m *MockSpaceStatus) NewStatus(ctx context.Context, spaceId string, identit
 func (mr *MockSpaceStatusMockRecorder) NewStatus(ctx, spaceId, identity, spaceType, force any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewStatus", reflect.TypeOf((*MockSpaceStatus)(nil).NewStatus), ctx, spaceId, identity, spaceType, force)
+}
+
+// RegisterSpaceRemoveHook mocks base method.
+func (m *MockSpaceStatus) RegisterSpaceRemoveHook(fn func(mongo.SessionContext, string) error) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "RegisterSpaceRemoveHook", fn)
+}
+
+// RegisterSpaceRemoveHook indicates an expected call of RegisterSpaceRemoveHook.
+func (mr *MockSpaceStatusMockRecorder) RegisterSpaceRemoveHook(fn any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterSpaceRemoveHook", reflect.TypeOf((*MockSpaceStatus)(nil).RegisterSpaceRemoveHook), fn)
 }
 
 // Run mocks base method.

@@ -30,6 +30,7 @@ import (
 	"github.com/anyproto/any-sync-coordinator/config"
 	"github.com/anyproto/any-sync-coordinator/coordinatorlog"
 	"github.com/anyproto/any-sync-coordinator/deletionlog"
+	"github.com/anyproto/any-sync-coordinator/fileusage"
 	"github.com/anyproto/any-sync-coordinator/inbox"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
 	"github.com/anyproto/any-sync-coordinator/subscribe"
@@ -67,6 +68,7 @@ type coordinator struct {
 	metric         metric.Metric
 	deletionLog    deletionlog.DeletionLog
 	accountLimit   accountlimit.AccountLimit
+	fileUsage      fileusage.FileUsage
 	acl            acl.AclService
 	inbox          inbox.InboxService
 	subscribe      subscribe.SubscribeService
@@ -88,6 +90,7 @@ func (c *coordinator) Init(a *app.App) (err error) {
 	c.acl = app.MustComponent[acl.AclService](a)
 	c.inbox = app.MustComponent[inbox.InboxService](a)
 	c.accountLimit = app.MustComponent[accountlimit.AccountLimit](a)
+	c.fileUsage = app.MustComponent[fileusage.FileUsage](a)
 	c.aclEventLog = app.MustComponent[acleventlog.AclEventLog](a)
 	c.pool = a.MustComponent(pool.CName).(pool.Service)
 	return coordinatorproto.DRPCRegisterCoordinator(a.MustComponent(server.CName).(drpc.Mux), c.drpcHandler)

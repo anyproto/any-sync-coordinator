@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/anyproto/any-sync/commonfile/fileproto"
@@ -551,4 +552,53 @@ func (r *rpcHandler) AclUploadInvite(ctx context.Context, req *coordinatorproto.
 		return
 	}
 	return &coordinatorproto.AclUploadInviteResponse{}, nil
+}
+
+// fileV2Peer authenticates the caller as a member of the NodeTypeFileV2 pool;
+// the file-limits API is broker-facing only.
+func (r *rpcHandler) fileV2Peer(ctx context.Context) (peerId string, err error) {
+	peerId, err = peer.CtxPeerId(ctx)
+	if err != nil {
+		return
+	}
+	if !slices.Contains(r.c.nodeConf.NodeTypes(peerId), nodeconf.NodeTypeFileV2) {
+		return "", coordinatorproto.ErrForbidden
+	}
+	return
+}
+
+func (r *rpcHandler) FileLimitsGet(ctx context.Context, req *coordinatorproto.FileLimitsGetRequest) (resp *coordinatorproto.FileLimitsGetResponse, err error) {
+	st := time.Now()
+	defer func() {
+		r.c.metric.RequestLog(ctx, "coordinator.fileLimitsGet",
+			metric.TotalDur(time.Since(st)),
+			metric.SpaceId(req.SpaceId),
+			zap.String("addr", peer.CtxPeerAddr(ctx)),
+			zap.Error(err),
+		)
+	}()
+	if _, err = r.fileV2Peer(ctx); err != nil {
+		return nil, err
+	}
+	return r.c.fileUsage.GetLimits(ctx, req.SpaceId, req.Identity)
+}
+
+func (r *rpcHandler) FileUsageReport(ctx context.Context, req *coordinatorproto.FileUsageReportRequest) (resp *coordinatorproto.FileUsageReportResponse, err error) {
+	st := time.Now()
+	defer func() {
+		r.c.metric.RequestLog(ctx, "coordinator.fileUsageReport",
+			metric.TotalDur(time.Since(st)),
+			zap.Int("rows", len(req.Rows)),
+			zap.String("addr", peer.CtxPeerAddr(ctx)),
+			zap.Error(err),
+		)
+	}()
+	peerId, err := r.fileV2Peer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err = r.c.fileUsage.Report(ctx, peerId, req.Rows); err != nil {
+		return nil, err
+	}
+	return &coordinatorproto.FileUsageReportResponse{}, nil
 }

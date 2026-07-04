@@ -98,6 +98,11 @@ type SpaceStatus interface {
 	MakeShareable(ctx context.Context, spaceId string, spaceType SpaceType, limit uint32) (err error)
 	MakeUnshareable(ctx context.Context, spaceId string) (err error)
 
+	// RegisterSpaceRemoveHook registers fn to run inside the same transaction
+	// that records a space's final deletion (StatusRemove) in the deletion log.
+	// Call during component Init only.
+	RegisterSpaceRemoveHook(fn func(txCtx mongo.SessionContext, spaceId string) error)
+
 	app.ComponentRunnable
 }
 
@@ -106,13 +111,18 @@ func New() SpaceStatus {
 }
 
 type spaceStatus struct {
-	conf           Config
-	spaces         *mongo.Collection
-	verifier       ChangeVerifier
-	deleter        SpaceDeleter
-	db             db.Database
-	deletionLog    deletionlog.DeletionLog
-	deletionPeriod time.Duration
+	conf             Config
+	spaces           *mongo.Collection
+	verifier         ChangeVerifier
+	deleter          SpaceDeleter
+	db               db.Database
+	deletionLog      deletionlog.DeletionLog
+	deletionPeriod   time.Duration
+	spaceRemoveHooks []func(txCtx mongo.SessionContext, spaceId string) error
+}
+
+func (s *spaceStatus) RegisterSpaceRemoveHook(fn func(txCtx mongo.SessionContext, spaceId string) error) {
+	s.spaceRemoveHooks = append(s.spaceRemoveHooks, fn)
 }
 
 type findStatusQuery struct {
@@ -356,6 +366,16 @@ func (s *spaceStatus) setStatusTx(txCtx mongo.SessionContext, change StatusChang
 		return
 	}
 	_, err = s.deletionLog.Add(txCtx, change.SpaceId, entry.Identity, status)
+	if err != nil {
+		return
+	}
+	if status == deletionlog.StatusRemove {
+		for _, hook := range s.spaceRemoveHooks {
+			if err = hook(txCtx, change.SpaceId); err != nil {
+				return
+			}
+		}
+	}
 	return
 }
 
