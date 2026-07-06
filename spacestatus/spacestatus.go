@@ -87,6 +87,9 @@ type configProvider interface {
 
 type SpaceStatus interface {
 	NewStatus(ctx context.Context, spaceId string, identity crypto.PubKey, spaceType SpaceType, force bool) (err error)
+	// NewChildStatus registers a child (nested) space: the creator stays the space identity, while
+	// the space is billed to the legalOwner (the parent space's owner) against its shared-spaces limit
+	NewChildStatus(ctx context.Context, spaceId string, identity crypto.PubKey, billedIdentity string, billedLimit uint32, spaceType SpaceType, force bool) (err error)
 	// ChangeStatus is deprecated, use only for backwards compatibility
 	ChangeStatus(ctx context.Context, change StatusChange) (entry StatusEntry, err error)
 	ChangeOwner(ctx context.Context, spaceId, newOwnerId string) (err error)
@@ -163,6 +166,8 @@ type insertNewSpaceOp struct {
 	Type        SpaceType `bson:"type"`
 	IsShareable bool      `bson:"isShareable"`
 	SpaceId     string    `bson:"_id"`
+	// BilledIdentity is set for child (nested) spaces: the identity whose limits the space consumes
+	BilledIdentity string `bson:"billedIdentity,omitempty"`
 }
 
 func (s *spaceStatus) AccountDelete(ctx context.Context, payload AccountDeletion) (toBeDeleted int64, err error) {
@@ -503,6 +508,68 @@ func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity cr
 		}
 		if err = s.checkLimitTx(txCtx, identity); err != nil {
 			return err
+		}
+		return nil
+	})
+}
+
+// NewChildStatus mirrors NewStatus for child (nested) spaces: the doc carries billedIdentity and
+// the insert is limited by the billed identity's shared-spaces allowance instead of only the
+// creator's global space cap.
+func (s *spaceStatus) NewChildStatus(ctx context.Context, spaceId string, identity crypto.PubKey, billedIdentity string, billedLimit uint32, spaceType SpaceType, force bool) error {
+	return s.db.Tx(ctx, func(txCtx mongo.SessionContext) error {
+		if s.accountStatusFindTx(txCtx, identity.Account(), SpaceStatusDeletionPending) {
+			return coordinatorproto.ErrAccountIsDeleted
+		}
+		entry, err := s.Status(txCtx, spaceId)
+		notFound := err == coordinatorproto.ErrSpaceNotExists
+		if err != nil && !notFound {
+			return err
+		}
+		if entry.Status == SpaceStatusCreated && !notFound {
+			// save back compatibility
+			return nil
+		}
+		var inserted bool
+		if notFound {
+			if _, err = s.spaces.InsertOne(txCtx, insertNewSpaceOp{
+				Identity:       identity.Account(),
+				Status:         SpaceStatusCreated,
+				SpaceId:        spaceId,
+				Type:           spaceType,
+				BilledIdentity: billedIdentity,
+			}); err != nil {
+				return err
+			} else {
+				inserted = true
+			}
+		}
+		if !inserted {
+			if force {
+				_, err = s.setStatusTx(txCtx, StatusChange{
+					Identity: identity,
+					Status:   SpaceStatusCreated,
+					SpaceId:  spaceId,
+				}, entry.Status)
+				if err != nil {
+					return err
+				}
+			} else {
+				return coordinatorproto.ErrSpaceIsDeleted
+			}
+		}
+		if err = s.checkLimitTx(txCtx, identity); err != nil {
+			return err
+		}
+		count, err := s.spaces.CountDocuments(txCtx, bson.D{
+			{"billedIdentity", billedIdentity},
+			{"status", SpaceStatusCreated},
+		})
+		if err != nil {
+			return err
+		}
+		if uint32(count) > billedLimit {
+			return coordinatorproto.ErrSpaceLimitReached
 		}
 		return nil
 	})

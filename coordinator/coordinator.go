@@ -11,6 +11,7 @@ import (
 	"github.com/anyproto/any-sync/app"
 	"github.com/anyproto/any-sync/app/logger"
 	"github.com/anyproto/any-sync/commonspace/object/accountdata"
+	"github.com/anyproto/any-sync/commonspace/object/acl/aclrecordproto"
 	"github.com/anyproto/any-sync/commonspace/object/acl/list"
 	"github.com/anyproto/any-sync/commonspace/spacepayloads"
 	"github.com/anyproto/any-sync/commonspace/spacesyncproto"
@@ -21,6 +22,7 @@ import (
 	"github.com/anyproto/any-sync/net/pool"
 	"github.com/anyproto/any-sync/net/rpc/server"
 	"github.com/anyproto/any-sync/nodeconf"
+	"github.com/anyproto/any-sync/util/cidutil"
 	"github.com/anyproto/any-sync/util/crypto"
 	"go.uber.org/zap"
 	"storj.io/drpc"
@@ -195,7 +197,7 @@ func (c *coordinator) StatusChange(ctx context.Context, spaceId string, deletion
 	})
 }
 
-func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader []byte, force bool) (signedReceipt *coordinatorproto.SpaceReceiptWithSignature, err error) {
+func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader []byte, force bool, parentAclRecordId string) (signedReceipt *coordinatorproto.SpaceReceiptWithSignature, err error) {
 	// TODO: Think about how to make it more evident that account.SignKey is actually a network key
 	//  on a coordinator level
 	networkKey := c.account.SignKey
@@ -215,9 +217,31 @@ func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader
 	if err != nil {
 		return
 	}
-	err = c.spaceStatus.NewStatus(ctx, spaceId, accountPubKey, spaceType, force)
+	header, err := unmarshalSpaceHeader(spaceHeader)
 	if err != nil {
 		return
+	}
+	if header.ParentSpaceId != "" {
+		legalOwner, err := c.verifyNestedSpace(ctx, spaceId, header, parentAclRecordId)
+		if err != nil {
+			return nil, err
+		}
+		limits, err := c.accountLimit.GetLimits(ctx, legalOwner.Account())
+		if err != nil {
+			return nil, err
+		}
+		err = c.spaceStatus.NewChildStatus(ctx, spaceId, accountPubKey, legalOwner.Account(), limits.SharedSpacesLimit, spaceType, force)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		if parentAclRecordId != "" {
+			return nil, coordinatorproto.ErrForbidden
+		}
+		err = c.spaceStatus.NewStatus(ctx, spaceId, accountPubKey, spaceType, force)
+		if err != nil {
+			return
+		}
 	}
 	signedReceipt, err = coordinatorproto.PrepareSpaceReceipt(spaceId, peerId, spaceReceiptValidPeriod, accountPubKey, networkKey)
 	if err != nil {
@@ -461,4 +485,90 @@ func (c *coordinator) InboxAddMessage(ctx context.Context, message *inbox.InboxM
 
 func (c *coordinator) AddStream(eventType coordinatorproto.NotifyEventType, accountId, peerId string, stream coordinatorproto.DRPCCoordinator_NotifySubscribeStream) error {
 	return c.subscribe.AddStream(eventType, accountId, peerId, stream)
+}
+
+func unmarshalSpaceHeader(spaceHeader []byte) (header *spacesyncproto.SpaceHeader, err error) {
+	rawHeader := &spacesyncproto.RawSpaceHeader{}
+	if err = rawHeader.UnmarshalVT(spaceHeader); err != nil {
+		return
+	}
+	header = &spacesyncproto.SpaceHeader{}
+	err = header.UnmarshalVT(rawHeader.SpaceHeader)
+	return
+}
+
+// verifyNestedSpace is the trust gate for child (nested) spaces at SpaceSign time: nothing else
+// enforces the parent's authority. It resolves the legalOwner as the parent's CURRENT owner and
+// validates the registration record in the parent acl. The coordinator's acl cache stays current
+// for records it accepted itself (all acl writes flow through this coordinator's acl service).
+func (c *coordinator) verifyNestedSpace(ctx context.Context, spaceId string, header *spacesyncproto.SpaceHeader, parentAclRecordId string) (legalOwner crypto.PubKey, err error) {
+	if parentAclRecordId == "" {
+		return nil, coordinatorproto.ErrForbidden
+	}
+	parentEntry, err := c.spaceStatus.Status(ctx, header.ParentSpaceId)
+	if err != nil {
+		return nil, err
+	}
+	if parentEntry.Status != spacestatus.SpaceStatusCreated {
+		return nil, coordinatorproto.ErrSpaceIsDeleted
+	}
+	if parentEntry.Type == spacestatus.SpaceTypeTech || parentEntry.Type == spacestatus.SpaceTypeOneToOne {
+		return nil, coordinatorproto.ErrForbidden
+	}
+	if parentEntry.BilledIdentity != "" {
+		// v1: single-level nesting — a child cannot itself be a parent
+		return nil, coordinatorproto.ErrForbidden
+	}
+	if len(header.AclPayload) == 0 {
+		// nested spaces require the V1 header carrying the acl root
+		return nil, coordinatorproto.ErrForbidden
+	}
+	childAclRootId, err := cidutil.NewCidFromBytes(header.AclPayload)
+	if err != nil {
+		return nil, err
+	}
+	var rawAclRoot consensusproto.RawRecord
+	if err = rawAclRoot.UnmarshalVT(header.AclPayload); err != nil {
+		return nil, err
+	}
+	var childAclRoot aclrecordproto.AclRoot
+	if err = childAclRoot.UnmarshalVT(rawAclRoot.Payload); err != nil {
+		return nil, err
+	}
+	if childAclRoot.ParentSpaceId != header.ParentSpaceId || len(childAclRoot.LegalOwner) == 0 {
+		return nil, coordinatorproto.ErrForbidden
+	}
+	pinnedLegalOwner, err := crypto.UnmarshalEd25519PublicKeyProto(childAclRoot.LegalOwner)
+	if err != nil {
+		return nil, err
+	}
+	err = c.acl.ReadState(ctx, header.ParentSpaceId, func(st *list.AclState) error {
+		owner, err := st.OwnerPubKey()
+		if err != nil {
+			return err
+		}
+		if !owner.Equals(pinnedLegalOwner) {
+			// the pinned legalOwner must be the parent's CURRENT owner (fresh derivation)
+			return coordinatorproto.ErrForbidden
+		}
+		if opts := st.CurrentOptions(); opts != nil && opts.ChildrenCreationDisallowed {
+			return coordinatorproto.ErrForbidden
+		}
+		reg, ok := st.ChildRegistration(spaceId)
+		if !ok || reg.Revoked || reg.RecordId != parentAclRecordId || reg.ChildAclRootId != childAclRootId {
+			return coordinatorproto.ErrForbidden
+		}
+		perms, err := st.PermissionsAtRecord(reg.RecordId, reg.Author)
+		if err != nil {
+			return err
+		}
+		if !perms.CanManageAccounts() {
+			return coordinatorproto.ErrForbidden
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return pinnedLegalOwner, nil
 }

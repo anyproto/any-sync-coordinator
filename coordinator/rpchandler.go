@@ -217,7 +217,7 @@ func (r *rpcHandler) SpaceSign(ctx context.Context, req *coordinatorproto.SpaceS
 		)
 	}()
 
-	receipt, err := r.c.SpaceSign(ctx, req.SpaceId, req.Header, req.ForceRequest)
+	receipt, err := r.c.SpaceSign(ctx, req.SpaceId, req.Header, req.ForceRequest, req.ParentAclRecordId)
 	if err != nil {
 		return nil, err
 	}
