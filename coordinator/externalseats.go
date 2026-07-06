@@ -159,9 +159,10 @@ func (c *coordinator) verifyExternalSeats(ctx context.Context, statusEntry space
 			return nil
 		})
 		if err != nil {
-			// a child acl that can't be loaded must not break admissions elsewhere
-			log.Debug("external-seat count: skipping child", zap.String("childId", childId), zap.Error(err))
-			err = nil
+			// fail closed: a child ACL we cannot count would UNDER-count the pool and let an
+			// over-limit admission through, so reject rather than skip
+			log.Warn("external-seat count: child acl unavailable, rejecting admission", zap.String("childId", childId), zap.Error(err))
+			return nil, err
 		}
 	}
 	for _, identity := range externals {

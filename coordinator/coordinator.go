@@ -247,7 +247,20 @@ func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader
 		return
 	}
 	if header.ParentSpaceId != "" {
-		legalOwner, err := c.verifyNestedSpace(ctx, spaceId, header, parentAclRecordId)
+		if spaceType == spacestatus.SpaceTypeTech || spaceType == spacestatus.SpaceTypeOneToOne {
+			// a child declared tech/1-1 would be permanently undeletable (SpaceDelete refuses those types)
+			return nil, coordinatorproto.ErrForbidden
+		}
+		// the pinned legalOwner is the parent owner at the child's genesis; it must equal the
+		// parent's CURRENT owner only when the child is first created (anchoring the induction
+		// chain). On re-sign (receipt renewal) the parent may have transferred ownership since,
+		// so we authorize/bill against the current owner instead of failing forever.
+		_, statusErr := c.spaceStatus.Status(ctx, spaceId)
+		isNew := statusErr == coordinatorproto.ErrSpaceNotExists
+		if statusErr != nil && !isNew {
+			return nil, statusErr
+		}
+		legalOwner, err := c.verifyNestedSpace(ctx, spaceId, header, parentAclRecordId, isNew)
 		if err != nil {
 			return nil, err
 		}
@@ -552,7 +565,7 @@ func unmarshalSpaceHeader(spaceHeader []byte) (header *spacesyncproto.SpaceHeade
 // enforces the parent's authority. It resolves the legalOwner as the parent's CURRENT owner and
 // validates the registration record in the parent acl. The coordinator's acl cache stays current
 // for records it accepted itself (all acl writes flow through this coordinator's acl service).
-func (c *coordinator) verifyNestedSpace(ctx context.Context, spaceId string, header *spacesyncproto.SpaceHeader, parentAclRecordId string) (legalOwner crypto.PubKey, err error) {
+func (c *coordinator) verifyNestedSpace(ctx context.Context, spaceId string, header *spacesyncproto.SpaceHeader, parentAclRecordId string, requirePinnedMatch bool) (legalOwner crypto.PubKey, err error) {
 	if parentAclRecordId == "" {
 		return nil, coordinatorproto.ErrForbidden
 	}
@@ -593,13 +606,16 @@ func (c *coordinator) verifyNestedSpace(ctx context.Context, spaceId string, hea
 	if err != nil {
 		return nil, err
 	}
+	var currentOwner crypto.PubKey
 	err = c.acl.ReadState(ctx, header.ParentSpaceId, func(st *list.AclState) error {
 		owner, err := st.OwnerPubKey()
 		if err != nil {
 			return err
 		}
-		if !owner.Equals(pinnedLegalOwner) {
-			// the pinned legalOwner must be the parent's CURRENT owner (fresh derivation)
+		currentOwner = owner
+		if requirePinnedMatch && !owner.Equals(pinnedLegalOwner) {
+			// at creation the pinned legalOwner must be the parent's current owner (anchors
+			// the induction chain); on re-sign the parent may have transferred ownership
 			return coordinatorproto.ErrForbidden
 		}
 		if opts := st.CurrentOptions(); opts != nil && opts.ChildrenCreationDisallowed {
@@ -621,7 +637,8 @@ func (c *coordinator) verifyNestedSpace(ctx context.Context, spaceId string, hea
 	if err != nil {
 		return nil, err
 	}
-	return pinnedLegalOwner, nil
+	// bill/authorize against the parent's CURRENT owner (hybrid derive-fresh)
+	return currentOwner, nil
 }
 
 // verifyKeylessGovernanceRecord is the fresh-derivation half of the hybrid legalOwner model:

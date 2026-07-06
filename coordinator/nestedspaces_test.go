@@ -39,9 +39,10 @@ func buildNestedSetup(t *testing.T) (creatorKeys *accountdata.AccountKeys, paren
 		MasterKey:      master,
 		ReadKey:        readKey,
 		MetadataKey:    metaKey,
-		Metadata:       []byte("md"),
-		ParentSpaceId:  "parent.id",
-		LegalOwner:     parentAcl.AclState().Identity(),
+		Metadata:        []byte("md"),
+		ParentSpaceId:   "parent.id",
+		LegalOwner:      parentAcl.AclState().Identity(),
+		ParentAclRootId: parentAcl.Id(),
 	})
 	require.NoError(t, err)
 	return creatorKeys, parentAcl, out.SpaceHeaderWithId.Id, out.SpaceHeaderWithId.RawHeader, out.AclWithId.Id
@@ -79,12 +80,17 @@ func TestCoordinator_SpaceSignNested(t *testing.T) {
 				return f(parentAcl.AclState())
 			})
 	}
+	// the nested branch checks the child's own status first (new vs re-sign)
+	expectChildNew := func(fx *fixture) {
+		fx.spaceStatus.EXPECT().Status(gomock.Any(), childId).Return(spacestatus.StatusEntry{}, coordinatorproto.ErrSpaceNotExists)
+	}
 
 	t.Run("success", func(t *testing.T) {
 		parentRecId := registerChild(t, parentAcl, childId, childAclRootId)
 		fx := newFixture(t)
 		defer fx.finish(t)
 		fx.account = networkKeys(t)
+		expectChildNew(fx)
 		expectParentReads(fx, activeParent)
 		expectReadState(fx)
 		fx.accountLimit.EXPECT().GetLimits(gomock.Any(), parentOwner.Account()).Return(accountlimit.Limits{SharedSpacesLimit: 5}, nil)
@@ -101,6 +107,7 @@ func TestCoordinator_SpaceSignNested(t *testing.T) {
 		fx := newFixture(t)
 		defer fx.finish(t)
 		fx.account = networkKeys(t)
+		expectChildNew(fx)
 		_, err := fx.SpaceSign(signCtx, childId, childHeader, false, "")
 		require.ErrorIs(t, err, coordinatorproto.ErrForbidden)
 	})
@@ -109,6 +116,7 @@ func TestCoordinator_SpaceSignNested(t *testing.T) {
 		fx := newFixture(t)
 		defer fx.finish(t)
 		fx.account = networkKeys(t)
+		expectChildNew(fx)
 		expectParentReads(fx, spacestatus.StatusEntry{
 			SpaceId: "parent.id",
 			Status:  spacestatus.SpaceStatusDeleted,
@@ -122,6 +130,7 @@ func TestCoordinator_SpaceSignNested(t *testing.T) {
 		fx := newFixture(t)
 		defer fx.finish(t)
 		fx.account = networkKeys(t)
+		expectChildNew(fx)
 		nested := activeParent
 		nested.BilledIdentity = "some.org"
 		expectParentReads(fx, nested)
@@ -133,6 +142,7 @@ func TestCoordinator_SpaceSignNested(t *testing.T) {
 		fx := newFixture(t)
 		defer fx.finish(t)
 		fx.account = networkKeys(t)
+		expectChildNew(fx)
 		expectParentReads(fx, activeParent)
 		expectReadState(fx)
 		_, err := fx.SpaceSign(signCtx, childId, childHeader, false, "not.the.registration")
@@ -193,9 +203,10 @@ func TestCoordinator_SpaceSignNested(t *testing.T) {
 			MasterKey:      master,
 			ReadKey:        readKey,
 			MetadataKey:    metaKey,
-			Metadata:       []byte("md"),
-			ParentSpaceId:  "parent.id",
-			LegalOwner:     lockedParent.AclState().Identity(),
+			Metadata:        []byte("md"),
+			ParentSpaceId:   "parent.id",
+			LegalOwner:      lockedParent.AclState().Identity(),
+			ParentAclRootId: lockedParent.Id(),
 		})
 		require.NoError(t, err)
 		lockedKeyData, err := lockedCreator.SignKey.GetPublic().Marshall()
@@ -205,6 +216,7 @@ func TestCoordinator_SpaceSignNested(t *testing.T) {
 		fx := newFixture(t)
 		defer fx.finish(t)
 		fx.account = networkKeys(t)
+		fx.spaceStatus.EXPECT().Status(gomock.Any(), out.SpaceHeaderWithId.Id).Return(spacestatus.StatusEntry{}, coordinatorproto.ErrSpaceNotExists)
 		fx.spaceStatus.EXPECT().Status(gomock.Any(), "parent.id").Return(activeParent, nil)
 		fx.acl.EXPECT().ReadState(gomock.Any(), "parent.id", gomock.Any()).DoAndReturn(
 			func(_ interface{ Done() <-chan struct{} }, _ string, f func(s *list.AclState) error) error {
@@ -213,6 +225,87 @@ func TestCoordinator_SpaceSignNested(t *testing.T) {
 		_, err = fx.SpaceSign(lockedCtx, out.SpaceHeaderWithId.Id, out.SpaceHeaderWithId.RawHeader, false, "some.rec")
 		require.ErrorIs(t, err, coordinatorproto.ErrForbidden)
 	})
+}
+
+func TestCoordinator_SpaceSignNested_ResignAfterOwnershipTransfer(t *testing.T) {
+	// build a parent whose ownership will move a -> b, and a child pinned to a (the genesis owner)
+	parentEx := list.NewAclExecutor("parent.id")
+	for _, cmd := range []string{
+		"a.init::a",
+		"a.invite::inv",
+		"b.join::inv",
+		"a.approve::b,adm",
+	} {
+		require.NoError(t, parentEx.Execute(cmd))
+	}
+	parentAcl := parentEx.ActualAccounts()["a"].Acl
+	genesisOwner := parentAcl.AclState().Identity() // account a
+
+	creatorKeys, err := accountdata.NewRandom()
+	require.NoError(t, err)
+	master, _, err := crypto.GenerateRandomEd25519KeyPair()
+	require.NoError(t, err)
+	metaKey, _, err := crypto.GenerateRandomEd25519KeyPair()
+	require.NoError(t, err)
+	readKey, _ := crypto.NewRandomAES()
+	out, err := spacepayloads.StoragePayloadForSpaceCreateV1(spacepayloads.SpaceCreatePayload{
+		SigningKey:      creatorKeys.SignKey,
+		SpaceType:       "anytype.space",
+		ReplicationKey:  77,
+		MasterKey:       master,
+		ReadKey:         readKey,
+		MetadataKey:     metaKey,
+		Metadata:        []byte("md"),
+		ParentSpaceId:   "parent.id",
+		LegalOwner:      genesisOwner, // pinned to a
+		ParentAclRootId: parentAcl.Id(),
+	})
+	require.NoError(t, err)
+	childId := out.SpaceHeaderWithId.Id
+
+	// transfer parent ownership a -> b FIRST (via the executor, which tracks the head),
+	// then register the child directly as the last acl write
+	require.NoError(t, parentEx.Execute("a.ownership_change::b,adm"))
+	currentOwner, err := parentAcl.AclState().OwnerPubKey()
+	require.NoError(t, err)
+	require.False(t, currentOwner.Equals(genesisOwner), "ownership must have moved")
+	registerChild(t, parentAcl, childId, out.AclWithId.Id)
+
+	pubKeyData, err := creatorKeys.SignKey.GetPublic().Marshall()
+	require.NoError(t, err)
+	signCtx := peer.CtxWithPeerId(peer.CtxWithIdentity(ctx, pubKeyData), "peer.id")
+
+	fx := newFixture(t)
+	defer fx.finish(t)
+	fx.account = networkKeys(t)
+	// child already exists → re-sign path (isNew = false)
+	fx.spaceStatus.EXPECT().Status(gomock.Any(), childId).Return(spacestatus.StatusEntry{
+		SpaceId:       childId,
+		Status:        spacestatus.SpaceStatusCreated,
+		Type:          spacestatus.SpaceTypeRegular,
+		ParentSpaceId: "parent.id",
+	}, nil)
+	fx.spaceStatus.EXPECT().Status(gomock.Any(), "parent.id").Return(spacestatus.StatusEntry{
+		SpaceId:  "parent.id",
+		Identity: currentOwner.Account(),
+		Status:   spacestatus.SpaceStatusCreated,
+		Type:     spacestatus.SpaceTypeRegular,
+	}, nil)
+	fx.acl.EXPECT().ReadState(gomock.Any(), "parent.id", gomock.Any()).DoAndReturn(
+		func(_ interface{ Done() <-chan struct{} }, _ string, f func(s *list.AclState) error) error {
+			return f(parentAcl.AclState())
+		})
+	// billing must target the CURRENT owner, not the pinned genesis owner
+	fx.accountLimit.EXPECT().GetLimits(gomock.Any(), currentOwner.Account()).Return(accountlimit.Limits{SharedSpacesLimit: 5}, nil)
+	fx.spaceStatus.EXPECT().NewChildStatus(gomock.Any(), childId, gomock.Any(), "parent.id", currentOwner.Account(), uint32(5), spacestatus.SpaceTypeRegular, false).Return(nil)
+	fx.coordLog.EXPECT().SpaceReceipt(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	fx.aclEventLog.EXPECT().AddLog(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+	// re-sign: header pins the OLD owner but the space is already Created, so isNew=false
+	// skips the pinned==current check and succeeds, billing the new owner
+	receipt, err := fx.SpaceSign(signCtx, childId, out.SpaceHeaderWithId.RawHeader, false, parentAcl.Head().Id)
+	require.NoError(t, err)
+	require.NotNil(t, receipt)
 }
 
 // networkKeys works around the fixture's registration order: the coordinator's Init reads the
