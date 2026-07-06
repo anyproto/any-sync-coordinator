@@ -66,7 +66,9 @@ type StatusEntry struct {
 	Status               int       `bson:"status"`
 	Type                 SpaceType `bson:"type"`
 	IsShareable          bool      `bson:"isShareable"`
-	// BilledIdentity is set for child (nested) spaces: the identity whose limits the space consumes
+	// ParentSpaceId + BilledIdentity are set for child (nested) spaces: the declared parent and
+	// the identity whose limits the space consumes
+	ParentSpaceId  string `bson:"parentSpaceId,omitempty"`
 	BilledIdentity string `bson:"billedIdentity,omitempty"`
 }
 

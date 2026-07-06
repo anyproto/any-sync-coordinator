@@ -173,17 +173,17 @@ func (mr *MockSpaceStatusMockRecorder) Name() *gomock.Call {
 }
 
 // NewChildStatus mocks base method.
-func (m *MockSpaceStatus) NewChildStatus(ctx context.Context, spaceId string, identity crypto.PubKey, billedIdentity string, billedLimit uint32, spaceType spacestatus.SpaceType, force bool) error {
+func (m *MockSpaceStatus) NewChildStatus(ctx context.Context, spaceId string, identity crypto.PubKey, parentSpaceId, billedIdentity string, billedLimit uint32, spaceType spacestatus.SpaceType, force bool) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "NewChildStatus", ctx, spaceId, identity, billedIdentity, billedLimit, spaceType, force)
+	ret := m.ctrl.Call(m, "NewChildStatus", ctx, spaceId, identity, parentSpaceId, billedIdentity, billedLimit, spaceType, force)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // NewChildStatus indicates an expected call of NewChildStatus.
-func (mr *MockSpaceStatusMockRecorder) NewChildStatus(ctx, spaceId, identity, billedIdentity, billedLimit, spaceType, force any) *gomock.Call {
+func (mr *MockSpaceStatusMockRecorder) NewChildStatus(ctx, spaceId, identity, parentSpaceId, billedIdentity, billedLimit, spaceType, force any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewChildStatus", reflect.TypeOf((*MockSpaceStatus)(nil).NewChildStatus), ctx, spaceId, identity, billedIdentity, billedLimit, spaceType, force)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewChildStatus", reflect.TypeOf((*MockSpaceStatus)(nil).NewChildStatus), ctx, spaceId, identity, parentSpaceId, billedIdentity, billedLimit, spaceType, force)
 }
 
 // NewStatus mocks base method.

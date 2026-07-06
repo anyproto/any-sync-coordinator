@@ -155,11 +155,28 @@ func (c *coordinator) SpaceDelete(ctx context.Context, spaceId string, deletionD
 	if err != nil {
 		return
 	}
+	var authorizedByLegalOwner bool
+	entry, err := c.spaceStatus.Status(ctx, spaceId)
+	if err != nil {
+		return
+	}
+	if entry.ParentSpaceId != "" && entry.Identity != accountPubKey.Account() {
+		// legalOwner delete: the parent's CURRENT owner may delete a child it cannot read
+		parentOwner, ownerErr := c.acl.OwnerPubKey(ctx, entry.ParentSpaceId)
+		if ownerErr != nil {
+			return 0, ownerErr
+		}
+		if !parentOwner.Equals(accountPubKey) {
+			return 0, coordinatorproto.ErrForbidden
+		}
+		authorizedByLegalOwner = true
+	}
 	return c.spaceStatus.SpaceDelete(ctx, spacestatus.SpaceDeletion{
-		DeletionPayload:   payload,
-		DeletionPayloadId: payloadId,
-		SpaceId:           spaceId,
-		DeletionPeriod:    time.Duration(deletionDurationSecs) * time.Minute,
+		DeletionPayload:        payload,
+		DeletionPayloadId:      payloadId,
+		SpaceId:                spaceId,
+		DeletionPeriod:         time.Duration(deletionDurationSecs) * time.Minute,
+		AuthorizedByLegalOwner: authorizedByLegalOwner,
 		AccountInfo: spacestatus.AccountInfo{
 			Identity:  accountPubKey,
 			PeerId:    peerId,
@@ -230,7 +247,7 @@ func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader
 		if err != nil {
 			return nil, err
 		}
-		err = c.spaceStatus.NewChildStatus(ctx, spaceId, accountPubKey, legalOwner.Account(), limits.SharedSpacesLimit, spaceType, force)
+		err = c.spaceStatus.NewChildStatus(ctx, spaceId, accountPubKey, header.ParentSpaceId, legalOwner.Account(), limits.SharedSpacesLimit, spaceType, force)
 		if err != nil {
 			return nil, err
 		}
@@ -324,6 +341,10 @@ func (c *coordinator) AclAddRecord(ctx context.Context, spaceId string, payload 
 
 	if !statusEntry.IsShareable {
 		err = coordinatorproto.ErrSpaceNotShareable
+		return
+	}
+
+	if err = c.verifyKeylessGovernanceRecord(ctx, rec, statusEntry); err != nil {
 		return
 	}
 
@@ -571,4 +592,47 @@ func (c *coordinator) verifyNestedSpace(ctx context.Context, spaceId string, hea
 		return nil, err
 	}
 	return pinnedLegalOwner, nil
+}
+
+// verifyKeylessGovernanceRecord is the fresh-derivation half of the hybrid legalOwner model:
+// a keyless-governance record (AclAccountRemoveNoRotate / AclLegalOwnerUpdate) must be authored
+// by the parent space's CURRENT owner. Clients validate against the child's stored legalOwner key,
+// which may lag a parent ownership transfer; this check keeps the window fail-closed — an ex-owner
+// passes stale clients but is rejected here at submit.
+func (c *coordinator) verifyKeylessGovernanceRecord(ctx context.Context, rec *consensusproto.RawRecord, statusEntry spacestatus.StatusEntry) (err error) {
+	// content sniffing only: anything that doesn't parse falls through to the
+	// full validation inside acl.AddRecord
+	var aclRec consensusproto.Record
+	if uErr := aclRec.UnmarshalVT(rec.Payload); uErr != nil {
+		return nil
+	}
+	var aclData aclrecordproto.AclData
+	if uErr := aclData.UnmarshalVT(aclRec.Data); uErr != nil {
+		return nil
+	}
+	var keyless bool
+	for _, content := range aclData.GetAclContent() {
+		if content.GetAccountRemoveNoRotate() != nil || content.GetLegalOwnerUpdate() != nil {
+			keyless = true
+			break
+		}
+	}
+	if !keyless {
+		return nil
+	}
+	if statusEntry.ParentSpaceId == "" {
+		return coordinatorproto.ErrForbidden
+	}
+	author, err := crypto.UnmarshalEd25519PublicKeyProto(aclRec.Identity)
+	if err != nil {
+		return
+	}
+	parentOwner, err := c.acl.OwnerPubKey(ctx, statusEntry.ParentSpaceId)
+	if err != nil {
+		return
+	}
+	if !parentOwner.Equals(author) {
+		return coordinatorproto.ErrForbidden
+	}
+	return nil
 }

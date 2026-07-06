@@ -8,8 +8,10 @@ import (
 	"github.com/anyproto/any-sync/commonspace/object/acl/list"
 	"github.com/anyproto/any-sync/commonspace/object/acl/list/listtest"
 	"github.com/anyproto/any-sync/commonspace/spacepayloads"
+	"github.com/anyproto/any-sync/consensus/consensusproto"
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/net/peer"
+	"github.com/anyproto/any-sync/nodeconf"
 	"github.com/anyproto/any-sync/util/crypto"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -86,7 +88,7 @@ func TestCoordinator_SpaceSignNested(t *testing.T) {
 		expectParentReads(fx, activeParent)
 		expectReadState(fx)
 		fx.accountLimit.EXPECT().GetLimits(gomock.Any(), parentOwner.Account()).Return(accountlimit.Limits{SharedSpacesLimit: 5}, nil)
-		fx.spaceStatus.EXPECT().NewChildStatus(gomock.Any(), childId, gomock.Any(), parentOwner.Account(), uint32(5), spacestatus.SpaceTypeRegular, false).Return(nil)
+		fx.spaceStatus.EXPECT().NewChildStatus(gomock.Any(), childId, gomock.Any(), "parent.id", parentOwner.Account(), uint32(5), spacestatus.SpaceTypeRegular, false).Return(nil)
 		fx.coordLog.EXPECT().SpaceReceipt(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 		fx.aclEventLog.EXPECT().AddLog(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
@@ -219,4 +221,150 @@ func networkKeys(t *testing.T) *accountdata.AccountKeys {
 	keys, err := accountdata.NewRandom()
 	require.NoError(t, err)
 	return keys
+}
+
+func TestCoordinator_SpaceDeleteAsLegalOwner(t *testing.T) {
+	legalOwnerKeys, err := accountdata.NewRandom()
+	require.NoError(t, err)
+	strangerKeys, err := accountdata.NewRandom()
+	require.NoError(t, err)
+	legalOwnerKeyData, err := legalOwnerKeys.SignKey.GetPublic().Marshall()
+	require.NoError(t, err)
+	strangerKeyData, err := strangerKeys.SignKey.GetPublic().Marshall()
+	require.NoError(t, err)
+	legalOwnerCtx := peer.CtxWithPeerId(peer.CtxWithIdentity(ctx, legalOwnerKeyData), "peer.id")
+	strangerCtx := peer.CtxWithPeerId(peer.CtxWithIdentity(ctx, strangerKeyData), "peer.id")
+
+	childEntry := spacestatus.StatusEntry{
+		SpaceId:       "child.id",
+		Identity:      "creator.identity",
+		Status:        spacestatus.SpaceStatusCreated,
+		Type:          spacestatus.SpaceTypeRegular,
+		ParentSpaceId: "parent.id",
+	}
+
+	t.Run("legal owner deletes a child it does not own", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+		fx.account = networkKeys(t)
+		fx.spaceStatus.EXPECT().Status(gomock.Any(), "child.id").Return(childEntry, nil)
+		fx.acl.EXPECT().OwnerPubKey(gomock.Any(), "parent.id").Return(legalOwnerKeys.SignKey.GetPublic(), nil)
+		fx.nodeConf.EXPECT().Configuration().Return(nodeconf.Configuration{NetworkId: "net"})
+		fx.spaceStatus.EXPECT().SpaceDelete(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ interface{ Done() <-chan struct{} }, payload spacestatus.SpaceDeletion) (int64, error) {
+				require.True(t, payload.AuthorizedByLegalOwner)
+				require.Equal(t, "child.id", payload.SpaceId)
+				return 42, nil
+			})
+		toBeDeleted, err := fx.SpaceDelete(legalOwnerCtx, "child.id", 60, []byte("payload"), "payload.id")
+		require.NoError(t, err)
+		require.Equal(t, int64(42), toBeDeleted)
+	})
+
+	t.Run("non-owner non-legal-owner is rejected", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+		fx.account = networkKeys(t)
+		fx.spaceStatus.EXPECT().Status(gomock.Any(), "child.id").Return(childEntry, nil)
+		fx.acl.EXPECT().OwnerPubKey(gomock.Any(), "parent.id").Return(legalOwnerKeys.SignKey.GetPublic(), nil)
+		_, err := fx.SpaceDelete(strangerCtx, "child.id", 60, []byte("payload"), "payload.id")
+		require.ErrorIs(t, err, coordinatorproto.ErrForbidden)
+	})
+
+	t.Run("top-level space keeps the owner-only path", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+		fx.account = networkKeys(t)
+		topEntry := childEntry
+		topEntry.ParentSpaceId = ""
+		fx.spaceStatus.EXPECT().Status(gomock.Any(), "child.id").Return(topEntry, nil)
+		fx.nodeConf.EXPECT().Configuration().Return(nodeconf.Configuration{NetworkId: "net"})
+		fx.spaceStatus.EXPECT().SpaceDelete(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ interface{ Done() <-chan struct{} }, payload spacestatus.SpaceDeletion) (int64, error) {
+				require.False(t, payload.AuthorizedByLegalOwner)
+				return 7, nil
+			})
+		_, err := fx.SpaceDelete(strangerCtx, "child.id", 60, []byte("payload"), "payload.id")
+		require.NoError(t, err)
+	})
+}
+
+func keylessRemoveRecord(t *testing.T, signer *accountdata.AccountKeys, target crypto.PubKey) []byte {
+	targetProto, err := target.Marshall()
+	require.NoError(t, err)
+	data := &aclrecordproto.AclData{AclContent: []*aclrecordproto.AclContentValue{{
+		Value: &aclrecordproto.AclContentValue_AccountRemoveNoRotate{
+			AccountRemoveNoRotate: &aclrecordproto.AclAccountRemoveNoRotate{Identities: [][]byte{targetProto}},
+		},
+	}}}
+	marshalledData, err := data.MarshalVT()
+	require.NoError(t, err)
+	signerProto, err := signer.SignKey.GetPublic().Marshall()
+	require.NoError(t, err)
+	rec := &consensusproto.Record{PrevId: "prev", Identity: signerProto, Data: marshalledData}
+	marshalledRec, err := rec.MarshalVT()
+	require.NoError(t, err)
+	sig, err := signer.SignKey.Sign(marshalledRec)
+	require.NoError(t, err)
+	raw, err := (&consensusproto.RawRecord{Payload: marshalledRec, Signature: sig}).MarshalVT()
+	require.NoError(t, err)
+	return raw
+}
+
+func TestCoordinator_AclAddRecordKeylessGate(t *testing.T) {
+	legalOwnerKeys, err := accountdata.NewRandom()
+	require.NoError(t, err)
+	exOwnerKeys, err := accountdata.NewRandom()
+	require.NoError(t, err)
+	targetKeys, err := accountdata.NewRandom()
+	require.NoError(t, err)
+	callerKeyData, err := legalOwnerKeys.SignKey.GetPublic().Marshall()
+	require.NoError(t, err)
+	callCtx := peer.CtxWithPeerId(peer.CtxWithIdentity(ctx, callerKeyData), "peer.id")
+
+	creatorKeys, err := accountdata.NewRandom()
+	require.NoError(t, err)
+	childEntry := spacestatus.StatusEntry{
+		SpaceId:       "child.id",
+		Identity:      creatorKeys.SignKey.GetPublic().Account(),
+		Status:        spacestatus.SpaceStatusCreated,
+		Type:          spacestatus.SpaceTypeRegular,
+		IsShareable:   true,
+		ParentSpaceId: "parent.id",
+	}
+
+	t.Run("current parent owner passes", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+		payload := keylessRemoveRecord(t, legalOwnerKeys, targetKeys.SignKey.GetPublic())
+		fx.spaceStatus.EXPECT().Status(gomock.Any(), "child.id").Return(childEntry, nil)
+		fx.acl.EXPECT().OwnerPubKey(gomock.Any(), "parent.id").Return(legalOwnerKeys.SignKey.GetPublic(), nil)
+		fx.acl.EXPECT().OwnerPubKey(gomock.Any(), "child.id").Return(creatorKeys.SignKey.GetPublic(), nil)
+		fx.accountLimit.EXPECT().GetLimitsBySpace(gomock.Any(), "child.id").Return(accountlimit.SpaceLimits{SpaceMembersRead: 10, SpaceMembersWrite: 10}, nil)
+		fx.acl.EXPECT().AddRecord(gomock.Any(), "child.id", gomock.Any(), gomock.Any()).Return(&consensusproto.RawRecordWithId{Id: "rec.id"}, nil)
+		fx.aclEventLog.EXPECT().AddLog(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		_, err := fx.AclAddRecord(callCtx, "child.id", payload)
+		require.NoError(t, err)
+	})
+
+	t.Run("ex-owner is rejected at submit (fail-closed window)", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+		payload := keylessRemoveRecord(t, exOwnerKeys, targetKeys.SignKey.GetPublic())
+		fx.spaceStatus.EXPECT().Status(gomock.Any(), "child.id").Return(childEntry, nil)
+		fx.acl.EXPECT().OwnerPubKey(gomock.Any(), "parent.id").Return(legalOwnerKeys.SignKey.GetPublic(), nil)
+		_, err := fx.AclAddRecord(callCtx, "child.id", payload)
+		require.ErrorIs(t, err, coordinatorproto.ErrForbidden)
+	})
+
+	t.Run("keyless record on a top-level space is rejected", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+		payload := keylessRemoveRecord(t, legalOwnerKeys, targetKeys.SignKey.GetPublic())
+		topEntry := childEntry
+		topEntry.ParentSpaceId = ""
+		fx.spaceStatus.EXPECT().Status(gomock.Any(), "child.id").Return(topEntry, nil)
+		_, err := fx.AclAddRecord(callCtx, "child.id", payload)
+		require.ErrorIs(t, err, coordinatorproto.ErrForbidden)
+	})
 }
