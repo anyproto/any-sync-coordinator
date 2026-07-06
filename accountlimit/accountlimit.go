@@ -51,7 +51,10 @@ type Limits struct {
 	SpaceMembersRead  uint32    `bson:"spaceMembersRead"`
 	SpaceMembersWrite uint32    `bson:"spaceMembersWrite"`
 	SharedSpacesLimit uint32    `bson:"sharedSpacesLimit"`
-	UpdatedTime       time.Time `bson:"updatedTime"`
+	// ExternalSeatsLimit caps the distinct non-org identities admitted across all
+	// child spaces of the identity's spaces (nested spaces / paid external seats)
+	ExternalSeatsLimit uint32    `bson:"externalSeatsLimit"`
+	UpdatedTime        time.Time `bson:"updatedTime"`
 }
 
 type AccountLimit interface {

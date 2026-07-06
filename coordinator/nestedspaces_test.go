@@ -368,3 +368,109 @@ func TestCoordinator_AclAddRecordKeylessGate(t *testing.T) {
 		require.ErrorIs(t, err, coordinatorproto.ErrForbidden)
 	})
 }
+
+func accountsAddRecord(t *testing.T, signer *accountdata.AccountKeys, target crypto.PubKey) []byte {
+	targetProto, err := target.Marshall()
+	require.NoError(t, err)
+	data := &aclrecordproto.AclData{AclContent: []*aclrecordproto.AclContentValue{{
+		Value: &aclrecordproto.AclContentValue_AccountsAdd{
+			AccountsAdd: &aclrecordproto.AclAccountsAdd{Additions: []*aclrecordproto.AclAccountAdd{{
+				Identity:    targetProto,
+				Permissions: aclrecordproto.AclUserPermissions_Writer,
+			}}},
+		},
+	}}}
+	marshalledData, err := data.MarshalVT()
+	require.NoError(t, err)
+	signerProto, err := signer.SignKey.GetPublic().Marshall()
+	require.NoError(t, err)
+	rec := &consensusproto.Record{PrevId: "prev", Identity: signerProto, Data: marshalledData}
+	marshalledRec, err := rec.MarshalVT()
+	require.NoError(t, err)
+	sig, err := signer.SignKey.Sign(marshalledRec)
+	require.NoError(t, err)
+	raw, err := (&consensusproto.RawRecord{Payload: marshalledRec, Signature: sig}).MarshalVT()
+	require.NoError(t, err)
+	return raw
+}
+
+func TestCoordinator_AclAddRecordExternalSeats(t *testing.T) {
+	parentEx := list.NewAclExecutor("parent.id")
+	for _, cmd := range []string{
+		"a.init::a",
+		"a.invite::inv",
+		"b.join::inv",
+		"a.approve::b,rw",
+	} {
+		require.NoError(t, parentEx.Execute(cmd))
+	}
+	var (
+		parentAcl   = parentEx.ActualAccounts()["a"].Acl
+		orgOwnerKey = parentEx.ActualAccounts()["a"].Keys
+		orgMember   = parentEx.ActualAccounts()["b"].Keys
+	)
+	external, err := accountdata.NewRandom()
+	require.NoError(t, err)
+	creatorKeys, err := accountdata.NewRandom()
+	require.NoError(t, err)
+	callerKeyData, err := creatorKeys.SignKey.GetPublic().Marshall()
+	require.NoError(t, err)
+	callCtx := peer.CtxWithPeerId(peer.CtxWithIdentity(ctx, callerKeyData), "peer.id")
+
+	childEntry := spacestatus.StatusEntry{
+		SpaceId:       "child.id",
+		Identity:      creatorKeys.SignKey.GetPublic().Account(),
+		Status:        spacestatus.SpaceStatusCreated,
+		Type:          spacestatus.SpaceTypeRegular,
+		IsShareable:   true,
+		ParentSpaceId: "parent.id",
+	}
+	expectReadState := func(fx *fixture) {
+		fx.acl.EXPECT().ReadState(gomock.Any(), "parent.id", gomock.Any()).DoAndReturn(
+			func(_ interface{ Done() <-chan struct{} }, _ string, f func(s *list.AclState) error) error {
+				return f(parentAcl.AclState())
+			}).AnyTimes()
+	}
+
+	t.Run("org member admission needs no seats", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+		payload := accountsAddRecord(t, creatorKeys, orgMember.SignKey.GetPublic())
+		fx.spaceStatus.EXPECT().Status(gomock.Any(), "child.id").Return(childEntry, nil)
+		expectReadState(fx)
+		fx.accountLimit.EXPECT().GetLimitsBySpace(gomock.Any(), "child.id").Return(accountlimit.SpaceLimits{SpaceMembersRead: 10, SpaceMembersWrite: 10}, nil)
+		fx.acl.EXPECT().AddRecord(gomock.Any(), "child.id", gomock.Any(), gomock.Any()).Return(&consensusproto.RawRecordWithId{Id: "rec.id"}, nil)
+		fx.acl.EXPECT().OwnerPubKey(gomock.Any(), "child.id").Return(creatorKeys.SignKey.GetPublic(), nil)
+		fx.aclEventLog.EXPECT().AddLog(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		_, err := fx.AclAddRecord(callCtx, "child.id", payload)
+		require.NoError(t, err)
+	})
+
+	t.Run("external rejected when the pool is exhausted", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+		payload := accountsAddRecord(t, creatorKeys, external.SignKey.GetPublic())
+		fx.spaceStatus.EXPECT().Status(gomock.Any(), "child.id").Return(childEntry, nil)
+		expectReadState(fx)
+		fx.acl.EXPECT().OwnerPubKey(gomock.Any(), "parent.id").Return(orgOwnerKey.SignKey.GetPublic(), nil)
+		fx.accountLimit.EXPECT().GetLimits(gomock.Any(), orgOwnerKey.SignKey.GetPublic().Account()).Return(accountlimit.Limits{ExternalSeatsLimit: 0}, nil)
+		_, err := fx.AclAddRecord(callCtx, "child.id", payload)
+		require.ErrorIs(t, err, coordinatorproto.ErrSpaceLimitReached)
+	})
+
+	t.Run("external admitted within the pool", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+		payload := accountsAddRecord(t, creatorKeys, external.SignKey.GetPublic())
+		fx.spaceStatus.EXPECT().Status(gomock.Any(), "child.id").Return(childEntry, nil)
+		expectReadState(fx)
+		fx.acl.EXPECT().OwnerPubKey(gomock.Any(), "parent.id").Return(orgOwnerKey.SignKey.GetPublic(), nil).AnyTimes()
+		fx.accountLimit.EXPECT().GetLimits(gomock.Any(), orgOwnerKey.SignKey.GetPublic().Account()).Return(accountlimit.Limits{ExternalSeatsLimit: 3}, nil)
+		fx.accountLimit.EXPECT().GetLimitsBySpace(gomock.Any(), "child.id").Return(accountlimit.SpaceLimits{SpaceMembersRead: 10, SpaceMembersWrite: 10}, nil)
+		fx.acl.EXPECT().AddRecord(gomock.Any(), "child.id", gomock.Any(), gomock.Any()).Return(&consensusproto.RawRecordWithId{Id: "rec.id"}, nil)
+		fx.acl.EXPECT().OwnerPubKey(gomock.Any(), "child.id").Return(creatorKeys.SignKey.GetPublic(), nil)
+		fx.aclEventLog.EXPECT().AddLog(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		_, err := fx.AclAddRecord(callCtx, "child.id", payload)
+		require.NoError(t, err)
+	})
+}

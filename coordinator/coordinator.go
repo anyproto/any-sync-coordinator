@@ -27,10 +27,13 @@ import (
 	"go.uber.org/zap"
 	"storj.io/drpc"
 
+	"go.mongodb.org/mongo-driver/mongo"
+
 	"github.com/anyproto/any-sync-coordinator/accountlimit"
 	"github.com/anyproto/any-sync-coordinator/acleventlog"
 	"github.com/anyproto/any-sync-coordinator/config"
 	"github.com/anyproto/any-sync-coordinator/coordinatorlog"
+	"github.com/anyproto/any-sync-coordinator/db"
 	"github.com/anyproto/any-sync-coordinator/deletionlog"
 	"github.com/anyproto/any-sync-coordinator/fileusage"
 	"github.com/anyproto/any-sync-coordinator/inbox"
@@ -72,6 +75,7 @@ type coordinator struct {
 	accountLimit   accountlimit.AccountLimit
 	fileUsage      fileusage.FileUsage
 	acl            acl.AclService
+	externalSeats  *mongo.Collection
 	inbox          inbox.InboxService
 	subscribe      subscribe.SubscribeService
 	drpcHandler    *rpcHandler
@@ -90,6 +94,10 @@ func (c *coordinator) Init(a *app.App) (err error) {
 	c.subscribe = a.MustComponent(subscribe.CName).(subscribe.SubscribeService)
 	c.deletionLog = app.MustComponent[deletionlog.DeletionLog](a)
 	c.acl = app.MustComponent[acl.AclService](a)
+	// optional so unit fixtures without mongo still assemble; production registers db
+	if dbComp, _ := a.Component(db.CName).(db.Database); dbComp != nil {
+		c.externalSeats = dbComp.Db().Collection(externalSeatsCollName)
+	}
 	c.inbox = app.MustComponent[inbox.InboxService](a)
 	c.accountLimit = app.MustComponent[accountlimit.AccountLimit](a)
 	c.fileUsage = app.MustComponent[fileusage.FileUsage](a)
@@ -313,7 +321,8 @@ func (c *coordinator) AccountLimitsSet(ctx context.Context, req *coordinatorprot
 		FileStorageBytes:  req.FileStorageLimitBytes,
 		SpaceMembersRead:  req.SpaceMembersRead,
 		SpaceMembersWrite: req.SpaceMembersWrite,
-		SharedSpacesLimit: req.SharedSpacesLimit,
+		SharedSpacesLimit:  req.SharedSpacesLimit,
+		ExternalSeatsLimit: req.ExternalSeatsLimit,
 	})
 }
 
@@ -348,6 +357,16 @@ func (c *coordinator) AclAddRecord(ctx context.Context, spaceId string, payload 
 		return
 	}
 
+	var admittedExternals []crypto.PubKey
+	if statusEntry.ParentSpaceId != "" {
+		if admitted := admittedIdentities(rec); len(admitted) > 0 {
+			admittedExternals, err = c.verifyExternalSeats(ctx, statusEntry, admitted)
+			if err != nil {
+				return
+			}
+		}
+	}
+
 	limits, err := c.accountLimit.GetLimitsBySpace(ctx, spaceId)
 	if err != nil {
 		return nil, err
@@ -365,6 +384,17 @@ func (c *coordinator) AclAddRecord(ctx context.Context, spaceId string, payload 
 	}
 
 	log.Debug("ACL change ID:", zap.String("rawRecordWithId.Id", rawRecordWithId.Id))
+
+	if statusEntry.ParentSpaceId != "" {
+		if len(admittedExternals) > 0 {
+			if orgOwner, ownerErr := c.acl.OwnerPubKey(ctx, statusEntry.ParentSpaceId); ownerErr == nil {
+				c.recordExternalSeats(ctx, spaceId, orgOwner.Account(), admittedExternals)
+			}
+		}
+		if removed := removedIdentities(rec); len(removed) > 0 {
+			c.dropExternalSeats(ctx, spaceId, removed)
+		}
+	}
 
 	err = c.aclEventLog.AddLog(ctx, acleventlog.AclEventLogEntry{
 		SpaceId:     spaceId,
