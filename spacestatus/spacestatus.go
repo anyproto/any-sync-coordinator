@@ -98,6 +98,11 @@ type SpaceStatus interface {
 	MakeShareable(ctx context.Context, spaceId string, spaceType SpaceType, limit uint32) (err error)
 	MakeUnshareable(ctx context.Context, spaceId string) (err error)
 
+	// RegisterSpaceRemoveHook registers fn to run inside the same transaction
+	// that records a space's final deletion (StatusRemove) in the deletion log.
+	// Call during component Init only.
+	RegisterSpaceRemoveHook(fn func(txCtx mongo.SessionContext, spaceId string) error)
+
 	app.ComponentRunnable
 }
 
@@ -106,13 +111,18 @@ func New() SpaceStatus {
 }
 
 type spaceStatus struct {
-	conf           Config
-	spaces         *mongo.Collection
-	verifier       ChangeVerifier
-	deleter        SpaceDeleter
-	db             db.Database
-	deletionLog    deletionlog.DeletionLog
-	deletionPeriod time.Duration
+	conf             Config
+	spaces           *mongo.Collection
+	verifier         ChangeVerifier
+	deleter          SpaceDeleter
+	db               db.Database
+	deletionLog      deletionlog.DeletionLog
+	deletionPeriod   time.Duration
+	spaceRemoveHooks []func(txCtx mongo.SessionContext, spaceId string) error
+}
+
+func (s *spaceStatus) RegisterSpaceRemoveHook(fn func(txCtx mongo.SessionContext, spaceId string) error) {
+	s.spaceRemoveHooks = append(s.spaceRemoveHooks, fn)
 }
 
 type findStatusQuery struct {
@@ -188,11 +198,11 @@ func (s *spaceStatus) AccountDelete(ctx context.Context, payload AccountDeletion
 			Identity: identity,
 		})
 		if err != nil {
-			return coordinatorproto.ErrUnexpected
+			return unexpectedOrTransient(err)
 		}
 		var spaces []StatusEntry
 		if err = cursor.All(txCtx, &spaces); err != nil {
-			return coordinatorproto.ErrUnexpected
+			return unexpectedOrTransient(err)
 		}
 
 		// Iterate through the spaces and call setStatusTx
@@ -237,11 +247,11 @@ func (s *spaceStatus) AccountRevertDeletion(ctx context.Context, payload Account
 			Identity: identity,
 		})
 		if err != nil {
-			return coordinatorproto.ErrUnexpected
+			return unexpectedOrTransient(err)
 		}
 		var spaces []StatusEntry
 		if err = cursor.All(txCtx, &spaces); err != nil {
-			return coordinatorproto.ErrUnexpected
+			return unexpectedOrTransient(err)
 		}
 
 		// Iterate through the spaces and call setStatusTx
@@ -270,6 +280,9 @@ func (s *spaceStatus) SpaceDelete(ctx context.Context, payload SpaceDeletion) (t
 	err = s.db.Tx(ctx, func(txCtx mongo.SessionContext) error {
 		spType, err := s.getSpaceTypeTx(txCtx, payload.SpaceId)
 		if err != nil {
+			if db.IsTransientTransactionError(err) {
+				return err
+			}
 			return coordinatorproto.ErrSpaceNotExists
 		}
 		switch spType {
@@ -353,6 +366,16 @@ func (s *spaceStatus) setStatusTx(txCtx mongo.SessionContext, change StatusChang
 		return
 	}
 	_, err = s.deletionLog.Add(txCtx, change.SpaceId, entry.Identity, status)
+	if err != nil {
+		return
+	}
+	if status == deletionlog.StatusRemove {
+		for _, hook := range s.spaceRemoveHooks {
+			if err = hook(txCtx, change.SpaceId); err != nil {
+				return
+			}
+		}
+	}
 	return
 }
 
@@ -390,6 +413,12 @@ func (s *spaceStatus) modifyStatus(ctx context.Context, change StatusChange, old
 		Identity: encodedIdentity,
 	}, op, options.FindOneAndUpdate().SetReturnDocument(options.After))
 	if res.Err() != nil {
+		// A WriteConflict (or other transient transaction error) must be
+		// propagated with its label intact so the enclosing Tx can retry it;
+		// it does not mean the status precondition failed.
+		if db.IsTransientTransactionError(res.Err()) {
+			return StatusEntry{}, res.Err()
+		}
 		curStatus, err := s.Status(ctx, change.SpaceId)
 		if err != nil {
 			return StatusEntry{}, notFoundOrUnexpected(err)
@@ -594,10 +623,23 @@ func (s *spaceStatus) Close(ctx context.Context) (err error) {
 func notFoundOrUnexpected(err error) error {
 	if errors.Is(err, mongo.ErrNoDocuments) {
 		return coordinatorproto.ErrSpaceNotExists
+	} else if db.IsTransientTransactionError(err) {
+		// keep the retry label so the enclosing Tx can retry
+		return err
 	} else {
 		log.Info("unexpected error received", zap.Error(err))
 		return coordinatorproto.ErrUnexpected
 	}
+}
+
+// unexpectedOrTransient preserves a transient transaction error (e.g. a mongo
+// WriteConflict) so the enclosing Tx can retry it, while mapping any other
+// error to the generic ErrUnexpected sentinel.
+func unexpectedOrTransient(err error) error {
+	if db.IsTransientTransactionError(err) {
+		return err
+	}
+	return coordinatorproto.ErrUnexpected
 }
 
 func incorrectStatusError(curStatus int) (err error) {

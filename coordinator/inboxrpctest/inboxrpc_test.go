@@ -17,6 +17,8 @@ import (
 	"github.com/anyproto/any-sync-coordinator/db"
 	"github.com/anyproto/any-sync-coordinator/deletionlog"
 	"github.com/anyproto/any-sync-coordinator/deletionlog/mock_deletionlog"
+	"github.com/anyproto/any-sync-coordinator/fileusage"
+	"github.com/anyproto/any-sync-coordinator/fileusage/mock_fileusage"
 	"github.com/anyproto/any-sync-coordinator/inbox"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
 	"github.com/anyproto/any-sync-coordinator/spacestatus/mock_spacestatus"
@@ -57,6 +59,7 @@ type fixtureServer struct {
 	deletionLog  *mock_deletionlog.MockDeletionLog
 	acl          *mock_acl.MockAclService
 	accountLimit *mock_accountlimit.MockAccountLimit
+	fileUsage    *mock_fileusage.MockFileUsage
 }
 
 type fixtureClient struct {
@@ -107,6 +110,7 @@ func newFixtureServer(t *testing.T, nodeConf *mockNodeConf, account *accounttest
 		deletionLog:  mock_deletionlog.NewMockDeletionLog(ctrl),
 		acl:          mock_acl.NewMockAclService(ctrl),
 		accountLimit: mock_accountlimit.NewMockAccountLimit(ctrl),
+		fileUsage:    mock_fileusage.NewMockFileUsage(ctrl),
 	}
 
 	anymock.ExpectComp(fxS.spaceStatus.EXPECT(), spacestatus.CName)
@@ -114,6 +118,7 @@ func newFixtureServer(t *testing.T, nodeConf *mockNodeConf, account *accounttest
 	anymock.ExpectComp(fxS.deletionLog.EXPECT(), deletionlog.CName)
 	anymock.ExpectComp(fxS.acl.EXPECT(), acl.CName)
 	anymock.ExpectComp(fxS.accountLimit.EXPECT(), accountlimit.CName)
+	anymock.ExpectComp(fxS.fileUsage.EXPECT(), fileusage.CName)
 	anymock.ExpectComp(fxS.aclEventLog.EXPECT(), acleventlog.CName)
 
 	fxS.a.
@@ -131,6 +136,7 @@ func newFixtureServer(t *testing.T, nodeConf *mockNodeConf, account *accounttest
 		Register(fxS.deletionLog).
 		Register(fxS.acl).
 		Register(fxS.accountLimit).
+		Register(fxS.fileUsage).
 		Register(fxS.subscribe).
 		Register(fxS.inbox)
 
