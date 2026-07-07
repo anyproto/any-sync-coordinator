@@ -851,6 +851,45 @@ func TestSpaceStatus_ChangeOwner(t *testing.T) {
 	assert.Equal(t, newIdentity.Account(), status.Identity)
 }
 
+func TestSpaceStatus_ChildBillingFollowsOwnershipTransfer(t *testing.T) {
+	fx := newFixture(t, 0, 0)
+	defer fx.Finish(t)
+
+	_, creator, err := crypto.GenerateRandomEd25519KeyPair()
+	require.NoError(t, err)
+	_, ownerA, err := crypto.GenerateRandomEd25519KeyPair()
+	require.NoError(t, err)
+	_, ownerB, err := crypto.GenerateRandomEd25519KeyPair()
+	require.NoError(t, err)
+
+	const parentId = "parent.id"
+	require.NoError(t, fx.NewStatus(ctx, parentId, ownerA, SpaceTypeRegular, false))
+
+	// two children fill A's pool of 2
+	require.NoError(t, fx.NewChildStatus(ctx, "child.1", creator, parentId, ownerA.Account(), 2, SpaceTypeRegular, false))
+	require.NoError(t, fx.NewChildStatus(ctx, "child.2", creator, parentId, ownerA.Account(), 2, SpaceTypeRegular, false))
+	require.ErrorIs(t, fx.NewChildStatus(ctx, "child.3", creator, parentId, ownerA.Account(), 2, SpaceTypeRegular, false),
+		coordinatorproto.ErrSpaceLimitReached)
+
+	// parent ownership A -> B migrates the children's billing pool with it: B does
+	// not start with an empty pool, so a transfer cannot multiply the allowance
+	require.NoError(t, fx.ChangeOwner(ctx, parentId, ownerB.Account()))
+	for _, id := range []string{"child.1", "child.2"} {
+		entry, err := fx.Status(ctx, id)
+		require.NoError(t, err)
+		assert.Equal(t, ownerB.Account(), entry.BilledIdentity, id)
+	}
+	require.ErrorIs(t, fx.NewChildStatus(ctx, "child.3", creator, parentId, ownerB.Account(), 2, SpaceTypeRegular, false),
+		coordinatorproto.ErrSpaceLimitReached)
+
+	// a re-sign of an existing child refreshes a stale pool assignment to the
+	// billed identity the caller resolved from the parent's current owner
+	require.NoError(t, fx.NewChildStatus(ctx, "child.1", creator, parentId, ownerA.Account(), 2, SpaceTypeRegular, false))
+	entry, err := fx.Status(ctx, "child.1")
+	require.NoError(t, err)
+	assert.Equal(t, ownerA.Account(), entry.BilledIdentity)
+}
+
 type fixture struct {
 	SpaceStatus
 	a          *app.App

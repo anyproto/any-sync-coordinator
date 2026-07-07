@@ -538,8 +538,16 @@ func (s *spaceStatus) NewChildStatus(ctx context.Context, spaceId string, identi
 			return err
 		}
 		if entry.Status == SpaceStatusCreated && !notFound {
-			// save back compatibility
-			return nil
+			// save back compatibility, but keep billing pinned to the parent's CURRENT owner:
+			// the caller recomputes billedIdentity on every sign, and a stale pool assignment
+			// would let ownership transfers multiply the per-owner children allowance
+			if entry.BilledIdentity != billedIdentity || entry.ParentSpaceId != parentSpaceId {
+				_, err = s.spaces.UpdateOne(txCtx, bson.D{{"_id", spaceId}}, bson.D{{"$set", bson.D{
+					{"parentSpaceId", parentSpaceId},
+					{"billedIdentity", billedIdentity},
+				}}})
+			}
+			return err
 		}
 		var inserted bool
 		if notFound {
@@ -655,10 +663,20 @@ func (s *spaceStatus) checkLimitTx(txCtx mongo.SessionContext, identity crypto.P
 }
 
 func (s *spaceStatus) ChangeOwner(ctx context.Context, spaceId, ownerId string) (err error) {
-	_, err = s.spaces.UpdateOne(ctx, bson.D{{"_id", spaceId}}, bson.D{{"$set", bson.D{
-		{"identity", ownerId},
-	}}})
-	return
+	return s.db.Tx(ctx, func(txCtx mongo.SessionContext) error {
+		if _, err := s.spaces.UpdateOne(txCtx, bson.D{{"_id", spaceId}}, bson.D{{"$set", bson.D{
+			{"identity", ownerId},
+		}}}); err != nil {
+			return err
+		}
+		// children consume the legalOwner's quota, so their billing pool follows the parent's
+		// owner: left behind, the old and new owners would hold two disjoint pools and every
+		// transfer would multiply the per-owner children allowance
+		_, err := s.spaces.UpdateMany(txCtx, bson.D{
+			{"parentSpaceId", spaceId},
+		}, bson.D{{"$set", bson.D{{"billedIdentity", ownerId}}}})
+		return err
+	})
 }
 
 func (s *spaceStatus) Init(a *app.App) (err error) {
