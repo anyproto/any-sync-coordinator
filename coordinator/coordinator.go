@@ -479,11 +479,14 @@ func (c *coordinator) MakeSpaceShareable(ctx context.Context, spaceId string) (e
 	if err != nil {
 		return
 	}
-	if statusEntry.Identity != pubKey.Account() {
-		return coordinatorproto.ErrForbidden
-	}
+	// already-shareable is a no-op for ANY caller: a non-owner member legitimately
+	// ensures shareability before writing to the acl (e.g. an org admin registering
+	// a child space) — only the actual flip is owner-gated
 	if statusEntry.IsShareable {
 		return nil
+	}
+	if statusEntry.Identity != pubKey.Account() {
+		return coordinatorproto.ErrForbidden
 	}
 
 	limits, err := c.accountLimit.GetLimitsBySpace(ctx, spaceId)

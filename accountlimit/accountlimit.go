@@ -42,6 +42,11 @@ type SpaceLimits struct {
 	// FileStorageLimitBytes is the default account file-storage pool for
 	// identities without an explicit accountLimit document (files v2).
 	FileStorageLimitBytes uint64 `yaml:"fileStorageLimitBytes" bson:"fileStorageLimitBytes"`
+	// ExternalSeatsLimit is the default external-seat pool (nested spaces) for
+	// identities without an explicit accountLimit document. Production networks
+	// keep it 0 (seats are granted per identity by the payment node); self-hosted
+	// networks set it to open external admissions up.
+	ExternalSeatsLimit uint32 `yaml:"externalSeatsLimit" bson:"externalSeatsLimit"`
 }
 
 type Limits struct {
@@ -128,12 +133,13 @@ func (al *accountLimit) GetLimits(ctx context.Context, identity string) (limits 
 	}
 	// default limit
 	return Limits{
-		Identity:          identity,
-		SpaceMembersRead:  al.defaultLimits.SpaceMembersRead,
-		SpaceMembersWrite: al.defaultLimits.SpaceMembersWrite,
-		SharedSpacesLimit: al.defaultLimits.SharedSpacesLimit,
-		FileStorageBytes:  al.defaultLimits.FileStorageLimitBytes,
-		UpdatedTime:       time.Now(),
+		Identity:           identity,
+		SpaceMembersRead:   al.defaultLimits.SpaceMembersRead,
+		SpaceMembersWrite:  al.defaultLimits.SpaceMembersWrite,
+		SharedSpacesLimit:  al.defaultLimits.SharedSpacesLimit,
+		FileStorageBytes:   al.defaultLimits.FileStorageLimitBytes,
+		ExternalSeatsLimit: al.defaultLimits.ExternalSeatsLimit,
+		UpdatedTime:        time.Now(),
 	}, nil
 }
 
