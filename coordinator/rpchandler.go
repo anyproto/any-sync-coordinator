@@ -217,7 +217,7 @@ func (r *rpcHandler) SpaceSign(ctx context.Context, req *coordinatorproto.SpaceS
 		)
 	}()
 
-	receipt, err := r.c.SpaceSign(ctx, req.SpaceId, req.Header, req.ForceRequest)
+	receipt, err := r.c.SpaceSign(ctx, req.SpaceId, req.Header, req.ForceRequest, req.ParentAclRecordId)
 	if err != nil {
 		return nil, err
 	}
@@ -601,4 +601,20 @@ func (r *rpcHandler) FileUsageReport(ctx context.Context, req *coordinatorproto.
 		return nil, err
 	}
 	return &coordinatorproto.FileUsageReportResponse{}, nil
+}
+
+func (r *rpcHandler) ExternalCompartments(ctx context.Context, req *coordinatorproto.ExternalCompartmentsRequest) (resp *coordinatorproto.ExternalCompartmentsResponse, err error) {
+	st := time.Now()
+	defer func() {
+		r.c.metric.RequestLog(ctx, "coordinator.externalCompartments",
+			metric.TotalDur(time.Since(st)),
+			zap.String("addr", peer.CtxPeerAddr(ctx)),
+			zap.Error(err),
+		)
+	}()
+	spaceIds, err := r.c.ExternalCompartments(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &coordinatorproto.ExternalCompartmentsResponse{SpaceIds: spaceIds}, nil
 }

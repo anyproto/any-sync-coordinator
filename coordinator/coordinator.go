@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/anyproto/any-sync/accountservice"
@@ -11,6 +12,7 @@ import (
 	"github.com/anyproto/any-sync/app"
 	"github.com/anyproto/any-sync/app/logger"
 	"github.com/anyproto/any-sync/commonspace/object/accountdata"
+	"github.com/anyproto/any-sync/commonspace/object/acl/aclrecordproto"
 	"github.com/anyproto/any-sync/commonspace/object/acl/list"
 	"github.com/anyproto/any-sync/commonspace/spacepayloads"
 	"github.com/anyproto/any-sync/commonspace/spacesyncproto"
@@ -21,14 +23,18 @@ import (
 	"github.com/anyproto/any-sync/net/pool"
 	"github.com/anyproto/any-sync/net/rpc/server"
 	"github.com/anyproto/any-sync/nodeconf"
+	"github.com/anyproto/any-sync/util/cidutil"
 	"github.com/anyproto/any-sync/util/crypto"
 	"go.uber.org/zap"
 	"storj.io/drpc"
+
+	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/anyproto/any-sync-coordinator/accountlimit"
 	"github.com/anyproto/any-sync-coordinator/acleventlog"
 	"github.com/anyproto/any-sync-coordinator/config"
 	"github.com/anyproto/any-sync-coordinator/coordinatorlog"
+	"github.com/anyproto/any-sync-coordinator/db"
 	"github.com/anyproto/any-sync-coordinator/deletionlog"
 	"github.com/anyproto/any-sync-coordinator/fileusage"
 	"github.com/anyproto/any-sync-coordinator/inbox"
@@ -70,6 +76,9 @@ type coordinator struct {
 	accountLimit   accountlimit.AccountLimit
 	fileUsage      fileusage.FileUsage
 	acl            acl.AclService
+	externalSeats  *mongo.Collection
+	orgSeatLocks   [orgSeatLockStripes]sync.Mutex
+	orgSeatLease   *db.Lease
 	inbox          inbox.InboxService
 	subscribe      subscribe.SubscribeService
 	drpcHandler    *rpcHandler
@@ -88,6 +97,11 @@ func (c *coordinator) Init(a *app.App) (err error) {
 	c.subscribe = a.MustComponent(subscribe.CName).(subscribe.SubscribeService)
 	c.deletionLog = app.MustComponent[deletionlog.DeletionLog](a)
 	c.acl = app.MustComponent[acl.AclService](a)
+	// optional so unit fixtures without mongo still assemble; production registers db
+	if dbComp, _ := a.Component(db.CName).(db.Database); dbComp != nil {
+		c.externalSeats = dbComp.Db().Collection(externalSeatsCollName)
+		c.orgSeatLease = db.NewLease(dbComp.Db().Collection(orgSeatLeaseCollName), orgSeatLeaseTTL, orgSeatLeasePoll)
+	}
 	c.inbox = app.MustComponent[inbox.InboxService](a)
 	c.accountLimit = app.MustComponent[accountlimit.AccountLimit](a)
 	c.fileUsage = app.MustComponent[fileusage.FileUsage](a)
@@ -153,11 +167,28 @@ func (c *coordinator) SpaceDelete(ctx context.Context, spaceId string, deletionD
 	if err != nil {
 		return
 	}
+	var authorizedByLegalOwner bool
+	entry, err := c.spaceStatus.Status(ctx, spaceId)
+	if err != nil {
+		return
+	}
+	if entry.ParentSpaceId != "" && entry.Identity != accountPubKey.Account() {
+		// legalOwner delete: the parent's CURRENT owner may delete a child it cannot read
+		parentOwner, ownerErr := c.acl.OwnerPubKey(ctx, entry.ParentSpaceId)
+		if ownerErr != nil {
+			return 0, ownerErr
+		}
+		if !parentOwner.Equals(accountPubKey) {
+			return 0, coordinatorproto.ErrForbidden
+		}
+		authorizedByLegalOwner = true
+	}
 	return c.spaceStatus.SpaceDelete(ctx, spacestatus.SpaceDeletion{
-		DeletionPayload:   payload,
-		DeletionPayloadId: payloadId,
-		SpaceId:           spaceId,
-		DeletionPeriod:    time.Duration(deletionDurationSecs) * time.Minute,
+		DeletionPayload:        payload,
+		DeletionPayloadId:      payloadId,
+		SpaceId:                spaceId,
+		DeletionPeriod:         time.Duration(deletionDurationSecs) * time.Minute,
+		AuthorizedByLegalOwner: authorizedByLegalOwner,
 		AccountInfo: spacestatus.AccountInfo{
 			Identity:  accountPubKey,
 			PeerId:    peerId,
@@ -195,7 +226,7 @@ func (c *coordinator) StatusChange(ctx context.Context, spaceId string, deletion
 	})
 }
 
-func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader []byte, force bool) (signedReceipt *coordinatorproto.SpaceReceiptWithSignature, err error) {
+func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader []byte, force bool, parentAclRecordId string) (signedReceipt *coordinatorproto.SpaceReceiptWithSignature, err error) {
 	// TODO: Think about how to make it more evident that account.SignKey is actually a network key
 	//  on a coordinator level
 	networkKey := c.account.SignKey
@@ -215,9 +246,52 @@ func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader
 	if err != nil {
 		return
 	}
-	err = c.spaceStatus.NewStatus(ctx, spaceId, accountPubKey, spaceType, force)
+	header, err := unmarshalSpaceHeader(spaceHeader)
 	if err != nil {
 		return
+	}
+	if header.ParentSpaceId != "" {
+		if spaceType != spacestatus.SpaceTypeRegular {
+			// allowlist: a child must be a regular space. tech/1-1 would be permanently
+			// undeletable (SpaceDelete refuses those types); personal (timestamp==0) is an
+			// unintended state. Chat headers already map to SpaceTypeRegular.
+			return nil, coordinatorproto.ErrForbidden
+		}
+		if header.Version != spacesyncproto.SpaceHeaderVersion_SpaceHeaderVersion1 {
+			// nested spaces require the V1 header so the acl root is bound into the signed
+			// header — otherwise the coordinator could sign against one acl root while a
+			// different one is pushed to nodes (defense-in-depth; nodes also enforce this)
+			return nil, coordinatorproto.ErrForbidden
+		}
+		// the pinned legalOwner is the parent owner at the child's genesis; it must equal the
+		// parent's CURRENT owner only when the child is first created (anchoring the induction
+		// chain). On re-sign (receipt renewal) the parent may have transferred ownership since,
+		// so we authorize/bill against the current owner instead of failing forever.
+		_, statusErr := c.spaceStatus.Status(ctx, spaceId)
+		isNew := statusErr == coordinatorproto.ErrSpaceNotExists
+		if statusErr != nil && !isNew {
+			return nil, statusErr
+		}
+		legalOwner, err := c.verifyNestedSpace(ctx, spaceId, header, parentAclRecordId, isNew)
+		if err != nil {
+			return nil, err
+		}
+		limits, err := c.accountLimit.GetLimits(ctx, legalOwner.Account())
+		if err != nil {
+			return nil, err
+		}
+		err = c.spaceStatus.NewChildStatus(ctx, spaceId, accountPubKey, header.ParentSpaceId, legalOwner.Account(), limits.SharedSpacesLimit, spaceType, force)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		if parentAclRecordId != "" {
+			return nil, coordinatorproto.ErrForbidden
+		}
+		err = c.spaceStatus.NewStatus(ctx, spaceId, accountPubKey, spaceType, force)
+		if err != nil {
+			return
+		}
 	}
 	signedReceipt, err = coordinatorproto.PrepareSpaceReceipt(spaceId, peerId, spaceReceiptValidPeriod, accountPubKey, networkKey)
 	if err != nil {
@@ -272,7 +346,8 @@ func (c *coordinator) AccountLimitsSet(ctx context.Context, req *coordinatorprot
 		FileStorageBytes:  req.FileStorageLimitBytes,
 		SpaceMembersRead:  req.SpaceMembersRead,
 		SpaceMembersWrite: req.SpaceMembersWrite,
-		SharedSpacesLimit: req.SharedSpacesLimit,
+		SharedSpacesLimit:  req.SharedSpacesLimit,
+		ExternalSeatsLimit: req.ExternalSeatsLimit,
 	})
 }
 
@@ -303,6 +378,35 @@ func (c *coordinator) AclAddRecord(ctx context.Context, spaceId string, payload 
 		return
 	}
 
+	if err = c.verifyKeylessGovernanceRecord(ctx, rec, statusEntry); err != nil {
+		return
+	}
+
+	var admittedExternals []crypto.PubKey
+	if statusEntry.ParentSpaceId != "" {
+		if admitted := admittedIdentities(rec); len(admitted) > 0 {
+			// held until this record is committed (or rejected): the seat count is read
+			// live from the org's child acls, so check→commit must not interleave with a
+			// concurrent admission into a sibling child. The striped mutex serializes
+			// this instance; the mongo lease extends the same window across coordinator
+			// replicas (sibling children are different consensus logs, so nothing else
+			// orders two admissions against each other).
+			defer c.lockOrgSeats(statusEntry.ParentSpaceId)()
+			if c.orgSeatLease != nil {
+				release, lerr := c.orgSeatLease.Acquire(ctx, statusEntry.ParentSpaceId)
+				if lerr != nil {
+					err = lerr
+					return
+				}
+				defer release()
+			}
+			admittedExternals, err = c.verifyExternalSeats(ctx, statusEntry, admitted)
+			if err != nil {
+				return
+			}
+		}
+	}
+
 	limits, err := c.accountLimit.GetLimitsBySpace(ctx, spaceId)
 	if err != nil {
 		return nil, err
@@ -320,6 +424,17 @@ func (c *coordinator) AclAddRecord(ctx context.Context, spaceId string, payload 
 	}
 
 	log.Debug("ACL change ID:", zap.String("rawRecordWithId.Id", rawRecordWithId.Id))
+
+	if statusEntry.ParentSpaceId != "" {
+		if len(admittedExternals) > 0 {
+			if orgOwner, ownerErr := c.acl.OwnerPubKey(ctx, statusEntry.ParentSpaceId); ownerErr == nil {
+				c.recordExternalSeats(ctx, spaceId, orgOwner.Account(), admittedExternals)
+			}
+		}
+		if removed := removedIdentities(rec); len(removed) > 0 {
+			c.dropExternalSeats(ctx, spaceId, removed)
+		}
+	}
 
 	err = c.aclEventLog.AddLog(ctx, acleventlog.AclEventLogEntry{
 		SpaceId:     spaceId,
@@ -377,11 +492,14 @@ func (c *coordinator) MakeSpaceShareable(ctx context.Context, spaceId string) (e
 	if err != nil {
 		return
 	}
-	if statusEntry.Identity != pubKey.Account() {
-		return coordinatorproto.ErrForbidden
-	}
+	// already-shareable is a no-op for ANY caller: a non-owner member legitimately
+	// ensures shareability before writing to the acl (e.g. an org admin registering
+	// a child space) — only the actual flip is owner-gated
 	if statusEntry.IsShareable {
 		return nil
+	}
+	if statusEntry.Identity != pubKey.Account() {
+		return coordinatorproto.ErrForbidden
 	}
 
 	limits, err := c.accountLimit.GetLimitsBySpace(ctx, spaceId)
@@ -461,4 +579,146 @@ func (c *coordinator) InboxAddMessage(ctx context.Context, message *inbox.InboxM
 
 func (c *coordinator) AddStream(eventType coordinatorproto.NotifyEventType, accountId, peerId string, stream coordinatorproto.DRPCCoordinator_NotifySubscribeStream) error {
 	return c.subscribe.AddStream(eventType, accountId, peerId, stream)
+}
+
+func unmarshalSpaceHeader(spaceHeader []byte) (header *spacesyncproto.SpaceHeader, err error) {
+	rawHeader := &spacesyncproto.RawSpaceHeader{}
+	if err = rawHeader.UnmarshalVT(spaceHeader); err != nil {
+		return
+	}
+	header = &spacesyncproto.SpaceHeader{}
+	err = header.UnmarshalVT(rawHeader.SpaceHeader)
+	return
+}
+
+// verifyNestedSpace is the trust gate for child (nested) spaces at SpaceSign time: nothing else
+// enforces the parent's authority. It resolves the legalOwner as the parent's CURRENT owner and
+// validates the registration record in the parent acl. The coordinator's acl cache stays current
+// for records it accepted itself (all acl writes flow through this coordinator's acl service).
+func (c *coordinator) verifyNestedSpace(ctx context.Context, spaceId string, header *spacesyncproto.SpaceHeader, parentAclRecordId string, requirePinnedMatch bool) (legalOwner crypto.PubKey, err error) {
+	if parentAclRecordId == "" {
+		return nil, coordinatorproto.ErrForbidden
+	}
+	parentEntry, err := c.spaceStatus.Status(ctx, header.ParentSpaceId)
+	if err != nil {
+		return nil, err
+	}
+	if parentEntry.Status != spacestatus.SpaceStatusCreated {
+		return nil, coordinatorproto.ErrSpaceIsDeleted
+	}
+	if parentEntry.Type == spacestatus.SpaceTypeTech || parentEntry.Type == spacestatus.SpaceTypeOneToOne {
+		return nil, coordinatorproto.ErrForbidden
+	}
+	if parentEntry.BilledIdentity != "" {
+		// v1: single-level nesting — a child cannot itself be a parent
+		return nil, coordinatorproto.ErrForbidden
+	}
+	if len(header.AclPayload) == 0 {
+		// nested spaces require the V1 header carrying the acl root
+		return nil, coordinatorproto.ErrForbidden
+	}
+	childAclRootId, err := cidutil.NewCidFromBytes(header.AclPayload)
+	if err != nil {
+		return nil, err
+	}
+	var rawAclRoot consensusproto.RawRecord
+	if err = rawAclRoot.UnmarshalVT(header.AclPayload); err != nil {
+		return nil, err
+	}
+	var childAclRoot aclrecordproto.AclRoot
+	if err = childAclRoot.UnmarshalVT(rawAclRoot.Payload); err != nil {
+		return nil, err
+	}
+	if childAclRoot.ParentSpaceId != header.ParentSpaceId || len(childAclRoot.LegalOwner) == 0 {
+		return nil, coordinatorproto.ErrForbidden
+	}
+	pinnedLegalOwner, err := crypto.UnmarshalEd25519PublicKeyProto(childAclRoot.LegalOwner)
+	if err != nil {
+		return nil, err
+	}
+	var currentOwner crypto.PubKey
+	err = c.acl.ReadState(ctx, header.ParentSpaceId, func(st *list.AclState) error {
+		owner, err := st.OwnerPubKey()
+		if err != nil {
+			return err
+		}
+		currentOwner = owner
+		// the pinned parentAclRootId must be the parent's ACTUAL acl root — else a registering
+		// admin could pin a binding scope they control, weakening the legalOwner-proof binding
+		if childAclRoot.ParentAclRootId != st.Id() {
+			return coordinatorproto.ErrForbidden
+		}
+		if requirePinnedMatch && !owner.Equals(pinnedLegalOwner) {
+			// at creation the pinned legalOwner must be the parent's current owner (anchors
+			// the induction chain); on re-sign the parent may have transferred ownership
+			return coordinatorproto.ErrForbidden
+		}
+		if requirePinnedMatch {
+			// the "members may create children" toggle gates CREATION only; enforcing it on
+			// re-sign would starve existing children of receipt renewals when it is turned off
+			if opts := st.CurrentOptions(); opts != nil && opts.ChildrenCreationDisallowed {
+				return coordinatorproto.ErrForbidden
+			}
+		}
+		reg, ok := st.ChildRegistration(spaceId)
+		if !ok || reg.Revoked || reg.RecordId != parentAclRecordId || reg.ChildAclRootId != childAclRootId {
+			return coordinatorproto.ErrForbidden
+		}
+		perms, err := st.PermissionsAtRecord(reg.RecordId, reg.Author)
+		if err != nil {
+			return err
+		}
+		if !perms.CanManageAccounts() {
+			return coordinatorproto.ErrForbidden
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	// bill/authorize against the parent's CURRENT owner (hybrid derive-fresh)
+	return currentOwner, nil
+}
+
+// verifyKeylessGovernanceRecord is the fresh-derivation half of the hybrid legalOwner model:
+// a keyless-governance record (AclAccountRemoveNoRotate / AclLegalOwnerUpdate) must be authored
+// by the parent space's CURRENT owner. Clients validate against the child's stored legalOwner key,
+// which may lag a parent ownership transfer; this check keeps the window fail-closed — an ex-owner
+// passes stale clients but is rejected here at submit.
+func (c *coordinator) verifyKeylessGovernanceRecord(ctx context.Context, rec *consensusproto.RawRecord, statusEntry spacestatus.StatusEntry) (err error) {
+	// content sniffing only: anything that doesn't parse falls through to the
+	// full validation inside acl.AddRecord
+	var aclRec consensusproto.Record
+	if uErr := aclRec.UnmarshalVT(rec.Payload); uErr != nil {
+		return nil
+	}
+	var aclData aclrecordproto.AclData
+	if uErr := aclData.UnmarshalVT(aclRec.Data); uErr != nil {
+		return nil
+	}
+	var keyless bool
+	for _, content := range aclData.GetAclContent() {
+		if content.GetAccountRemoveNoRotate() != nil || content.GetLegalOwnerUpdate() != nil {
+			keyless = true
+			break
+		}
+	}
+	if !keyless {
+		return nil
+	}
+	if statusEntry.ParentSpaceId == "" {
+		return coordinatorproto.ErrForbidden
+	}
+	author, err := crypto.UnmarshalEd25519PublicKeyProto(aclRec.Identity)
+	if err != nil {
+		return
+	}
+	parentOwner, err := c.acl.OwnerPubKey(ctx, statusEntry.ParentSpaceId)
+	if err != nil {
+		return
+	}
+	if !parentOwner.Equals(author) {
+		return coordinatorproto.ErrForbidden
+	}
+	return nil
 }

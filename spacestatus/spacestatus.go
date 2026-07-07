@@ -55,6 +55,9 @@ type SpaceDeletion struct {
 	DeletionPayloadId string
 	SpaceId           string
 	DeletionPeriod    time.Duration
+	// AuthorizedByLegalOwner marks a deletion already authorized by the coordinator as the
+	// parent space's current owner (nested spaces): the doc-identity predicate is skipped
+	AuthorizedByLegalOwner bool
 	AccountInfo
 }
 
@@ -87,6 +90,9 @@ type configProvider interface {
 
 type SpaceStatus interface {
 	NewStatus(ctx context.Context, spaceId string, identity crypto.PubKey, spaceType SpaceType, force bool) (err error)
+	// NewChildStatus registers a child (nested) space: the creator stays the space identity, while
+	// the space is billed to the legalOwner (the parent space's owner) against its shared-spaces limit
+	NewChildStatus(ctx context.Context, spaceId string, identity crypto.PubKey, parentSpaceId, billedIdentity string, billedLimit uint32, spaceType SpaceType, force bool) (err error)
 	// ChangeStatus is deprecated, use only for backwards compatibility
 	ChangeStatus(ctx context.Context, change StatusChange) (entry StatusEntry, err error)
 	ChangeOwner(ctx context.Context, spaceId, newOwnerId string) (err error)
@@ -163,6 +169,10 @@ type insertNewSpaceOp struct {
 	Type        SpaceType `bson:"type"`
 	IsShareable bool      `bson:"isShareable"`
 	SpaceId     string    `bson:"_id"`
+	// ParentSpaceId + BilledIdentity are set for child (nested) spaces: the declared parent and
+	// the identity whose limits the space consumes
+	ParentSpaceId  string `bson:"parentSpaceId,omitempty"`
+	BilledIdentity string `bson:"billedIdentity,omitempty"`
 }
 
 func (s *spaceStatus) AccountDelete(ctx context.Context, payload AccountDeletion) (toBeDeleted int64, err error) {
@@ -293,11 +303,17 @@ func (s *spaceStatus) SpaceDelete(ctx context.Context, payload SpaceDeletion) (t
 			log.Debug("cannot delete tech space", zap.Error(err), zap.String("spaceId", payload.SpaceId))
 			return coordinatorproto.ErrUnexpected
 		}
+		deleterIdentity := payload.Identity
+		if payload.AuthorizedByLegalOwner {
+			// the coordinator verified the caller is the parent's current owner;
+			// nil identity skips the doc-owner predicate in modifyStatus
+			deleterIdentity = nil
+		}
 		change := StatusChange{
 			DeletionPayloadType:  coordinatorproto.DeletionPayloadType_Confirm,
 			DeletionPayload:      payload.DeletionPayload,
 			DeletionPayloadId:    payload.DeletionPayloadId,
-			Identity:             payload.Identity,
+			Identity:             deleterIdentity,
 			PeerId:               payload.PeerId,
 			NetworkId:            payload.NetworkId,
 			Status:               SpaceStatusDeletionPending,
@@ -508,6 +524,77 @@ func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity cr
 	})
 }
 
+// NewChildStatus mirrors NewStatus for child (nested) spaces: the doc carries billedIdentity and
+// the insert is limited by the billed identity's shared-spaces allowance instead of only the
+// creator's global space cap.
+func (s *spaceStatus) NewChildStatus(ctx context.Context, spaceId string, identity crypto.PubKey, parentSpaceId, billedIdentity string, billedLimit uint32, spaceType SpaceType, force bool) error {
+	return s.db.Tx(ctx, func(txCtx mongo.SessionContext) error {
+		if s.accountStatusFindTx(txCtx, identity.Account(), SpaceStatusDeletionPending) {
+			return coordinatorproto.ErrAccountIsDeleted
+		}
+		entry, err := s.Status(txCtx, spaceId)
+		notFound := err == coordinatorproto.ErrSpaceNotExists
+		if err != nil && !notFound {
+			return err
+		}
+		if entry.Status == SpaceStatusCreated && !notFound {
+			// save back compatibility, but keep billing pinned to the parent's CURRENT owner:
+			// the caller recomputes billedIdentity on every sign, and a stale pool assignment
+			// would let ownership transfers multiply the per-owner children allowance
+			if entry.BilledIdentity != billedIdentity || entry.ParentSpaceId != parentSpaceId {
+				_, err = s.spaces.UpdateOne(txCtx, bson.D{{"_id", spaceId}}, bson.D{{"$set", bson.D{
+					{"parentSpaceId", parentSpaceId},
+					{"billedIdentity", billedIdentity},
+				}}})
+			}
+			return err
+		}
+		var inserted bool
+		if notFound {
+			if _, err = s.spaces.InsertOne(txCtx, insertNewSpaceOp{
+				Identity:       identity.Account(),
+				Status:         SpaceStatusCreated,
+				SpaceId:        spaceId,
+				Type:           spaceType,
+				ParentSpaceId:  parentSpaceId,
+				BilledIdentity: billedIdentity,
+			}); err != nil {
+				return err
+			} else {
+				inserted = true
+			}
+		}
+		if !inserted {
+			if force {
+				_, err = s.setStatusTx(txCtx, StatusChange{
+					Identity: identity,
+					Status:   SpaceStatusCreated,
+					SpaceId:  spaceId,
+				}, entry.Status)
+				if err != nil {
+					return err
+				}
+			} else {
+				return coordinatorproto.ErrSpaceIsDeleted
+			}
+		}
+		if err = s.checkLimitTx(txCtx, identity); err != nil {
+			return err
+		}
+		count, err := s.spaces.CountDocuments(txCtx, bson.D{
+			{"billedIdentity", billedIdentity},
+			{"status", SpaceStatusCreated},
+		})
+		if err != nil {
+			return err
+		}
+		if uint32(count) > billedLimit {
+			return coordinatorproto.ErrSpaceLimitReached
+		}
+		return nil
+	})
+}
+
 func (s *spaceStatus) MakeShareable(ctx context.Context, spaceId string, spaceType SpaceType, limit uint32) (err error) {
 	return s.db.Tx(ctx, func(txCtx mongo.SessionContext) error {
 		entry, err := s.Status(txCtx, spaceId)
@@ -576,10 +663,20 @@ func (s *spaceStatus) checkLimitTx(txCtx mongo.SessionContext, identity crypto.P
 }
 
 func (s *spaceStatus) ChangeOwner(ctx context.Context, spaceId, ownerId string) (err error) {
-	_, err = s.spaces.UpdateOne(ctx, bson.D{{"_id", spaceId}}, bson.D{{"$set", bson.D{
-		{"identity", ownerId},
-	}}})
-	return
+	return s.db.Tx(ctx, func(txCtx mongo.SessionContext) error {
+		if _, err := s.spaces.UpdateOne(txCtx, bson.D{{"_id", spaceId}}, bson.D{{"$set", bson.D{
+			{"identity", ownerId},
+		}}}); err != nil {
+			return err
+		}
+		// children consume the legalOwner's quota, so their billing pool follows the parent's
+		// owner: left behind, the old and new owners would hold two disjoint pools and every
+		// transfer would multiply the per-owner children allowance
+		_, err := s.spaces.UpdateMany(txCtx, bson.D{
+			{"parentSpaceId", spaceId},
+		}, bson.D{{"$set", bson.D{{"billedIdentity", ownerId}}}})
+		return err
+	})
 }
 
 func (s *spaceStatus) Init(a *app.App) (err error) {
