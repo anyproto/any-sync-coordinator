@@ -149,6 +149,42 @@ func TestCoordinator_SpaceSignNested(t *testing.T) {
 		require.ErrorIs(t, err, coordinatorproto.ErrForbidden)
 	})
 
+	t.Run("mismatched parentAclRootId rejected", func(t *testing.T) {
+		// a child that pins a binding scope other than the real parent acl root id
+		badCreator, err := accountdata.NewRandom()
+		require.NoError(t, err)
+		master, _, err := crypto.GenerateRandomEd25519KeyPair()
+		require.NoError(t, err)
+		metaKey, _, err := crypto.GenerateRandomEd25519KeyPair()
+		require.NoError(t, err)
+		rk, _ := crypto.NewRandomAES()
+		out, err := spacepayloads.StoragePayloadForSpaceCreateV1(spacepayloads.SpaceCreatePayload{
+			SigningKey:      badCreator.SignKey,
+			SpaceType:       "anytype.space",
+			ReplicationKey:  99,
+			MasterKey:       master,
+			ReadKey:         rk,
+			MetadataKey:     metaKey,
+			Metadata:        []byte("md"),
+			ParentSpaceId:   "parent.id",
+			LegalOwner:      parentOwner,
+			ParentAclRootId: "attacker-controlled-root",
+		})
+		require.NoError(t, err)
+		badKeyData, err := badCreator.SignKey.GetPublic().Marshall()
+		require.NoError(t, err)
+		badCtx := peer.CtxWithPeerId(peer.CtxWithIdentity(ctx, badKeyData), "peer.id")
+
+		fx := newFixture(t)
+		defer fx.finish(t)
+		fx.account = networkKeys(t)
+		fx.spaceStatus.EXPECT().Status(gomock.Any(), out.SpaceHeaderWithId.Id).Return(spacestatus.StatusEntry{}, coordinatorproto.ErrSpaceNotExists)
+		expectParentReads(fx, activeParent)
+		expectReadState(fx)
+		_, err = fx.SpaceSign(badCtx, out.SpaceHeaderWithId.Id, out.SpaceHeaderWithId.RawHeader, false, "some.rec")
+		require.ErrorIs(t, err, coordinatorproto.ErrForbidden)
+	})
+
 	t.Run("top-level sign with parentAclRecordId is rejected", func(t *testing.T) {
 		topKeys, err := accountdata.NewRandom()
 		require.NoError(t, err)

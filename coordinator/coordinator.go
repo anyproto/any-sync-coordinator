@@ -247,8 +247,16 @@ func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader
 		return
 	}
 	if header.ParentSpaceId != "" {
-		if spaceType == spacestatus.SpaceTypeTech || spaceType == spacestatus.SpaceTypeOneToOne {
-			// a child declared tech/1-1 would be permanently undeletable (SpaceDelete refuses those types)
+		if spaceType != spacestatus.SpaceTypeRegular {
+			// allowlist: a child must be a regular space. tech/1-1 would be permanently
+			// undeletable (SpaceDelete refuses those types); personal (timestamp==0) is an
+			// unintended state. Chat headers already map to SpaceTypeRegular.
+			return nil, coordinatorproto.ErrForbidden
+		}
+		if header.Version != spacesyncproto.SpaceHeaderVersion_SpaceHeaderVersion1 {
+			// nested spaces require the V1 header so the acl root is bound into the signed
+			// header — otherwise the coordinator could sign against one acl root while a
+			// different one is pushed to nodes (defense-in-depth; nodes also enforce this)
 			return nil, coordinatorproto.ErrForbidden
 		}
 		// the pinned legalOwner is the parent owner at the child's genesis; it must equal the
@@ -613,13 +621,22 @@ func (c *coordinator) verifyNestedSpace(ctx context.Context, spaceId string, hea
 			return err
 		}
 		currentOwner = owner
+		// the pinned parentAclRootId must be the parent's ACTUAL acl root — else a registering
+		// admin could pin a binding scope they control, weakening the legalOwner-proof binding
+		if childAclRoot.ParentAclRootId != st.Id() {
+			return coordinatorproto.ErrForbidden
+		}
 		if requirePinnedMatch && !owner.Equals(pinnedLegalOwner) {
 			// at creation the pinned legalOwner must be the parent's current owner (anchors
 			// the induction chain); on re-sign the parent may have transferred ownership
 			return coordinatorproto.ErrForbidden
 		}
-		if opts := st.CurrentOptions(); opts != nil && opts.ChildrenCreationDisallowed {
-			return coordinatorproto.ErrForbidden
+		if requirePinnedMatch {
+			// the "members may create children" toggle gates CREATION only; enforcing it on
+			// re-sign would starve existing children of receipt renewals when it is turned off
+			if opts := st.CurrentOptions(); opts != nil && opts.ChildrenCreationDisallowed {
+				return coordinatorproto.ErrForbidden
+			}
 		}
 		reg, ok := st.ChildRegistration(spaceId)
 		if !ok || reg.Revoked || reg.RecordId != parentAclRecordId || reg.ChildAclRootId != childAclRootId {
