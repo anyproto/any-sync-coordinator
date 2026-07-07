@@ -78,6 +78,7 @@ type coordinator struct {
 	acl            acl.AclService
 	externalSeats  *mongo.Collection
 	orgSeatLocks   [orgSeatLockStripes]sync.Mutex
+	orgSeatLease   *db.Lease
 	inbox          inbox.InboxService
 	subscribe      subscribe.SubscribeService
 	drpcHandler    *rpcHandler
@@ -99,6 +100,7 @@ func (c *coordinator) Init(a *app.App) (err error) {
 	// optional so unit fixtures without mongo still assemble; production registers db
 	if dbComp, _ := a.Component(db.CName).(db.Database); dbComp != nil {
 		c.externalSeats = dbComp.Db().Collection(externalSeatsCollName)
+		c.orgSeatLease = db.NewLease(dbComp.Db().Collection(orgSeatLeaseCollName), orgSeatLeaseTTL, orgSeatLeasePoll)
 	}
 	c.inbox = app.MustComponent[inbox.InboxService](a)
 	c.accountLimit = app.MustComponent[accountlimit.AccountLimit](a)
@@ -385,8 +387,19 @@ func (c *coordinator) AclAddRecord(ctx context.Context, spaceId string, payload 
 		if admitted := admittedIdentities(rec); len(admitted) > 0 {
 			// held until this record is committed (or rejected): the seat count is read
 			// live from the org's child acls, so check→commit must not interleave with a
-			// concurrent admission into a sibling child
+			// concurrent admission into a sibling child. The striped mutex serializes
+			// this instance; the mongo lease extends the same window across coordinator
+			// replicas (sibling children are different consensus logs, so nothing else
+			// orders two admissions against each other).
 			defer c.lockOrgSeats(statusEntry.ParentSpaceId)()
+			if c.orgSeatLease != nil {
+				release, lerr := c.orgSeatLease.Acquire(ctx, statusEntry.ParentSpaceId)
+				if lerr != nil {
+					err = lerr
+					return
+				}
+				defer release()
+			}
 			admittedExternals, err = c.verifyExternalSeats(ctx, statusEntry, admitted)
 			if err != nil {
 				return

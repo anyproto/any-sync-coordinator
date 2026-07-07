@@ -3,6 +3,7 @@ package coordinator
 import (
 	"context"
 	"hash/fnv"
+	"time"
 
 	"github.com/anyproto/any-sync/commonspace/object/acl/aclrecordproto"
 	"github.com/anyproto/any-sync/commonspace/object/acl/list"
@@ -32,11 +33,23 @@ const externalSeatsCollName = "externalSeats"
 // orgSeatLockStripes sizes the striped lock set serializing admissions per org.
 const orgSeatLockStripes = 256
 
+// orgSeatLeaseCollName backs the cross-instance org lease (db.Lease): the striped
+// mutex below only serializes ONE coordinator process, and with several replicas
+// two admissions into sibling children can land on different instances. The TTL
+// bounds how long a crashed holder blocks its org; it must sit well above the
+// worst-case check→commit (one consensus write + a few acl reads).
+const (
+	orgSeatLeaseCollName = "orgSeatLeases"
+	orgSeatLeaseTTL      = 30 * time.Second
+	orgSeatLeasePoll     = 100 * time.Millisecond
+)
+
 // lockOrgSeats serializes the external-seat check→commit window per org (parent
-// space id): the pool is counted live across ALL of the org's children, and two
-// concurrent admissions into sibling children are different consensus logs, so
-// nothing else orders the read against the other admission's commit. Striped by
-// hash, so unrelated orgs rarely contend.
+// space id) WITHIN this instance: the pool is counted live across ALL of the
+// org's children, and two concurrent admissions into sibling children are
+// different consensus logs, so nothing else orders the read against the other
+// admission's commit. Striped by hash, so unrelated orgs rarely contend; the
+// same-instance fast path in front of the cross-instance mongo lease.
 func (c *coordinator) lockOrgSeats(parentSpaceId string) (unlock func()) {
 	h := fnv.New32a()
 	h.Write([]byte(parentSpaceId))
