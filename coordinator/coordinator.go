@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/anyproto/any-sync/accountservice"
@@ -76,6 +77,7 @@ type coordinator struct {
 	fileUsage      fileusage.FileUsage
 	acl            acl.AclService
 	externalSeats  *mongo.Collection
+	orgSeatLocks   [orgSeatLockStripes]sync.Mutex
 	inbox          inbox.InboxService
 	subscribe      subscribe.SubscribeService
 	drpcHandler    *rpcHandler
@@ -381,6 +383,10 @@ func (c *coordinator) AclAddRecord(ctx context.Context, spaceId string, payload 
 	var admittedExternals []crypto.PubKey
 	if statusEntry.ParentSpaceId != "" {
 		if admitted := admittedIdentities(rec); len(admitted) > 0 {
+			// held until this record is committed (or rejected): the seat count is read
+			// live from the org's child acls, so check→commit must not interleave with a
+			// concurrent admission into a sibling child
+			defer c.lockOrgSeats(statusEntry.ParentSpaceId)()
 			admittedExternals, err = c.verifyExternalSeats(ctx, statusEntry, admitted)
 			if err != nil {
 				return

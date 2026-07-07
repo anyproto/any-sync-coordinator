@@ -523,6 +523,32 @@ func accountsAddRecord(t *testing.T, signer *accountdata.AccountKeys, target cry
 	return raw
 }
 
+// permissionChangeRecord builds a raw acl record moving target to the given role.
+func permissionChangeRecord(t *testing.T, signer *accountdata.AccountKeys, target crypto.PubKey, perms aclrecordproto.AclUserPermissions) []byte {
+	targetProto, err := target.Marshall()
+	require.NoError(t, err)
+	data := &aclrecordproto.AclData{AclContent: []*aclrecordproto.AclContentValue{{
+		Value: &aclrecordproto.AclContentValue_PermissionChanges{
+			PermissionChanges: &aclrecordproto.AclAccountPermissionChanges{Changes: []*aclrecordproto.AclAccountPermissionChange{{
+				Identity:    targetProto,
+				Permissions: perms,
+			}}},
+		},
+	}}}
+	marshalledData, err := data.MarshalVT()
+	require.NoError(t, err)
+	signerProto, err := signer.SignKey.GetPublic().Marshall()
+	require.NoError(t, err)
+	rec := &consensusproto.Record{PrevId: "prev", Identity: signerProto, Data: marshalledData}
+	marshalledRec, err := rec.MarshalVT()
+	require.NoError(t, err)
+	sig, err := signer.SignKey.Sign(marshalledRec)
+	require.NoError(t, err)
+	raw, err := (&consensusproto.RawRecord{Payload: marshalledRec, Signature: sig}).MarshalVT()
+	require.NoError(t, err)
+	return raw
+}
+
 func TestCoordinator_AclAddRecordExternalSeats(t *testing.T) {
 	parentEx := list.NewAclExecutor("parent.id")
 	for _, cmd := range []string{
@@ -585,6 +611,33 @@ func TestCoordinator_AclAddRecordExternalSeats(t *testing.T) {
 		fx.accountLimit.EXPECT().GetLimits(gomock.Any(), orgOwnerKey.SignKey.GetPublic().Account()).Return(accountlimit.Limits{ExternalSeatsLimit: 0}, nil)
 		_, err := fx.AclAddRecord(callCtx, "child.id", payload)
 		require.ErrorIs(t, err, coordinatorproto.ErrSpaceLimitReached)
+	})
+
+	t.Run("external elevation from None consumes a seat", func(t *testing.T) {
+		// admitting at None then elevating must hit the same gate as a direct admission
+		fx := newFixture(t)
+		defer fx.finish(t)
+		payload := permissionChangeRecord(t, creatorKeys, external.SignKey.GetPublic(), aclrecordproto.AclUserPermissions_Writer)
+		fx.spaceStatus.EXPECT().Status(gomock.Any(), "child.id").Return(childEntry, nil)
+		expectReadState(fx)
+		fx.acl.EXPECT().OwnerPubKey(gomock.Any(), "parent.id").Return(orgOwnerKey.SignKey.GetPublic(), nil)
+		fx.accountLimit.EXPECT().GetLimits(gomock.Any(), orgOwnerKey.SignKey.GetPublic().Account()).Return(accountlimit.Limits{ExternalSeatsLimit: 0}, nil)
+		_, err := fx.AclAddRecord(callCtx, "child.id", payload)
+		require.ErrorIs(t, err, coordinatorproto.ErrSpaceLimitReached)
+	})
+
+	t.Run("demotion to None does not consume a seat", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+		payload := permissionChangeRecord(t, creatorKeys, external.SignKey.GetPublic(), aclrecordproto.AclUserPermissions_None)
+		fx.spaceStatus.EXPECT().Status(gomock.Any(), "child.id").Return(childEntry, nil)
+		expectReadState(fx)
+		fx.accountLimit.EXPECT().GetLimitsBySpace(gomock.Any(), "child.id").Return(accountlimit.SpaceLimits{SpaceMembersRead: 10, SpaceMembersWrite: 10}, nil)
+		fx.acl.EXPECT().AddRecord(gomock.Any(), "child.id", gomock.Any(), gomock.Any()).Return(&consensusproto.RawRecordWithId{Id: "rec.id"}, nil)
+		fx.acl.EXPECT().OwnerPubKey(gomock.Any(), "child.id").Return(creatorKeys.SignKey.GetPublic(), nil)
+		fx.aclEventLog.EXPECT().AddLog(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		_, err := fx.AclAddRecord(callCtx, "child.id", payload)
+		require.NoError(t, err)
 	})
 
 	t.Run("external admitted within the pool", func(t *testing.T) {

@@ -2,6 +2,7 @@ package coordinator
 
 import (
 	"context"
+	"hash/fnv"
 
 	"github.com/anyproto/any-sync/commonspace/object/acl/aclrecordproto"
 	"github.com/anyproto/any-sync/commonspace/object/acl/list"
@@ -28,6 +29,22 @@ import (
 
 const externalSeatsCollName = "externalSeats"
 
+// orgSeatLockStripes sizes the striped lock set serializing admissions per org.
+const orgSeatLockStripes = 256
+
+// lockOrgSeats serializes the external-seat check→commit window per org (parent
+// space id): the pool is counted live across ALL of the org's children, and two
+// concurrent admissions into sibling children are different consensus logs, so
+// nothing else orders the read against the other admission's commit. Striped by
+// hash, so unrelated orgs rarely contend.
+func (c *coordinator) lockOrgSeats(parentSpaceId string) (unlock func()) {
+	h := fnv.New32a()
+	h.Write([]byte(parentSpaceId))
+	mu := &c.orgSeatLocks[h.Sum32()%orgSeatLockStripes]
+	mu.Lock()
+	return mu.Unlock
+}
+
 type externalSeatEntry struct {
 	Id       string `bson:"_id"` // spaceId + "/" + identity
 	Identity string `bson:"identity"`
@@ -36,7 +53,9 @@ type externalSeatEntry struct {
 }
 
 // admittedIdentities extracts the identities an acl record admits as members
-// (direct adds, request accepts, invite joins). Content sniffing only —
+// (direct adds, request accepts, invite joins) or elevates to a non-None role
+// (permission changes) — an elevation from None occupies a seat exactly like an
+// admission, so it must route through the same gate. Content sniffing only —
 // anything unparseable is handled by the full validation in acl.AddRecord.
 func admittedIdentities(rec *consensusproto.RawRecord) (admitted []crypto.PubKey) {
 	var aclRec consensusproto.Record
@@ -62,6 +81,16 @@ func admittedIdentities(rec *consensusproto.RawRecord) (admitted []crypto.PubKey
 			addKey(content.GetRequestAccept().Identity)
 		case content.GetInviteJoin() != nil:
 			addKey(content.GetInviteJoin().Identity)
+		case content.GetPermissionChange() != nil:
+			if pc := content.GetPermissionChange(); pc.Permissions != aclrecordproto.AclUserPermissions_None {
+				addKey(pc.Identity)
+			}
+		case content.GetPermissionChanges() != nil:
+			for _, pc := range content.GetPermissionChanges().GetChanges() {
+				if pc.Permissions != aclrecordproto.AclUserPermissions_None {
+					addKey(pc.Identity)
+				}
+			}
 		}
 	}
 	return admitted
