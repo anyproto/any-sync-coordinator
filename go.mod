@@ -4,7 +4,7 @@ go 1.25.7
 
 require (
 	github.com/ahmetb/govvv v0.3.0
-	github.com/anyproto/any-sync v0.13.0-alpha.5.0.20260707134432-0dd5035b2633
+	github.com/anyproto/any-sync v0.13.0-alpha.5.0.20260707151954-0499748aa6a1
 	github.com/anyproto/go-chash v0.1.0
 	github.com/gogo/protobuf v1.3.2
 	github.com/stretchr/testify v1.11.1
