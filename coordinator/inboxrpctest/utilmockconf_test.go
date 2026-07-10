@@ -45,6 +45,8 @@ func (m *mockNodeConf) Name() (name string) {
 	return nodeconf.CName
 }
 
+func (m *mockNodeConf) ObserveChanges(observer nodeconf.ChangeObserver) {}
+
 func (m *mockNodeConf) Run(ctx context.Context) (err error) {
 	return nil
 }

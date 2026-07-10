@@ -24,7 +24,11 @@ func New() NodeConfSource {
 type NodeConfSource interface {
 	nodeconf.Source
 	app.Component
-	Add(conf nodeconf.Configuration, enable bool) (id string, err error)
+	// Add stores a new network configuration assigning it the next epoch.
+	// Unless force is set, an enabled configuration is validated against the
+	// currently active one: every chash partition must keep at least one
+	// surviving tree-node replica (see validateTransition).
+	Add(ctx context.Context, conf nodeconf.Configuration, enable, force bool) (id string, epoch uint64, err error)
 }
 
 type ConfModel struct {
@@ -34,6 +38,7 @@ type ConfModel struct {
 	Nodes         []nodeconf.Node    `bson:"nodes"`
 	CreationTime  time.Time          `bson:"creationTime"`
 	Enable        bool               `bson:"enable"`
+	Epoch         uint64             `bson:"epoch"`
 }
 
 type nodeConfSource struct {
@@ -42,7 +47,16 @@ type nodeConfSource struct {
 
 func (n *nodeConfSource) Init(a *app.App) (err error) {
 	n.coll = a.MustComponent(db.CName).(db.Database).Db().Collection(collName)
-	return nil
+	// epochs must be unique: concurrent Adds otherwise mint duplicates and
+	// corrupt per-epoch config history on the nodes (index is partial to
+	// tolerate pre-epoch documents, which all carry 0)
+	_, err = n.coll.Indexes().CreateOne(context.Background(), mongo.IndexModel{
+		Keys: bson.D{{"epoch", 1}},
+		Options: options.Index().
+			SetUnique(true).
+			SetPartialFilterExpression(bson.M{"epoch": bson.M{"$gt": 0}}),
+	})
+	return err
 }
 
 func (n *nodeConfSource) Name() (name string) {
@@ -70,6 +84,7 @@ func (n *nodeConfSource) GetLast(ctx context.Context, currentId string) (c nodec
 		FileNetworkId: model.FileNetworkId,
 		Nodes:         model.Nodes,
 		CreationTime:  model.CreationTime,
+		Epoch:         model.Epoch,
 	}, nil
 }
 
@@ -77,24 +92,52 @@ func (n *nodeConfSource) IsNetworkNeedsUpdate(ctx context.Context) (bool, error)
 	return false, nil
 }
 
-func (n *nodeConfSource) Add(conf nodeconf.Configuration, enable bool) (id string, err error) {
+var lastEpochSort = options.FindOne().SetSort(bson.D{{"epoch", -1}})
+
+func (n *nodeConfSource) Add(ctx context.Context, conf nodeconf.Configuration, enable, force bool) (id string, epoch uint64, err error) {
 	if conf.NetworkId == "" {
-		return "", fmt.Errorf("network id not specified")
+		return "", 0, fmt.Errorf("network id not specified")
 	}
 	if len(conf.Nodes) == 0 {
-		return "", fmt.Errorf("you must provide at leat one node")
+		return "", 0, fmt.Errorf("you must provide at leat one node")
 	}
-	m := ConfModel{
-		Id:            primitive.NewObjectID(),
-		NetworkId:     conf.NetworkId,
-		FileNetworkId: conf.FileNetworkId,
-		Nodes:         conf.Nodes,
-		CreationTime:  time.Now(),
-		Enable:        enable,
+	if enable && !force {
+		var active nodeconf.Configuration
+		active, err = n.GetLast(ctx, "")
+		switch {
+		case err == nil:
+			if err = validateTransition(active.Nodes, conf.Nodes); err != nil {
+				return "", 0, err
+			}
+		case err == nodeconf.ErrConfigurationNotFound:
+			err = nil
+		default:
+			return "", 0, err
+		}
 	}
-	ctx := context.Background()
-	if _, err = n.coll.InsertOne(ctx, m); err != nil {
-		return
+	// read-max-then-insert is racy; the unique epoch index turns a concurrent
+	// Add into a duplicate-key error which we resolve by retrying
+	for attempt := 0; attempt < 5; attempt++ {
+		var last ConfModel
+		if lastErr := n.coll.FindOne(ctx, bson.D{}, lastEpochSort).Decode(&last); lastErr != nil && lastErr != mongo.ErrNoDocuments {
+			return "", 0, lastErr
+		}
+		m := ConfModel{
+			Id:            primitive.NewObjectID(),
+			NetworkId:     conf.NetworkId,
+			FileNetworkId: conf.FileNetworkId,
+			Nodes:         conf.Nodes,
+			CreationTime:  time.Now(),
+			Enable:        enable,
+			Epoch:         last.Epoch + 1,
+		}
+		if _, err = n.coll.InsertOne(ctx, m); err != nil {
+			if mongo.IsDuplicateKeyError(err) {
+				continue
+			}
+			return
+		}
+		return m.Id.Hex(), m.Epoch, nil
 	}
-	return m.Id.Hex(), nil
+	return "", 0, fmt.Errorf("can't assign a unique epoch after retries: %w", err)
 }
