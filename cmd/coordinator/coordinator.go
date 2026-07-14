@@ -36,6 +36,7 @@ import (
 	"github.com/anyproto/any-sync-coordinator/deletionlog"
 	"github.com/anyproto/any-sync-coordinator/identityrepo"
 	"github.com/anyproto/any-sync-coordinator/inbox"
+	"github.com/anyproto/any-sync-coordinator/invitestore"
 	"github.com/anyproto/any-sync-coordinator/nodeconfsource"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
 	"github.com/anyproto/any-sync-coordinator/subscribe"
@@ -130,6 +131,7 @@ func Bootstrap(a *app.App) {
 		Register(inbox.New()).
 		Register(accountlimit.New()).
 		Register(identityrepo.New()).
+		Register(invitestore.New()).
 		Register(coordinator.New()).
 		Register(yamux.New()).
 		Register(quic.New())
