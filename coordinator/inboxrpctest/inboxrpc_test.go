@@ -18,6 +18,7 @@ import (
 	"github.com/anyproto/any-sync-coordinator/deletionlog"
 	"github.com/anyproto/any-sync-coordinator/deletionlog/mock_deletionlog"
 	"github.com/anyproto/any-sync-coordinator/inbox"
+	"github.com/anyproto/any-sync-coordinator/invitestore"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
 	"github.com/anyproto/any-sync-coordinator/spacestatus/mock_spacestatus"
 	"github.com/anyproto/any-sync-coordinator/subscribe"
@@ -132,7 +133,8 @@ func newFixtureServer(t *testing.T, nodeConf *mockNodeConf, account *accounttest
 		Register(fxS.acl).
 		Register(fxS.accountLimit).
 		Register(fxS.subscribe).
-		Register(fxS.inbox)
+		Register(fxS.inbox).
+		Register(invitestore.New())
 
 	require.NoError(t, fxS.a.Start(ctx))
 
