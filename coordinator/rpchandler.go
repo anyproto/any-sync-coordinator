@@ -3,18 +3,15 @@ package coordinator
 import (
 	"context"
 	"errors"
-	"fmt"
 	"slices"
 	"time"
 
-	"github.com/anyproto/any-sync/commonfile/fileproto"
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/metric"
 	"github.com/anyproto/any-sync/net/peer"
 	"github.com/anyproto/any-sync/nodeconf"
 	"github.com/gogo/protobuf/proto"
 	"go.uber.org/zap"
-	"storj.io/drpc"
 
 	"github.com/anyproto/any-sync-coordinator/accountlimit"
 	"github.com/anyproto/any-sync-coordinator/acleventlog"
@@ -526,32 +523,32 @@ func (r *rpcHandler) AclUploadInvite(ctx context.Context, req *coordinatorproto.
 	defer func() {
 		r.c.metric.RequestLog(ctx, "coordinator.aclUploadInvite",
 			metric.TotalDur(time.Since(st)),
+			metric.SpaceId(req.SpaceId),
 			zap.String("addr", peer.CtxPeerAddr(ctx)),
 			zap.Error(err),
 		)
 	}()
 
-	filePeer, err := r.c.pool.GetOneOf(ctx, r.c.nodeConf.FilePeers())
-	if err != nil {
-		return
-	}
-
-	if len(req.Data) > 128*1024 {
-		err = fmt.Errorf("too big invite size")
-		return
-	}
-
-	err = filePeer.DoDrpc(ctx, func(conn drpc.Conn) error {
-		_, err := fileproto.NewDRPCFileClient(conn).BlockPush(ctx, &fileproto.BlockPushRequest{
-			Cid:  req.Cid,
-			Data: req.Data,
-		})
-		return err
-	})
-	if err != nil {
+	if err = r.c.AclUploadInvite(ctx, req); err != nil {
 		return
 	}
 	return &coordinatorproto.AclUploadInviteResponse{}, nil
+}
+
+func (r *rpcHandler) AclDeleteInvite(ctx context.Context, req *coordinatorproto.AclDeleteInviteRequest) (resp *coordinatorproto.AclDeleteInviteResponse, err error) {
+	st := time.Now()
+	defer func() {
+		r.c.metric.RequestLog(ctx, "coordinator.aclDeleteInvite",
+			metric.TotalDur(time.Since(st)),
+			metric.SpaceId(req.SpaceId),
+			zap.String("addr", peer.CtxPeerAddr(ctx)),
+			zap.Error(err),
+		)
+	}()
+	if err = r.c.AclDeleteInvite(ctx, req); err != nil {
+		return
+	}
+	return &coordinatorproto.AclDeleteInviteResponse{}, nil
 }
 
 // fileV2Peer authenticates the caller as a member of the NodeTypeFileV2 pool;
