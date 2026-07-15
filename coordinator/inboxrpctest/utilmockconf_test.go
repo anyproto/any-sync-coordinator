@@ -16,9 +16,13 @@ type mockNodeConf struct {
 	configuration nodeconf.Configuration
 }
 
+var _ nodeconf.Service = (*mockNodeConf)(nil)
+
 func (m *mockNodeConf) NetworkCompatibilityStatus() nodeconf.NetworkCompatibilityStatus {
 	return nodeconf.NetworkCompatibilityStatusOk
 }
+
+func (m *mockNodeConf) ObserveChanges(observer nodeconf.ChangeObserver) {}
 
 func (m *mockNodeConf) Init(a *app.App) (err error) {
 	accountKeys := a.MustComponent(accountService.CName).(accountService.Service).Account()
