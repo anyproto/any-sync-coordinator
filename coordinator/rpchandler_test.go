@@ -2,6 +2,7 @@ package coordinator
 
 import (
 	"testing"
+	"time"
 
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/net/peer"
@@ -125,4 +126,48 @@ func TestRpcHandler_EventLog(t *testing.T) {
 		require.Equal(t, 1, len(out.Records))
 	})
 
+}
+
+func TestRpcHandler_NetworkConfiguration(t *testing.T) {
+	t.Run("fileV2 node type survives the nodeconf to proto mapping", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+
+		fx.nodeConf.EXPECT().Configuration().Return(nodeconf.Configuration{
+			Id:        "conf1",
+			NetworkId: "testnetwork",
+			Nodes: []nodeconf.Node{
+				{
+					PeerId:    "p1",
+					Addresses: []string{"addr1"},
+					Types:     []nodeconf.NodeType{nodeconf.NodeTypeFileV2},
+				},
+				{
+					PeerId:    "p2",
+					Addresses: []string{"addr2"},
+					Types: []nodeconf.NodeType{
+						nodeconf.NodeTypeCoordinator,
+						nodeconf.NodeTypeFile,
+						nodeconf.NodeTypeFileV2,
+						nodeconf.NodeTypeTree,
+						nodeconf.NodeTypeConsensus,
+					},
+				},
+			},
+			CreationTime: time.Now(),
+		})
+
+		resp, err := fx.drpcHandler.NetworkConfiguration(ctx, &coordinatorproto.NetworkConfigurationRequest{CurrentId: "otherId"})
+		require.NoError(t, err)
+
+		require.Len(t, resp.Nodes, 2)
+		assert.Equal(t, []coordinatorproto.NodeType{coordinatorproto.NodeType_FileV2API}, resp.Nodes[0].Types)
+		assert.Equal(t, []coordinatorproto.NodeType{
+			coordinatorproto.NodeType_CoordinatorAPI,
+			coordinatorproto.NodeType_FileAPI,
+			coordinatorproto.NodeType_FileV2API,
+			coordinatorproto.NodeType_TreeAPI,
+			coordinatorproto.NodeType_ConsensusAPI,
+		}, resp.Nodes[1].Types)
+	})
 }

@@ -33,6 +33,8 @@ import (
 	"github.com/anyproto/any-sync-coordinator/coordinatorlog/mock_coordinatorlog"
 	"github.com/anyproto/any-sync-coordinator/deletionlog"
 	"github.com/anyproto/any-sync-coordinator/deletionlog/mock_deletionlog"
+	"github.com/anyproto/any-sync-coordinator/fileusage"
+	"github.com/anyproto/any-sync-coordinator/fileusage/mock_fileusage"
 	"github.com/anyproto/any-sync-coordinator/inbox"
 	"github.com/anyproto/any-sync-coordinator/inbox/mock_inbox"
 	"github.com/anyproto/any-sync-coordinator/invitestore"
@@ -359,6 +361,7 @@ func newFixture(t *testing.T) *fixture {
 		subscribe:    mock_subscribe.NewMockSubscribeService(ctrl),
 		acl:          mock_acl.NewMockAclService(ctrl),
 		accountLimit: mock_accountlimit.NewMockAccountLimit(ctrl),
+		fileUsage:    mock_fileusage.NewMockFileUsage(ctrl),
 		pool:         mock_pool.NewMockService(ctrl),
 		inviteStore:  mock_invitestore.NewMockInviteStore(ctrl),
 		a:            new(app.App),
@@ -373,6 +376,7 @@ func newFixture(t *testing.T) *fixture {
 	anymock.ExpectComp(fx.subscribe.EXPECT(), subscribe.CName)
 	anymock.ExpectComp(fx.acl.EXPECT(), acl.CName)
 	anymock.ExpectComp(fx.accountLimit.EXPECT(), accountlimit.CName)
+	anymock.ExpectComp(fx.fileUsage.EXPECT(), fileusage.CName)
 	anymock.ExpectComp(fx.aclEventLog.EXPECT(), acleventlog.CName)
 	anymock.ExpectComp(fx.pool.EXPECT(), pool.CName)
 	anymock.ExpectComp(fx.inviteStore.EXPECT(), invitestore.CName)
@@ -390,6 +394,7 @@ func newFixture(t *testing.T) *fixture {
 		Register(fx.subscribe).
 		Register(fx.acl).
 		Register(fx.accountLimit).
+		Register(fx.fileUsage).
 		Register(fx.pool).
 		Register(fx.inviteStore).
 		Register(rpctest.NewTestServer())
@@ -411,6 +416,7 @@ type fixture struct {
 	inbox        *mock_inbox.MockInboxService
 	acl          *mock_acl.MockAclService
 	accountLimit *mock_accountlimit.MockAccountLimit
+	fileUsage    *mock_fileusage.MockFileUsage
 	pool         *mock_pool.MockService
 	inviteStore  *mock_invitestore.MockInviteStore
 }

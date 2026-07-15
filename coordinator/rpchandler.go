@@ -3,6 +3,7 @@ package coordinator
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
@@ -258,6 +259,8 @@ func (r *rpcHandler) NetworkConfiguration(ctx context.Context, req *coordinatorp
 					types = append(types, coordinatorproto.NodeType_CoordinatorAPI)
 				case nodeconf.NodeTypeFile:
 					types = append(types, coordinatorproto.NodeType_FileAPI)
+				case nodeconf.NodeTypeFileV2:
+					types = append(types, coordinatorproto.NodeType_FileV2API)
 				case nodeconf.NodeTypeTree:
 					types = append(types, coordinatorproto.NodeType_TreeAPI)
 				case nodeconf.NodeTypeConsensus:
@@ -278,6 +281,7 @@ func (r *rpcHandler) NetworkConfiguration(ctx context.Context, req *coordinatorp
 	return &coordinatorproto.NetworkConfigurationResponse{
 		ConfigurationId:  last.Id,
 		NetworkId:        last.NetworkId,
+		FileNetworkId:    last.FileNetworkId,
 		Nodes:            nodes,
 		CreationTimeUnix: uint64(last.CreationTime.Unix()),
 	}, nil
@@ -545,4 +549,53 @@ func (r *rpcHandler) AclDeleteInvite(ctx context.Context, req *coordinatorproto.
 		return
 	}
 	return &coordinatorproto.AclDeleteInviteResponse{}, nil
+}
+
+// fileV2Peer authenticates the caller as a member of the NodeTypeFileV2 pool;
+// the file-limits API is broker-facing only.
+func (r *rpcHandler) fileV2Peer(ctx context.Context) (peerId string, err error) {
+	peerId, err = peer.CtxPeerId(ctx)
+	if err != nil {
+		return
+	}
+	if !slices.Contains(r.c.nodeConf.NodeTypes(peerId), nodeconf.NodeTypeFileV2) {
+		return "", coordinatorproto.ErrForbidden
+	}
+	return
+}
+
+func (r *rpcHandler) FileLimitsGet(ctx context.Context, req *coordinatorproto.FileLimitsGetRequest) (resp *coordinatorproto.FileLimitsGetResponse, err error) {
+	st := time.Now()
+	defer func() {
+		r.c.metric.RequestLog(ctx, "coordinator.fileLimitsGet",
+			metric.TotalDur(time.Since(st)),
+			metric.SpaceId(req.SpaceId),
+			zap.String("addr", peer.CtxPeerAddr(ctx)),
+			zap.Error(err),
+		)
+	}()
+	if _, err = r.fileV2Peer(ctx); err != nil {
+		return nil, err
+	}
+	return r.c.fileUsage.GetLimits(ctx, req.SpaceId, req.Identity)
+}
+
+func (r *rpcHandler) FileUsageReport(ctx context.Context, req *coordinatorproto.FileUsageReportRequest) (resp *coordinatorproto.FileUsageReportResponse, err error) {
+	st := time.Now()
+	defer func() {
+		r.c.metric.RequestLog(ctx, "coordinator.fileUsageReport",
+			metric.TotalDur(time.Since(st)),
+			zap.Int("rows", len(req.Rows)),
+			zap.String("addr", peer.CtxPeerAddr(ctx)),
+			zap.Error(err),
+		)
+	}()
+	peerId, err := r.fileV2Peer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err = r.c.fileUsage.Report(ctx, peerId, req.Rows); err != nil {
+		return nil, err
+	}
+	return &coordinatorproto.FileUsageReportResponse{}, nil
 }

@@ -85,7 +85,7 @@ func TestAccountLimit_GetLimitsBySpace(t *testing.T) {
 
 		limits, err := fx.GetLimitsBySpace(ctx, spaceId)
 		require.NoError(t, err)
-		assert.Equal(t, SpaceLimits{1, 1, 0}, limits)
+		assert.Equal(t, SpaceLimits{SpaceMembersRead: 1, SpaceMembersWrite: 1}, limits)
 	})
 
 	t.Run("oneToOne", func(t *testing.T) {
@@ -115,7 +115,7 @@ func TestAccountLimit_GetLimitsBySpace(t *testing.T) {
 
 		limits, err := fx.GetLimitsBySpace(ctx, spaceId)
 		require.NoError(t, err)
-		assert.Equal(t, SpaceLimits{10, 5, 3}, limits)
+		assert.Equal(t, SpaceLimits{SpaceMembersRead: 10, SpaceMembersWrite: 5, SharedSpacesLimit: 3}, limits)
 	})
 }
 
