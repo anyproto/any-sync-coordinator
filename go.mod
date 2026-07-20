@@ -7,7 +7,7 @@ require (
 	github.com/anyproto/any-sync v0.12.15
 	github.com/anyproto/go-chash v0.1.0
 	github.com/gogo/protobuf v1.3.2
-	github.com/ipfs/go-cid v0.6.1
+	github.com/ipfs/go-cid v0.6.2
 	github.com/prometheus/client_golang v1.23.2
 	github.com/stretchr/testify v1.11.1
 	go.mongodb.org/mongo-driver v1.17.9
