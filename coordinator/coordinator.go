@@ -22,6 +22,8 @@ import (
 	"github.com/anyproto/any-sync/net/rpc/server"
 	"github.com/anyproto/any-sync/nodeconf"
 	"github.com/anyproto/any-sync/util/crypto"
+	"github.com/ipfs/go-cid"
+	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 	"storj.io/drpc"
 
@@ -32,6 +34,7 @@ import (
 	"github.com/anyproto/any-sync-coordinator/deletionlog"
 	"github.com/anyproto/any-sync-coordinator/fileusage"
 	"github.com/anyproto/any-sync-coordinator/inbox"
+	"github.com/anyproto/any-sync-coordinator/invitestore"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
 	"github.com/anyproto/any-sync-coordinator/subscribe"
 )
@@ -74,6 +77,11 @@ type coordinator struct {
 	subscribe      subscribe.SubscribeService
 	drpcHandler    *rpcHandler
 	pool           pool.Service
+	inviteStore    invitestore.InviteStore
+
+	// unboundInviteUploads counts invite files pushed by clients that predate the binding.
+	// Those files are never collected; the counter tells us when it is safe to require it.
+	unboundInviteUploads prometheus.Counter
 }
 
 func (c *coordinator) Init(a *app.App) (err error) {
@@ -93,11 +101,31 @@ func (c *coordinator) Init(a *app.App) (err error) {
 	c.fileUsage = app.MustComponent[fileusage.FileUsage](a)
 	c.aclEventLog = app.MustComponent[acleventlog.AclEventLog](a)
 	c.pool = a.MustComponent(pool.CName).(pool.Service)
+	c.inviteStore = app.MustComponent[invitestore.InviteStore](a)
+	c.unboundInviteUploads = prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: "coordinator",
+		Subsystem: "invite",
+		Name:      "unbound_uploads_total",
+		Help:      "invite files uploaded by clients that do not bind them to an acl invite",
+	})
 	return coordinatorproto.DRPCRegisterCoordinator(a.MustComponent(server.CName).(drpc.Mux), c.drpcHandler)
 }
 
 func (c *coordinator) Name() (name string) {
 	return CName
+}
+
+func (c *coordinator) Run(ctx context.Context) (err error) {
+	// not in Init: the metric component builds its registry there, and it is not guaranteed
+	// to have been initialised before us
+	if registry := c.metric.Registry(); registry != nil {
+		registry.MustRegister(c.unboundInviteUploads)
+	}
+	return nil
+}
+
+func (c *coordinator) Close(ctx context.Context) (err error) {
+	return nil
 }
 
 func (c *coordinator) StatusCheck(ctx context.Context, spaceId string) (status spacestatus.StatusEntry, err error) {
@@ -452,6 +480,54 @@ func (c *coordinator) MakeSpaceUnshareable(ctx context.Context, spaceId, aclHead
 		Timestamp: time.Now().Unix(),
 		EntryType: acleventlog.EntryTypeSpaceUnshared,
 	})
+}
+
+// AclDeleteInvite deletes a revoked invite's file from the filenodes.
+//
+// It looks the cid up in the binding collection first. A bound invite is checked against the
+// acl and refused while it still grants access. An invite uploaded before the binding existed
+// has no entry there, and is deleted as asked.
+func (c *coordinator) AclDeleteInvite(ctx context.Context, req *coordinatorproto.AclDeleteInviteRequest) (err error) {
+	pubKey, err := peer.CtxPubKey(ctx)
+	if err != nil {
+		return coordinatorproto.ErrForbidden
+	}
+	perms, err := c.acl.Permissions(ctx, pubKey, req.SpaceId)
+	if err != nil {
+		return
+	}
+	if !perms.CanManageAccounts() {
+		return coordinatorproto.ErrForbidden
+	}
+	inviteCid, err := cid.Cast(req.InviteCid)
+	if err != nil {
+		return
+	}
+
+	entry, err := c.inviteStore.Get(ctx, inviteCid.String())
+	if errors.Is(err, invitestore.ErrNotFound) {
+		// not bound: an invite from before the binding existed, so there is nothing to check
+		// the file against
+		return c.deleteInviteFile(ctx, inviteCid.Bytes())
+	}
+	if err != nil {
+		return err
+	}
+	if entry.SpaceId != req.SpaceId {
+		return coordinatorproto.ErrForbidden
+	}
+	dead, err := c.deadInvites(ctx, req.SpaceId, []invitestore.Entry{entry})
+	if err != nil {
+		return err
+	}
+	if len(dead) == 0 {
+		// never delete the file of an invite that still grants access
+		return coordinatorproto.ErrInviteStillActive
+	}
+	if err = c.deleteInviteFile(ctx, inviteCid.Bytes()); err != nil {
+		return err
+	}
+	return c.inviteStore.Delete(ctx, entry.Cid)
 }
 
 func (c *coordinator) InboxAddMessage(ctx context.Context, message *inbox.InboxMessage) (err error) {

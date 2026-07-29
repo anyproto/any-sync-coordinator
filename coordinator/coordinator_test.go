@@ -37,6 +37,8 @@ import (
 	"github.com/anyproto/any-sync-coordinator/fileusage/mock_fileusage"
 	"github.com/anyproto/any-sync-coordinator/inbox"
 	"github.com/anyproto/any-sync-coordinator/inbox/mock_inbox"
+	"github.com/anyproto/any-sync-coordinator/invitestore"
+	"github.com/anyproto/any-sync-coordinator/invitestore/mock_invitestore"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
 	"github.com/anyproto/any-sync-coordinator/spacestatus/mock_spacestatus"
 	"github.com/anyproto/any-sync-coordinator/subscribe"
@@ -361,6 +363,7 @@ func newFixture(t *testing.T) *fixture {
 		accountLimit: mock_accountlimit.NewMockAccountLimit(ctrl),
 		fileUsage:    mock_fileusage.NewMockFileUsage(ctrl),
 		pool:         mock_pool.NewMockService(ctrl),
+		inviteStore:  mock_invitestore.NewMockInviteStore(ctrl),
 		a:            new(app.App),
 		ctrl:         ctrl,
 	}
@@ -376,6 +379,7 @@ func newFixture(t *testing.T) *fixture {
 	anymock.ExpectComp(fx.fileUsage.EXPECT(), fileusage.CName)
 	anymock.ExpectComp(fx.aclEventLog.EXPECT(), acleventlog.CName)
 	anymock.ExpectComp(fx.pool.EXPECT(), pool.CName)
+	anymock.ExpectComp(fx.inviteStore.EXPECT(), invitestore.CName)
 
 	fx.a.Register(fx.coordinator).
 		Register(fx.nodeConf).
@@ -392,6 +396,7 @@ func newFixture(t *testing.T) *fixture {
 		Register(fx.accountLimit).
 		Register(fx.fileUsage).
 		Register(fx.pool).
+		Register(fx.inviteStore).
 		Register(rpctest.NewTestServer())
 
 	require.NoError(t, fx.a.Start(ctx))
@@ -413,6 +418,7 @@ type fixture struct {
 	accountLimit *mock_accountlimit.MockAccountLimit
 	fileUsage    *mock_fileusage.MockFileUsage
 	pool         *mock_pool.MockService
+	inviteStore  *mock_invitestore.MockInviteStore
 }
 
 func (fx *fixture) finish(t *testing.T) {
