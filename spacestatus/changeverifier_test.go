@@ -3,6 +3,7 @@ package spacestatus
 import (
 	"testing"
 
+	"github.com/anyproto/any-sync/commonspace/spacepayloads"
 	"github.com/anyproto/any-sync/commonspace/spacesyncproto"
 	"github.com/anyproto/any-sync/util/crypto"
 	"github.com/stretchr/testify/assert"
@@ -118,6 +119,36 @@ func TestVerifySpaceHeader(t *testing.T) {
 		}, false))
 		require.NoError(t, err)
 		assert.Equal(t, SpaceTypeRegular, spaceType)
+	})
+	t.Run("onetoone variants", func(t *testing.T) {
+		aSk, aPub, err := crypto.GenerateRandomEd25519KeyPair()
+		require.NoError(t, err)
+		_, bPub, err := crypto.GenerateRandomEd25519KeyPair()
+		require.NoError(t, err)
+
+		for tp, build := range map[string]func() ([]byte, error){
+			"anytype.onetoone": func() ([]byte, error) {
+				p, err := spacepayloads.StoragePayloadForOneToOneSpace(aSk, bPub)
+				if err != nil {
+					return nil, err
+				}
+				return p.SpaceHeaderWithId.RawHeader, nil
+			},
+			"any.onetoone": func() ([]byte, error) {
+				p, err := spacepayloads.StoragePayloadForOneToOneSpaceWithType(aSk, bPub, spacepayloads.SpaceTypeOneToOneAny)
+				if err != nil {
+					return nil, err
+				}
+				return p.SpaceHeaderWithId.RawHeader, nil
+			},
+		} {
+			raw, err := build()
+			require.NoError(t, err, tp)
+			spaceType, headerType, err := VerifySpaceHeader(aPub, raw)
+			require.NoError(t, err, tp)
+			assert.Equal(t, SpaceTypeOneToOne, spaceType, tp)
+			assert.Equal(t, tp, headerType)
+		}
 	})
 	t.Run("unknown type rejected", func(t *testing.T) {
 		_, _, err := VerifySpaceHeader(puKey, newRawHeader(t, &spacesyncproto.SpaceHeader{
