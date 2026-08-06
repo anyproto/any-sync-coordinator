@@ -207,6 +207,12 @@ func (r *rpcHandler) SpaceSign(ctx context.Context, req *coordinatorproto.SpaceS
 	st := time.Now()
 	var headerType string
 	defer func() {
+		// headerType comes from the client header and is set before
+		// verification — cap it so a rejected garbage header can't dump
+		// arbitrary bytes into the log.
+		if len(headerType) > 64 {
+			headerType = headerType[:64]
+		}
 		r.c.metric.RequestLog(ctx, "coordinator.spaceSign",
 			metric.TotalDur(time.Since(st)),
 			metric.SpaceId(req.SpaceId),
