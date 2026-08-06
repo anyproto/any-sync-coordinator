@@ -32,6 +32,7 @@ import (
 	"github.com/anyproto/any-sync-coordinator/config"
 	"github.com/anyproto/any-sync-coordinator/coordinatorlog"
 	"github.com/anyproto/any-sync-coordinator/deletionlog"
+	"github.com/anyproto/any-sync-coordinator/fileusage"
 	"github.com/anyproto/any-sync-coordinator/inbox"
 	"github.com/anyproto/any-sync-coordinator/invitestore"
 	"github.com/anyproto/any-sync-coordinator/spacestatus"
@@ -70,6 +71,7 @@ type coordinator struct {
 	metric         metric.Metric
 	deletionLog    deletionlog.DeletionLog
 	accountLimit   accountlimit.AccountLimit
+	fileUsage      fileusage.FileUsage
 	acl            acl.AclService
 	inbox          inbox.InboxService
 	subscribe      subscribe.SubscribeService
@@ -96,6 +98,7 @@ func (c *coordinator) Init(a *app.App) (err error) {
 	c.acl = app.MustComponent[acl.AclService](a)
 	c.inbox = app.MustComponent[inbox.InboxService](a)
 	c.accountLimit = app.MustComponent[accountlimit.AccountLimit](a)
+	c.fileUsage = app.MustComponent[fileusage.FileUsage](a)
 	c.aclEventLog = app.MustComponent[acleventlog.AclEventLog](a)
 	c.pool = a.MustComponent(pool.CName).(pool.Service)
 	c.inviteStore = app.MustComponent[invitestore.InviteStore](a)
@@ -220,7 +223,7 @@ func (c *coordinator) StatusChange(ctx context.Context, spaceId string, deletion
 	})
 }
 
-func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader []byte, force bool) (signedReceipt *coordinatorproto.SpaceReceiptWithSignature, err error) {
+func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader []byte, force bool) (signedReceipt *coordinatorproto.SpaceReceiptWithSignature, headerType string, err error) {
 	// TODO: Think about how to make it more evident that account.SignKey is actually a network key
 	//  on a coordinator level
 	networkKey := c.account.SignKey
@@ -236,11 +239,11 @@ func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader
 	if err != nil {
 		return
 	}
-	spaceType, err := spacestatus.VerifySpaceHeader(accountPubKey, spaceHeader)
+	spaceType, headerType, err := spacestatus.VerifySpaceHeader(accountPubKey, spaceHeader)
 	if err != nil {
 		return
 	}
-	err = c.spaceStatus.NewStatus(ctx, spaceId, accountPubKey, spaceType, force)
+	err = c.spaceStatus.NewStatus(ctx, spaceId, accountPubKey, spaceType, headerType, force)
 	if err != nil {
 		return
 	}

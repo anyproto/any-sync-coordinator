@@ -16,6 +16,7 @@ import (
 	spacestatus "github.com/anyproto/any-sync-coordinator/spacestatus"
 	app "github.com/anyproto/any-sync/app"
 	crypto "github.com/anyproto/any-sync/util/crypto"
+	mongo "go.mongodb.org/mongo-driver/mongo"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -172,17 +173,29 @@ func (mr *MockSpaceStatusMockRecorder) Name() *gomock.Call {
 }
 
 // NewStatus mocks base method.
-func (m *MockSpaceStatus) NewStatus(ctx context.Context, spaceId string, identity crypto.PubKey, spaceType spacestatus.SpaceType, force bool) error {
+func (m *MockSpaceStatus) NewStatus(ctx context.Context, spaceId string, identity crypto.PubKey, spaceType spacestatus.SpaceType, headerType string, force bool) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "NewStatus", ctx, spaceId, identity, spaceType, force)
+	ret := m.ctrl.Call(m, "NewStatus", ctx, spaceId, identity, spaceType, headerType, force)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // NewStatus indicates an expected call of NewStatus.
-func (mr *MockSpaceStatusMockRecorder) NewStatus(ctx, spaceId, identity, spaceType, force any) *gomock.Call {
+func (mr *MockSpaceStatusMockRecorder) NewStatus(ctx, spaceId, identity, spaceType, headerType, force any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewStatus", reflect.TypeOf((*MockSpaceStatus)(nil).NewStatus), ctx, spaceId, identity, spaceType, force)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewStatus", reflect.TypeOf((*MockSpaceStatus)(nil).NewStatus), ctx, spaceId, identity, spaceType, headerType, force)
+}
+
+// RegisterSpaceRemoveHook mocks base method.
+func (m *MockSpaceStatus) RegisterSpaceRemoveHook(fn func(mongo.SessionContext, string) error) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "RegisterSpaceRemoveHook", fn)
+}
+
+// RegisterSpaceRemoveHook indicates an expected call of RegisterSpaceRemoveHook.
+func (mr *MockSpaceStatusMockRecorder) RegisterSpaceRemoveHook(fn any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterSpaceRemoveHook", reflect.TypeOf((*MockSpaceStatus)(nil).RegisterSpaceRemoveHook), fn)
 }
 
 // Run mocks base method.

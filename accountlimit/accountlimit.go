@@ -39,6 +39,9 @@ type SpaceLimits struct {
 	SpaceMembersRead  uint32 `yaml:"spaceMembersRead" bson:"spaceMembersRead"`
 	SpaceMembersWrite uint32 `yaml:"spaceMembersWrite" bson:"spaceMembersWrite"`
 	SharedSpacesLimit uint32 `yaml:"sharedSpacesLimit" bson:"sharedSpacesLimit"`
+	// FileStorageLimitBytes is the default account file-storage pool for
+	// identities without an explicit accountLimit document (files v2).
+	FileStorageLimitBytes uint64 `yaml:"fileStorageLimitBytes" bson:"fileStorageLimitBytes"`
 }
 
 type Limits struct {
@@ -126,6 +129,7 @@ func (al *accountLimit) GetLimits(ctx context.Context, identity string) (limits 
 		SpaceMembersRead:  al.defaultLimits.SpaceMembersRead,
 		SpaceMembersWrite: al.defaultLimits.SpaceMembersWrite,
 		SharedSpacesLimit: al.defaultLimits.SharedSpacesLimit,
+		FileStorageBytes:  al.defaultLimits.FileStorageLimitBytes,
 		UpdatedTime:       time.Now(),
 	}, nil
 }

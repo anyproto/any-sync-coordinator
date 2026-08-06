@@ -3,6 +3,7 @@ package spacestatus
 import (
 	"testing"
 
+	"github.com/anyproto/any-sync/commonspace/spacepayloads"
 	"github.com/anyproto/any-sync/commonspace/spacesyncproto"
 	"github.com/anyproto/any-sync/util/crypto"
 	"github.com/stretchr/testify/assert"
@@ -32,42 +33,128 @@ func TestVerifySpaceHeader(t *testing.T) {
 	}
 
 	t.Run("invalid signature", func(t *testing.T) {
-		_, err := VerifySpaceHeader(puKey, newRawHeader(t, &spacesyncproto.SpaceHeader{
+		_, _, err := VerifySpaceHeader(puKey, newRawHeader(t, &spacesyncproto.SpaceHeader{
 			Timestamp: 123,
 			SpaceType: "123",
 		}, true))
 		assert.Error(t, err)
 	})
 	t.Run("personal", func(t *testing.T) {
-		spaceType, err := VerifySpaceHeader(puKey, newRawHeader(t, &spacesyncproto.SpaceHeader{
+		spaceType, headerType, err := VerifySpaceHeader(puKey, newRawHeader(t, &spacesyncproto.SpaceHeader{
 			Timestamp: 0,
 			SpaceType: "anytype.space",
 		}, false))
 		require.NoError(t, err)
 		assert.Equal(t, SpaceTypePersonal, spaceType)
+		assert.Equal(t, "anytype.space", headerType)
 	})
 	t.Run("tech", func(t *testing.T) {
-		spaceType, err := VerifySpaceHeader(puKey, newRawHeader(t, &spacesyncproto.SpaceHeader{
+		spaceType, headerType, err := VerifySpaceHeader(puKey, newRawHeader(t, &spacesyncproto.SpaceHeader{
 			Timestamp: 0,
 			SpaceType: techSpaceType,
 		}, false))
 		require.NoError(t, err)
 		assert.Equal(t, SpaceTypeTech, spaceType)
+		assert.Equal(t, techSpaceType, headerType)
 	})
 	t.Run("regular", func(t *testing.T) {
-		spaceType, err := VerifySpaceHeader(puKey, newRawHeader(t, &spacesyncproto.SpaceHeader{
+		spaceType, headerType, err := VerifySpaceHeader(puKey, newRawHeader(t, &spacesyncproto.SpaceHeader{
 			Timestamp: 123243,
 			SpaceType: "anytype.space",
 		}, false))
 		require.NoError(t, err)
 		assert.Equal(t, SpaceTypeRegular, spaceType)
+		assert.Equal(t, "anytype.space", headerType)
 	})
 	t.Run("chat", func(t *testing.T) {
-		spaceType, err := VerifySpaceHeader(puKey, newRawHeader(t, &spacesyncproto.SpaceHeader{
+		spaceType, _, err := VerifySpaceHeader(puKey, newRawHeader(t, &spacesyncproto.SpaceHeader{
 			Timestamp: 0,
 			SpaceType: chatSpaceType,
 		}, false))
 		require.NoError(t, err)
 		assert.Equal(t, SpaceTypeRegular, spaceType)
+	})
+	t.Run("any.space", func(t *testing.T) {
+		spaceType, headerType, err := VerifySpaceHeader(puKey, newRawHeader(t, &spacesyncproto.SpaceHeader{
+			Timestamp:        123243,
+			SpaceType:        anySpaceType,
+			FileprotoVersion: spacesyncproto.SpaceFileProtoVersion_SpaceFileProtoVersionV2,
+		}, false))
+		require.NoError(t, err)
+		assert.Equal(t, SpaceTypeRegular, spaceType)
+		assert.Equal(t, anySpaceType, headerType)
+	})
+	t.Run("any.space derived is personal", func(t *testing.T) {
+		spaceType, _, err := VerifySpaceHeader(puKey, newRawHeader(t, &spacesyncproto.SpaceHeader{
+			Timestamp:        0,
+			SpaceType:        anySpaceType,
+			FileprotoVersion: spacesyncproto.SpaceFileProtoVersion_SpaceFileProtoVersionV2,
+		}, false))
+		require.NoError(t, err)
+		assert.Equal(t, SpaceTypePersonal, spaceType)
+	})
+	t.Run("any.techspace", func(t *testing.T) {
+		spaceType, headerType, err := VerifySpaceHeader(puKey, newRawHeader(t, &spacesyncproto.SpaceHeader{
+			Timestamp:        0,
+			SpaceType:        anyTechSpaceType,
+			FileprotoVersion: spacesyncproto.SpaceFileProtoVersion_SpaceFileProtoVersionV2,
+		}, false))
+		require.NoError(t, err)
+		assert.Equal(t, SpaceTypeTech, spaceType)
+		assert.Equal(t, anyTechSpaceType, headerType)
+	})
+	t.Run("any.* without fileproto v2 rejected", func(t *testing.T) {
+		for _, tp := range []string{anySpaceType, anyTechSpaceType} {
+			_, _, err := VerifySpaceHeader(puKey, newRawHeader(t, &spacesyncproto.SpaceHeader{
+				Timestamp: 123243,
+				SpaceType: tp,
+			}, false))
+			assert.ErrorContains(t, err, "requires fileproto version", tp)
+		}
+	})
+	t.Run("anytype types accept fileproto v0", func(t *testing.T) {
+		spaceType, _, err := VerifySpaceHeader(puKey, newRawHeader(t, &spacesyncproto.SpaceHeader{
+			Timestamp: 123243,
+			SpaceType: regularSpaceType,
+		}, false))
+		require.NoError(t, err)
+		assert.Equal(t, SpaceTypeRegular, spaceType)
+	})
+	t.Run("onetoone variants", func(t *testing.T) {
+		aSk, aPub, err := crypto.GenerateRandomEd25519KeyPair()
+		require.NoError(t, err)
+		_, bPub, err := crypto.GenerateRandomEd25519KeyPair()
+		require.NoError(t, err)
+
+		for tp, build := range map[string]func() ([]byte, error){
+			"anytype.onetoone": func() ([]byte, error) {
+				p, err := spacepayloads.StoragePayloadForOneToOneSpace(aSk, bPub)
+				if err != nil {
+					return nil, err
+				}
+				return p.SpaceHeaderWithId.RawHeader, nil
+			},
+			"any.onetoone": func() ([]byte, error) {
+				p, err := spacepayloads.StoragePayloadForOneToOneSpaceWithType(aSk, bPub, spacepayloads.SpaceTypeOneToOneAny)
+				if err != nil {
+					return nil, err
+				}
+				return p.SpaceHeaderWithId.RawHeader, nil
+			},
+		} {
+			raw, err := build()
+			require.NoError(t, err, tp)
+			spaceType, headerType, err := VerifySpaceHeader(aPub, raw)
+			require.NoError(t, err, tp)
+			assert.Equal(t, SpaceTypeOneToOne, spaceType, tp)
+			assert.Equal(t, tp, headerType)
+		}
+	})
+	t.Run("unknown type rejected", func(t *testing.T) {
+		_, _, err := VerifySpaceHeader(puKey, newRawHeader(t, &spacesyncproto.SpaceHeader{
+			Timestamp: 123243,
+			SpaceType: "other.space",
+		}, false))
+		assert.ErrorContains(t, err, "unknown space type")
 	})
 }
