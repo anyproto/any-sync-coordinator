@@ -205,16 +205,18 @@ func (r *rpcHandler) SpaceStatusChange(ctx context.Context, req *coordinatorprot
 
 func (r *rpcHandler) SpaceSign(ctx context.Context, req *coordinatorproto.SpaceSignRequest) (resp *coordinatorproto.SpaceSignResponse, err error) {
 	st := time.Now()
+	var headerType string
 	defer func() {
 		r.c.metric.RequestLog(ctx, "coordinator.spaceSign",
 			metric.TotalDur(time.Since(st)),
 			metric.SpaceId(req.SpaceId),
 			zap.String("addr", peer.CtxPeerAddr(ctx)),
+			zap.String("spaceType", headerType),
 			zap.Error(err),
 		)
 	}()
 
-	receipt, err := r.c.SpaceSign(ctx, req.SpaceId, req.Header, req.ForceRequest)
+	receipt, headerType, err := r.c.SpaceSign(ctx, req.SpaceId, req.Header, req.ForceRequest)
 	if err != nil {
 		return nil, err
 	}

@@ -53,6 +53,11 @@ const (
 	techSpaceType     = "anytype.techspace"
 	chatSpaceType     = "anytype.chatspace"
 	oneToOneSpaceType = "anytype.onetoone"
+	// any.* types are the `any` product's counterparts of the anytype
+	// types above; same coordinator treatment, but they require
+	// fileproto v2 in the header.
+	anySpaceType     = "any.space"
+	anyTechSpaceType = "any.techspace"
 )
 
 func verifyHeaderSignatureOneToOne(identity crypto.PubKey, rawHeader *spacesyncproto.RawSpaceHeader) (err error) {
@@ -116,7 +121,10 @@ func verifyHeaderSignature(identity crypto.PubKey, rawHeader *spacesyncproto.Raw
 	return nil
 
 }
-func VerifySpaceHeader(identity crypto.PubKey, headerBytes []byte) (spaceType SpaceType, err error) {
+// VerifySpaceHeader checks the header signature and maps the header's
+// space type string to the stored SpaceType enum. headerType is the raw
+// string from the header, returned for persistence and logging.
+func VerifySpaceHeader(identity crypto.PubKey, headerBytes []byte) (spaceType SpaceType, headerType string, err error) {
 	rawHeader := &spacesyncproto.RawSpaceHeader{}
 	if err = rawHeader.UnmarshalVT(headerBytes); err != nil {
 		return
@@ -126,6 +134,7 @@ func VerifySpaceHeader(identity crypto.PubKey, headerBytes []byte) (spaceType Sp
 	if err = header.UnmarshalVT(rawHeader.SpaceHeader); err != nil {
 		return
 	}
+	headerType = header.SpaceType
 
 	if header.SpaceType == oneToOneSpaceType {
 		err = verifyHeaderSignatureOneToOne(identity, rawHeader)
@@ -141,19 +150,29 @@ func VerifySpaceHeader(identity crypto.PubKey, headerBytes []byte) (spaceType Sp
 	}
 
 	switch header.SpaceType {
-	case techSpaceType:
-		return SpaceTypeTech, nil
-	case chatSpaceType:
-		return SpaceTypeRegular, nil
-	case oneToOneSpaceType:
-		return SpaceTypeOneToOne, nil
-	case "", regularSpaceType:
-		if header.Timestamp == 0 {
-			return SpaceTypePersonal, nil
+	case anySpaceType, anyTechSpaceType:
+		// any.* spaces are files-v2 only
+		if header.FileprotoVersion != spacesyncproto.SpaceFileProtoVersion_SpaceFileProtoVersionV2 {
+			err = fmt.Errorf("space type %s requires fileproto version %d, got %d",
+				header.SpaceType, spacesyncproto.SpaceFileProtoVersion_SpaceFileProtoVersionV2, header.FileprotoVersion)
+			return
 		}
-		return SpaceTypeRegular, nil
+	}
+
+	switch header.SpaceType {
+	case techSpaceType, anyTechSpaceType:
+		return SpaceTypeTech, headerType, nil
+	case chatSpaceType:
+		return SpaceTypeRegular, headerType, nil
+	case oneToOneSpaceType:
+		return SpaceTypeOneToOne, headerType, nil
+	case "", regularSpaceType, anySpaceType:
+		if header.Timestamp == 0 {
+			return SpaceTypePersonal, headerType, nil
+		}
+		return SpaceTypeRegular, headerType, nil
 	default:
-		return 0, fmt.Errorf("unknown space type: %s", header.SpaceType)
+		return 0, headerType, fmt.Errorf("unknown space type: %s", header.SpaceType)
 	}
 
 }

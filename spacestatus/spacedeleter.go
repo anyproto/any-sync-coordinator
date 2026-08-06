@@ -65,6 +65,7 @@ type StatusEntry struct {
 	ToBeDeletedTimestamp int64     `bson:"toBeDeletedTimestamp"`
 	Status               int       `bson:"status"`
 	Type                 SpaceType `bson:"type"`
+	HeaderType           string    `bson:"headerType,omitempty"`
 	IsShareable          bool      `bson:"isShareable"`
 }
 
