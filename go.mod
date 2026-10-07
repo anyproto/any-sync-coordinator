@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/ahmetb/govvv v0.3.0
-	github.com/anyproto/any-sync v0.13.6
+	github.com/anyproto/any-sync v0.13.8
 	github.com/anyproto/go-chash v0.1.0
 	github.com/gogo/protobuf v1.3.2
 	github.com/ipfs/go-cid v0.6.2
