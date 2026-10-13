@@ -23,7 +23,7 @@ func New() NodeConfSource {
 
 type NodeConfSource interface {
 	nodeconf.Source
-	app.Component
+	app.ComponentRunnable
 	// Add stores a new network configuration assigning it the next epoch.
 	// Unless force is set, an enabled configuration is validated against the
 	// currently active one: every chash partition must keep at least one
@@ -47,16 +47,26 @@ type nodeConfSource struct {
 
 func (n *nodeConfSource) Init(a *app.App) (err error) {
 	n.coll = a.MustComponent(db.CName).(db.Database).Db().Collection(collName)
+	return nil
+}
+
+// Run creates the index in Run rather than Init, because Init has no context:
+// a stop during startup could not interrupt it while mongo is unreachable.
+func (n *nodeConfSource) Run(ctx context.Context) (err error) {
 	// epochs must be unique: concurrent Adds otherwise mint duplicates and
 	// corrupt per-epoch config history on the nodes (index is partial to
 	// tolerate pre-epoch documents, which all carry 0)
-	_, err = n.coll.Indexes().CreateOne(context.Background(), mongo.IndexModel{
+	_, err = n.coll.Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys: bson.D{{"epoch", 1}},
 		Options: options.Index().
 			SetUnique(true).
 			SetPartialFilterExpression(bson.M{"epoch": bson.M{"$gt": 0}}),
 	})
 	return err
+}
+
+func (n *nodeConfSource) Close(ctx context.Context) (err error) {
+	return nil
 }
 
 func (n *nodeConfSource) Name() (name string) {

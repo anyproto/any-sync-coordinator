@@ -109,6 +109,30 @@ func TestNodeConfSource_GetLast(t *testing.T) {
 	assert.Equal(t, "NfleetReceiptSigningIdentity2", got.FileNetworkId)
 }
 
+func TestNodeConfSource_Run(t *testing.T) {
+	t.Run("creates the unique epoch index", func(t *testing.T) {
+		a := new(app.App).Register(config{}).Register(db.New()).Register(New())
+		require.NoError(t, a.Start(ctx))
+		defer func() { require.NoError(t, a.Close(ctx)) }()
+
+		specs, err := a.MustComponent(db.CName).(db.Database).Db().Collection(collName).Indexes().ListSpecifications(ctx)
+		require.NoError(t, err)
+		var unique bool
+		for _, spec := range specs {
+			if spec.Name == "epoch_1" {
+				unique = spec.Unique != nil && *spec.Unique
+			}
+		}
+		assert.True(t, unique, "epoch index is missing or not unique")
+	})
+	t.Run("stops when the start context is cancelled", func(t *testing.T) {
+		cancelled, cancel := context.WithCancel(ctx)
+		cancel()
+		a := new(app.App).Register(config{}).Register(db.New()).Register(New())
+		require.ErrorIs(t, a.Start(cancelled), context.Canceled)
+	})
+}
+
 func newFixture(t *testing.T) *fixture {
 	fx := &fixture{
 		NodeConfSource: New(),
