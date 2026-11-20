@@ -85,18 +85,22 @@ var (
 
 const collName = "spaces"
 
+// ChildSpacesLimit returns the childSpacesLimit of an account
+type ChildSpacesLimit func(ctx context.Context, identity string) (limit uint32, err error)
+
 type configProvider interface {
 	GetSpaceStatus() Config
 }
 
 type SpaceStatus interface {
 	NewStatus(ctx context.Context, spaceId string, identity crypto.PubKey, spaceType SpaceType, headerType string, force bool) (err error)
-	// NewChildStatus registers a space as NewStatus does, as a child of parentSpaceId. A sign that
-	// takes a place (see TakesChildPlace) needs a parent that passes CheckParent. Any other sign of a
-	// child is answered as the sign of a top-level space is. creatorChecked tells that the caller found
-	// the sign to take a place and checked its creator against the parent; a sign that takes a place
-	// without that check answers ErrChildTakesPlace.
-	NewChildStatus(ctx context.Context, spaceId string, identity crypto.PubKey, spaceType SpaceType, headerType string, force bool, parentSpaceId string, creatorChecked bool) (err error)
+	// NewChildStatus registers a space as NewStatus does, as a child of parentSpaceId. A child is
+	// shareable. A sign that takes a place (see TakesChildPlace) needs a parent that passes CheckParent
+	// and room in the childSpacesLimit of the account that owns the parent, which limit tells. Any
+	// other sign of a child is answered as the sign of a top-level space is. creatorChecked tells that
+	// the caller found the sign to take a place and checked its creator against the parent; a sign that
+	// takes a place without that check answers ErrChildTakesPlace.
+	NewChildStatus(ctx context.Context, spaceId string, identity crypto.PubKey, spaceType SpaceType, headerType string, force bool, parentSpaceId string, limit ChildSpacesLimit, creatorChecked bool) (err error)
 	// ChangeStatus is deprecated, use only for backwards compatibility
 	ChangeStatus(ctx context.Context, change StatusChange) (entry StatusEntry, err error)
 	ChangeOwner(ctx context.Context, spaceId, newOwnerId string) (err error)
@@ -477,19 +481,20 @@ func (s *spaceStatus) getSpaceTypeTx(txCtx mongo.SessionContext, spaceId string)
 }
 
 func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity crypto.PubKey, spaceType SpaceType, headerType string, force bool) error {
-	return s.newStatus(ctx, spaceId, identity, spaceType, headerType, force, "", false)
+	return s.newStatus(ctx, spaceId, identity, spaceType, headerType, force, "", nil, false)
 }
 
-func (s *spaceStatus) NewChildStatus(ctx context.Context, spaceId string, identity crypto.PubKey, spaceType SpaceType, headerType string, force bool, parentSpaceId string, creatorChecked bool) error {
+func (s *spaceStatus) NewChildStatus(ctx context.Context, spaceId string, identity crypto.PubKey, spaceType SpaceType, headerType string, force bool, parentSpaceId string, limit ChildSpacesLimit, creatorChecked bool) error {
 	if parentSpaceId == "" {
 		return coordinatorproto.ErrParentSpaceInvalid
 	}
-	return s.newStatus(ctx, spaceId, identity, spaceType, headerType, force, parentSpaceId, creatorChecked)
+	return s.newStatus(ctx, spaceId, identity, spaceType, headerType, force, parentSpaceId, limit, creatorChecked)
 }
 
-// TakesChildPlace tells whether a sign registers a child anew and so takes a place under its parent:
-// the child is not registered, or its deletion is final and the sign is forced, which takes it back.
-// A registered child holds its place until its deletion is final, and a sign of it takes none.
+// TakesChildPlace tells whether a sign registers a child anew and so takes a place, under its parent
+// and in the limit of the parent's owner: the child is not registered, or its deletion is final and
+// the sign is forced, which takes it back. A registered child holds its place until its deletion is
+// final, and a sign of it takes none.
 func TakesChildPlace(registered bool, child StatusEntry, force bool) bool {
 	return !registered || (force && child.Status == SpaceStatusDeleted)
 }
@@ -511,7 +516,49 @@ func (s *spaceStatus) parentTx(txCtx mongo.SessionContext, parentSpaceId string)
 	return parent, CheckParent(parent)
 }
 
-func (s *spaceStatus) newStatus(ctx context.Context, spaceId string, identity crypto.PubKey, spaceType SpaceType, headerType string, force bool, parentSpaceId string, creatorChecked bool) error {
+// checkChildSpacesLimitTx refuses a child that takes the owner of its parent over the owner's
+// childSpacesLimit. It runs after the child is stored, so the count includes it. Registrations under
+// one parent run one after another (see parentTx); two under different parents of one owner at the same
+// instant do not see each other's child and can both pass, as with the shared spaces limit.
+func (s *spaceStatus) checkChildSpacesLimitTx(txCtx mongo.SessionContext, owner string, limit ChildSpacesLimit) error {
+	allowed, err := limit(txCtx, owner)
+	if err != nil {
+		return err
+	}
+	count, err := s.countChildrenOfOwnerTx(txCtx, owner)
+	if err != nil {
+		return unexpectedOrTransient(err)
+	}
+	if count > int64(allowed) {
+		return coordinatorproto.ErrChildSpacesLimitReached
+	}
+	return nil
+}
+
+// countChildrenOfOwnerTx counts the children of every space the account owns now, so the children
+// of a parent follow a change of its owner. A child counts until its deletion is final.
+func (s *spaceStatus) countChildrenOfOwnerTx(txCtx mongo.SessionContext, owner string) (count int64, err error) {
+	cur, err := s.spaces.Find(txCtx, bson.M{"identity": owner}, options.Find().SetProjection(bson.M{"_id": 1}))
+	if err != nil {
+		return 0, err
+	}
+	var owned []struct {
+		SpaceId string `bson:"_id"`
+	}
+	if err = cur.All(txCtx, &owned); err != nil {
+		return 0, err
+	}
+	parentIds := make([]string, 0, len(owned))
+	for _, space := range owned {
+		parentIds = append(parentIds, space.SpaceId)
+	}
+	return s.spaces.CountDocuments(txCtx, bson.M{
+		"parentSpaceId": bson.M{"$in": parentIds},
+		"status":        bson.M{"$ne": SpaceStatusDeleted},
+	})
+}
+
+func (s *spaceStatus) newStatus(ctx context.Context, spaceId string, identity crypto.PubKey, spaceType SpaceType, headerType string, force bool, parentSpaceId string, limit ChildSpacesLimit, creatorChecked bool) error {
 	return s.db.Tx(ctx, func(txCtx mongo.SessionContext) error {
 		if s.accountStatusFindTx(txCtx, identity.Account(), SpaceStatusDeletionPending) {
 			return coordinatorproto.ErrAccountIsDeleted
@@ -526,13 +573,14 @@ func (s *spaceStatus) newStatus(ctx context.Context, spaceId string, identity cr
 			// save back compatibility
 			return nil
 		}
-		// only a child that takes a place is checked against the parent
+		// only a child that takes a place is checked against the parent and the limit
 		takesPlace := isChild && TakesChildPlace(!notFound, entry, force)
 		if takesPlace && !creatorChecked {
 			return ErrChildTakesPlace
 		}
+		var parent StatusEntry
 		if takesPlace {
-			if _, err = s.parentTx(txCtx, parentSpaceId); err != nil {
+			if parent, err = s.parentTx(txCtx, parentSpaceId); err != nil {
 				return err
 			}
 		}
@@ -545,6 +593,7 @@ func (s *spaceStatus) newStatus(ctx context.Context, spaceId string, identity cr
 				Type:          spaceType,
 				HeaderType:    headerType,
 				ParentSpaceId: parentSpaceId,
+				IsShareable:   isChild,
 			}); err != nil {
 				return err
 			} else {
@@ -565,6 +614,9 @@ func (s *spaceStatus) newStatus(ctx context.Context, spaceId string, identity cr
 		if err = s.checkLimitTx(txCtx, identity); err != nil {
 			return err
 		}
+		if takesPlace {
+			return s.checkChildSpacesLimitTx(txCtx, parent.Identity, limit)
+		}
 		return nil
 	})
 }
@@ -579,17 +631,21 @@ func (s *spaceStatus) MakeShareable(ctx context.Context, spaceId string, spaceTy
 		if entry.IsShareable {
 			return nil
 		}
-		count, err := s.spaces.CountDocuments(txCtx, bson.D{
-			{"identity", entry.Identity},
-			{"type", spaceType},
-			{"status", SpaceStatusCreated},
-			{"isShareable", true},
-		})
-		if err != nil {
-			return err
-		}
-		if uint32(count) >= limit {
-			return coordinatorproto.ErrSpaceLimitReached
+		// a child space is outside the shared spaces limit: it neither counts against it nor is held by it
+		if entry.ParentSpaceId == "" {
+			count, err := s.spaces.CountDocuments(txCtx, bson.M{
+				"identity":      entry.Identity,
+				"type":          spaceType,
+				"status":        SpaceStatusCreated,
+				"isShareable":   true,
+				"parentSpaceId": bson.M{"$exists": false},
+			})
+			if err != nil {
+				return err
+			}
+			if uint32(count) >= limit {
+				return coordinatorproto.ErrSpaceLimitReached
+			}
 		}
 		_, err = s.spaces.UpdateOne(txCtx, bson.D{{"_id", spaceId}}, bson.D{{"$set", bson.D{{"isShareable", true}}}})
 		return err

@@ -1,6 +1,9 @@
 package spacestatus
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
@@ -29,12 +32,41 @@ func (fx *fixture) newParent(t *testing.T, spaceId string, owner crypto.PubKey) 
 }
 
 func (fx *fixture) newChild(spaceId string, creator crypto.PubKey, parentSpaceId string) error {
-	return fx.NewChildStatus(ctx, spaceId, creator, SpaceTypeRegular, anySpaceType, false, parentSpaceId, true)
+	return fx.NewChildStatus(ctx, spaceId, creator, SpaceTypeRegular, anySpaceType, false, parentSpaceId, noChildLimit, true)
 }
 
 // forceChild signs a child with the force request, which takes a deleted space back
 func (fx *fixture) forceChild(spaceId string, creator crypto.PubKey, parentSpaceId string) error {
-	return fx.NewChildStatus(ctx, spaceId, creator, SpaceTypeRegular, anySpaceType, true, parentSpaceId, true)
+	return fx.NewChildStatus(ctx, spaceId, creator, SpaceTypeRegular, anySpaceType, true, parentSpaceId, noChildLimit, true)
+}
+
+// noChildLimit lets every account have any number of children
+func noChildLimit(context.Context, string) (uint32, error) {
+	return 1 << 20, nil
+}
+
+// childLimits gives each account its limit, zero when it has none, and records the accounts asked
+type childLimits struct {
+	limits map[string]uint32
+	asked  []string
+}
+
+func newChildLimits() *childLimits {
+	return &childLimits{limits: map[string]uint32{}}
+}
+
+func (l *childLimits) set(owner crypto.PubKey, limit uint32) *childLimits {
+	l.limits[owner.Account()] = limit
+	return l
+}
+
+func (l *childLimits) limit(_ context.Context, identity string) (uint32, error) {
+	l.asked = append(l.asked, identity)
+	return l.limits[identity], nil
+}
+
+func (fx *fixture) signChild(spaceId string, creator crypto.PubKey, parentSpaceId string, force bool, limits *childLimits) error {
+	return fx.NewChildStatus(ctx, spaceId, creator, SpaceTypeRegular, anySpaceType, force, parentSpaceId, limits.limit, true)
 }
 
 // finalDelete ends the deletion of a space as the deleter does
@@ -76,6 +108,7 @@ func TestSpaceStatus_NewChildStatus(t *testing.T) {
 			Type:          SpaceTypeRegular,
 			HeaderType:    anySpaceType,
 			Status:        SpaceStatusCreated,
+			IsShareable:   true,
 			ParentSpaceId: parentId,
 		}, child)
 
@@ -150,7 +183,7 @@ func TestSpaceStatus_NewChildStatus(t *testing.T) {
 		fx := newChildFixture(t)
 		fx.newParent(t, parentId, owner)
 		unchecked := func(force bool) error {
-			return fx.NewChildStatus(ctx, childId, creator, SpaceTypeRegular, anySpaceType, force, parentId, false)
+			return fx.NewChildStatus(ctx, childId, creator, SpaceTypeRegular, anySpaceType, force, parentId, noChildLimit, false)
 		}
 		// a new child
 		require.ErrorIs(t, unchecked(false), ErrChildTakesPlace)
@@ -213,4 +246,205 @@ func TestSpaceStatus_ParentIndex(t *testing.T) {
 		}
 	}
 	assert.True(t, found, "no index on parentSpaceId: %v", indexes)
+}
+
+func TestSpaceStatus_ChildSpacesLimit(t *testing.T) {
+	const (
+		parentId      = "parent.id"
+		otherParentId = "otherParent.id"
+	)
+	owner, otherOwner, creator, otherCreator := newIdentity(t), newIdentity(t), newIdentity(t), newIdentity(t)
+	status := func(t *testing.T, fx *fixture, spaceId string) int {
+		entry, err := fx.Status(ctx, spaceId)
+		require.NoError(t, err)
+		return entry.Status
+	}
+
+	t.Run("the limit is the one of the parent's owner, whoever creates the child", func(t *testing.T) {
+		fx := newChildFixture(t)
+		fx.newParent(t, parentId, owner)
+		limits := newChildLimits().set(owner, 2).set(creator, 100)
+
+		require.NoError(t, fx.signChild("child.1", creator, parentId, false, limits))
+		require.NoError(t, fx.signChild("child.2", otherCreator, parentId, false, limits))
+		require.ErrorIs(t, fx.signChild("child.3", creator, parentId, false, limits), coordinatorproto.ErrChildSpacesLimitReached)
+		_, err := fx.Status(ctx, "child.3")
+		require.ErrorIs(t, err, coordinatorproto.ErrSpaceNotExists)
+		assert.Equal(t, []string{owner.Account(), owner.Account(), owner.Account()}, limits.asked)
+	})
+	t.Run("an owner without a limit has no children", func(t *testing.T) {
+		fx := newChildFixture(t)
+		fx.newParent(t, parentId, owner)
+		require.ErrorIs(t, fx.signChild("child.1", creator, parentId, false, newChildLimits()), coordinatorproto.ErrChildSpacesLimitReached)
+	})
+	t.Run("the limit is counted across the parents of one owner", func(t *testing.T) {
+		fx := newChildFixture(t)
+		fx.newParent(t, parentId, owner)
+		fx.newParent(t, otherParentId, owner)
+		limits := newChildLimits().set(owner, 2)
+
+		require.NoError(t, fx.signChild("child.1", creator, parentId, false, limits))
+		require.NoError(t, fx.signChild("child.2", creator, otherParentId, false, limits))
+		require.ErrorIs(t, fx.signChild("child.3", creator, parentId, false, limits), coordinatorproto.ErrChildSpacesLimitReached)
+		require.ErrorIs(t, fx.signChild("child.3", creator, otherParentId, false, limits), coordinatorproto.ErrChildSpacesLimitReached)
+	})
+	t.Run("the children of another owner do not count", func(t *testing.T) {
+		fx := newChildFixture(t)
+		fx.newParent(t, parentId, owner)
+		fx.newParent(t, otherParentId, otherOwner)
+		limits := newChildLimits().set(owner, 1).set(otherOwner, 1)
+
+		require.NoError(t, fx.signChild("child.1", creator, otherParentId, false, limits))
+		require.NoError(t, fx.signChild("child.2", creator, parentId, false, limits))
+	})
+	t.Run("a repeated sign is not counted again and is not held by the limit", func(t *testing.T) {
+		fx := newChildFixture(t)
+		fx.newParent(t, parentId, owner)
+		limits := newChildLimits().set(owner, 2)
+
+		require.NoError(t, fx.signChild("child.1", creator, parentId, false, limits))
+		require.NoError(t, fx.signChild("child.1", creator, parentId, false, limits))
+		require.NoError(t, fx.signChild("child.1", creator, parentId, true, limits))
+		// one place is left
+		require.NoError(t, fx.signChild("child.2", creator, parentId, false, limits))
+
+		// the limit drops below what the owner has: the registered children stay signable
+		limits.set(owner, 0)
+		require.NoError(t, fx.signChild("child.1", creator, parentId, false, limits))
+		require.NoError(t, fx.signChild("child.2", creator, parentId, true, limits))
+		require.ErrorIs(t, fx.signChild("child.3", creator, parentId, false, limits), coordinatorproto.ErrChildSpacesLimitReached)
+	})
+	t.Run("a child holds its place while its deletion is pending", func(t *testing.T) {
+		fx := newChildFixture(t)
+		fx.newParent(t, parentId, owner)
+		limits := newChildLimits().set(owner, 1)
+
+		require.NoError(t, fx.signChild("child.1", creator, parentId, false, limits))
+		fx.setPending(t, "child.1", creator)
+		require.ErrorIs(t, fx.signChild("child.2", creator, parentId, false, limits), coordinatorproto.ErrChildSpacesLimitReached)
+
+		// a forced sign takes it back into the place it still holds
+		require.NoError(t, fx.signChild("child.1", creator, parentId, true, limits))
+		assert.Equal(t, SpaceStatusCreated, status(t, fx, "child.1"))
+	})
+	t.Run("a finally deleted child frees its place", func(t *testing.T) {
+		fx := newChildFixture(t)
+		fx.newParent(t, parentId, owner)
+		limits := newChildLimits().set(owner, 1)
+
+		require.NoError(t, fx.signChild("child.1", creator, parentId, false, limits))
+		fx.finalDelete(t, "child.1", SpaceStatusCreated)
+		require.NoError(t, fx.signChild("child.2", creator, parentId, false, limits))
+
+		// a forced sign of the deleted child needs a place again
+		require.ErrorIs(t, fx.signChild("child.1", creator, parentId, true, limits), coordinatorproto.ErrChildSpacesLimitReached)
+		assert.Equal(t, SpaceStatusDeleted, status(t, fx, "child.1"))
+		limits.set(owner, 2)
+		require.NoError(t, fx.signChild("child.1", creator, parentId, true, limits))
+		assert.Equal(t, SpaceStatusCreated, status(t, fx, "child.1"))
+	})
+	t.Run("the children of a parent follow a change of its owner", func(t *testing.T) {
+		fx := newChildFixture(t)
+		fx.newParent(t, parentId, owner)
+		fx.newParent(t, otherParentId, owner)
+		limits := newChildLimits().set(owner, 1).set(otherOwner, 1)
+
+		require.NoError(t, fx.signChild("child.1", creator, parentId, false, limits))
+		require.ErrorIs(t, fx.signChild("child.2", creator, otherParentId, false, limits), coordinatorproto.ErrChildSpacesLimitReached)
+
+		require.NoError(t, fx.ChangeOwner(ctx, parentId, otherOwner.Account()))
+
+		// the previous owner has its place back, the new owner's is taken
+		limits.asked = nil
+		require.NoError(t, fx.signChild("child.2", creator, otherParentId, false, limits))
+		require.ErrorIs(t, fx.signChild("child.3", creator, parentId, false, limits), coordinatorproto.ErrChildSpacesLimitReached)
+		assert.Equal(t, []string{owner.Account(), otherOwner.Account()}, limits.asked)
+	})
+	t.Run("a change of the child's owner moves nothing", func(t *testing.T) {
+		fx := newChildFixture(t)
+		fx.newParent(t, parentId, owner)
+		limits := newChildLimits().set(owner, 1).set(otherCreator, 100)
+
+		require.NoError(t, fx.signChild("child.1", creator, parentId, false, limits))
+		require.NoError(t, fx.ChangeOwner(ctx, "child.1", otherCreator.Account()))
+
+		child, err := fx.Status(ctx, "child.1")
+		require.NoError(t, err)
+		assert.Equal(t, otherCreator.Account(), child.Identity)
+		assert.Equal(t, parentId, child.ParentSpaceId)
+		require.ErrorIs(t, fx.signChild("child.2", creator, parentId, false, limits), coordinatorproto.ErrChildSpacesLimitReached)
+	})
+	t.Run("signs under one parent at the same time do not pass the limit", func(t *testing.T) {
+		fx := newChildFixture(t)
+		fx.newParent(t, parentId, owner)
+		const (
+			limit = 3
+			signs = 8
+		)
+		errs := make(chan error, signs)
+		for i := 0; i < signs; i++ {
+			go func() {
+				errs <- fx.NewChildStatus(ctx, fmt.Sprint("child.", i), creator, SpaceTypeRegular, anySpaceType, false, parentId,
+					func(context.Context, string) (uint32, error) { return limit, nil }, true)
+			}()
+		}
+		var signed int
+		for i := 0; i < signs; i++ {
+			if err := <-errs; err == nil {
+				signed++
+			} else {
+				require.ErrorIs(t, err, coordinatorproto.ErrChildSpacesLimitReached)
+			}
+		}
+		assert.Equal(t, limit, signed)
+	})
+	t.Run("an error of the limit refuses the child", func(t *testing.T) {
+		fx := newChildFixture(t)
+		fx.newParent(t, parentId, owner)
+		limitErr := errors.New("no limits")
+		err := fx.NewChildStatus(ctx, "child.1", creator, SpaceTypeRegular, anySpaceType, false, parentId, func(context.Context, string) (uint32, error) {
+			return 0, limitErr
+		}, true)
+		require.ErrorIs(t, err, limitErr)
+		_, err = fx.Status(ctx, "child.1")
+		require.ErrorIs(t, err, coordinatorproto.ErrSpaceNotExists)
+	})
+}
+
+func TestSpaceStatus_ChildShareable(t *testing.T) {
+	const (
+		parentId = "parent.id"
+		childId  = "child.id"
+		spaceId  = "space.id"
+	)
+	owner, creator := newIdentity(t), newIdentity(t)
+
+	t.Run("a child does not count against the shared spaces limit of its owner", func(t *testing.T) {
+		fx := newChildFixture(t)
+		fx.newParent(t, parentId, owner)
+		require.NoError(t, fx.newChild(childId, creator, parentId))
+		require.NoError(t, fx.NewStatus(ctx, spaceId, creator, SpaceTypeRegular, anySpaceType, false))
+
+		require.NoError(t, fx.MakeShareable(ctx, spaceId, SpaceTypeRegular, 1))
+		require.NoError(t, fx.NewStatus(ctx, "space.2", creator, SpaceTypeRegular, anySpaceType, false))
+		require.ErrorIs(t, fx.MakeShareable(ctx, "space.2", SpaceTypeRegular, 1), coordinatorproto.ErrSpaceLimitReached)
+	})
+	t.Run("a child does not count against the shared spaces limit of the parent's owner", func(t *testing.T) {
+		fx := newChildFixture(t)
+		fx.newParent(t, parentId, owner)
+		require.NoError(t, fx.newChild(childId, owner, parentId))
+		require.NoError(t, fx.MakeShareable(ctx, parentId, SpaceTypeRegular, 1))
+	})
+	t.Run("making a child shareable neither counts nor fails", func(t *testing.T) {
+		fx := newChildFixture(t)
+		fx.newParent(t, parentId, owner)
+		require.NoError(t, fx.newChild(childId, creator, parentId))
+
+		require.NoError(t, fx.MakeShareable(ctx, childId, SpaceTypeRegular, 0))
+		require.NoError(t, fx.MakeUnshareable(ctx, childId))
+		require.NoError(t, fx.MakeShareable(ctx, childId, SpaceTypeRegular, 0))
+		child, err := fx.Status(ctx, childId)
+		require.NoError(t, err)
+		assert.True(t, child.IsShareable)
+	})
 }
