@@ -26,6 +26,9 @@ type childRecord struct {
 	parentErr error
 	// author signed the record
 	author crypto.PubKey
+	// byParent is set when the record leans on the authority of the parent: its author does in the
+	// child what no permissions in the child allow
+	byParent bool
 }
 
 // newChildRecord reads the permissions in the parent before the acl of the child is locked for the
@@ -61,9 +64,82 @@ func recordAuthor(rec *consensusproto.RawRecord) (crypto.PubKey, error) {
 	return crypto.UnmarshalEd25519PublicKeyProto(record.Identity)
 }
 
+// authorize tells what the parent lets the author of the record do in the child: an Admin or the
+// Owner of the parent removes members, the Owner changes the owner.
+func (r *childRecord) authorize(author crypto.PubKey) (list.ParentAuthority, error) {
+	if r.parentErr != nil {
+		return list.ParentAuthority{}, r.parentErr
+	}
+	r.byParent = true
+	permissions := r.parent.of(author)
+	return list.ParentAuthority{
+		RemoveMembers: permissions.CanManageAccounts(),
+		ChangeOwner:   permissions.IsOwner(),
+	}, nil
+}
+
 // afterValid refuses a valid record that the parent does not allow.
 func (r *childRecord) afterValid(before, after *list.AclState) error {
-	return r.checkAdmission(before, after)
+	if err := r.checkAdmission(before, after); err != nil {
+		return err
+	}
+	if err := r.checkNewOwner(before, after); err != nil {
+		return err
+	}
+	if r.byParent {
+		return r.checkRemovalRank(before, after)
+	}
+	return nil
+}
+
+// refusal names the error of a record that failed validation. A record on the authority of the
+// parent that lacks permissions answers with the error of the parent: its author's role there is too
+// low. The Owner of the parent has every authority, so its record lacks them for another reason.
+func (r *childRecord) refusal(err error) error {
+	if r.byParent && !r.parent.of(r.author).IsOwner() && errors.Is(err, list.ErrInsufficientPermissions) {
+		return coordinatorproto.ErrParentPermissionDenied
+	}
+	return err
+}
+
+// checkRemovalRank refuses a removal on the authority of the parent of an account the author could
+// not remove from the parent itself: there only the Owner removes an Admin, and nobody the Owner.
+func (r *childRecord) checkRemovalRank(before, after *list.AclState) error {
+	if r.parent.of(r.author).IsOwner() {
+		return nil
+	}
+	for _, account := range before.CurrentAccounts() {
+		if account.Permissions.NoPermissions() || !after.Permissions(account.PubKey).NoPermissions() {
+			continue
+		}
+		if removed := r.parent.of(account.PubKey); removed.IsOwner() || removed.IsAdmin() {
+			return coordinatorproto.ErrParentPermissionDenied
+		}
+	}
+	return nil
+}
+
+// checkNewOwner refuses a record that makes an account the owner of the child when the account is
+// not a member of the parent, whoever writes it: the owner of the child or the Owner of the parent.
+func (r *childRecord) checkNewOwner(before, after *list.AclState) error {
+	previous, err := before.OwnerPubKey()
+	if err != nil {
+		return err
+	}
+	owner, err := after.OwnerPubKey()
+	if err != nil {
+		return err
+	}
+	if owner.Equals(previous) {
+		return nil
+	}
+	if r.parentErr != nil {
+		return r.parentErr
+	}
+	if !isMember(r.parent.of(owner)) {
+		return coordinatorproto.ErrNotParentMember
+	}
+	return nil
 }
 
 // isMember tells a member of a space from the identity of a guest key and from an account without

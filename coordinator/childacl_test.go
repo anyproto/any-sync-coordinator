@@ -7,6 +7,7 @@ import (
 	"github.com/anyproto/any-sync/commonspace/object/acl/list"
 	"github.com/anyproto/any-sync/consensus/consensusproto"
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
+	"github.com/anyproto/any-sync/net/rpc/rpcerr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -20,7 +21,7 @@ const testChildId = "child.id"
 type family struct {
 	*fixture
 	// accounts of the parent by their role in it
-	parentOwner, parentAdmin, parentWriter, parentReader *accountdata.AccountKeys
+	parentOwner, parentAdmin, otherAdmin, parentWriter, parentReader *accountdata.AccountKeys
 	// childOwner is a Writer of the parent
 	childOwner *accountdata.AccountKeys
 	// outsider is in neither space
@@ -32,6 +33,7 @@ func newFamily(t *testing.T) *family {
 		fixture:      newAclFixture(t),
 		parentOwner:  newAccount(t),
 		parentAdmin:  newAccount(t),
+		otherAdmin:   newAccount(t),
 		parentWriter: newAccount(t),
 		parentReader: newAccount(t),
 		childOwner:   newAccount(t),
@@ -40,7 +42,7 @@ func newFamily(t *testing.T) *family {
 	t.Cleanup(func() { f.finish(t) })
 
 	f.newAcl(t, testParentId, f.parentOwner)
-	f.putMembers(t, testParentId, f.parentOwner, list.AclPermissionsAdmin, f.parentAdmin)
+	f.putMembers(t, testParentId, f.parentOwner, list.AclPermissionsAdmin, f.parentAdmin, f.otherAdmin)
 	f.putMembers(t, testParentId, f.parentOwner, list.AclPermissionsWriter, f.parentWriter, f.childOwner)
 	f.putMembers(t, testParentId, f.parentOwner, list.AclPermissionsReader, f.parentReader)
 	f.newAcl(t, testChildId, f.childOwner)
@@ -91,6 +93,23 @@ func (f *family) addAs(t *testing.T, author *accountdata.AccountKeys, permission
 func (f *family) remove(t *testing.T, accounts ...*accountdata.AccountKeys) error {
 	rec, err := f.childBuilder(t, f.childOwner).BuildAccountRemove(removePayload(t, accounts...))
 	return f.addToChild(t, f.childOwner, rec, err)
+}
+
+// removeAsParent removes accounts from the child without a read key change, as an account that acts
+// on the authority of the parent
+func (f *family) removeAsParent(t *testing.T, author *accountdata.AccountKeys, accounts ...*accountdata.AccountKeys) error {
+	rec, err := f.childBuilder(t, author).BuildAccountRemoveNoRotate(pubKeys(accounts...))
+	return f.addToChild(t, author, rec, err)
+}
+
+// changeOwnerAsParent hands the child to one of its members, as an account that acts on the authority
+// of the parent
+func (f *family) changeOwnerAsParent(t *testing.T, author, newOwner *accountdata.AccountKeys) error {
+	rec, err := f.childBuilder(t, author).BuildOwnershipChangeByParent(list.OwnershipChangePayload{
+		NewOwner:            newOwner.SignKey.GetPublic(),
+		OldOwnerPermissions: list.AclPermissionsAdmin,
+	})
+	return f.addToChild(t, author, rec, err)
 }
 
 func (f *family) childPermissions(t *testing.T, account *accountdata.AccountKeys) list.AclPermissions {
@@ -285,9 +304,234 @@ func TestCoordinator_ChildAdmission(t *testing.T) {
 
 		require.ErrorIs(t, add(list.AclPermissionsReader), coordinatorproto.ErrParentSpaceNotAvailable)
 		require.NoError(t, add(list.AclPermissionsGuest))
+		// nobody has the authority of a parent whose acl cannot be read
+		keyless, err := fx.aclOf(t, testChildId, added).RecordBuilder().BuildAccountRemoveNoRotate(pubKeys(member))
+		_, err = fx.addRecord(t, testChildId, added, keyless, err)
+		require.ErrorIs(t, err, coordinatorproto.ErrParentSpaceNotAvailable)
 		rec, err := fx.aclOf(t, testChildId, owner).RecordBuilder().BuildAccountRemove(removePayload(t, member))
 		_, err = fx.addRecord(t, testChildId, owner, rec, err)
 		require.NoError(t, err)
 		assert.Equal(t, list.AclPermissionsNone, permissionsOf(fx.aclOf(t, testChildId, owner), member))
 	})
+}
+
+func TestCoordinator_ChildRemovalByParent(t *testing.T) {
+	// the child has members of every role of the parent
+	newFamilyWithMembers := func(t *testing.T) *family {
+		f := newFamily(t)
+		require.NoError(t, f.add(t, list.AclPermissionsWriter, f.parentWriter, f.parentReader, f.parentAdmin, f.otherAdmin, f.parentOwner))
+		return f
+	}
+
+	t.Run("the Owner of the parent removes a member without the read key", func(t *testing.T) {
+		f := newFamilyWithMembers(t)
+		require.NoError(t, f.removeAsParent(t, f.parentOwner, f.parentWriter))
+
+		child := f.aclOf(t, testChildId, f.childOwner)
+		assert.Equal(t, list.AclPermissionsNone, permissionsOf(child, f.parentWriter))
+		assert.True(t, child.AclState().RotationPending())
+
+		// the owner of the child, who holds the read key, ends the pending rotation
+		change := removePayload(t).Change
+		rec, err := child.RecordBuilder().BuildReadKeyChange(change)
+		require.NoError(t, f.addToChild(t, f.childOwner, rec, err))
+		assert.False(t, f.aclOf(t, testChildId, f.childOwner).AclState().RotationPending())
+	})
+	t.Run("an Admin of the parent removes a member without the read key", func(t *testing.T) {
+		f := newFamilyWithMembers(t)
+		require.NoError(t, f.removeAsParent(t, f.parentAdmin, f.parentWriter, f.parentReader))
+		assert.Equal(t, list.AclPermissionsNone, f.childPermissions(t, f.parentWriter))
+		assert.Equal(t, list.AclPermissionsNone, f.childPermissions(t, f.parentReader))
+	})
+	t.Run("an account below Admin in the parent removes nobody", func(t *testing.T) {
+		f := newFamilyWithMembers(t)
+		for name, author := range map[string]*accountdata.AccountKeys{
+			"a Writer of the parent": f.parentWriter,
+			"a Reader of the parent": f.parentReader,
+			"an outsider":            f.outsider,
+			// its permissions in the child give it no such removal
+			"the owner of the child": f.childOwner,
+		} {
+			removed := f.parentReader
+			if author == f.parentReader {
+				removed = f.parentWriter
+			}
+			require.ErrorIs(t, f.removeAsParent(t, author, removed), coordinatorproto.ErrParentPermissionDenied, name)
+			assert.Equal(t, list.AclPermissionsWriter, f.childPermissions(t, removed), name)
+		}
+	})
+	t.Run("nobody removes the owner of the child this way", func(t *testing.T) {
+		f := newFamilyWithMembers(t)
+		// the builder refuses the record; one sent past that check fares no better
+		rec, err := f.childBuilder(t, f.parentOwner).BuildAccountRemoveNoRotate(pubKeys(f.childOwner))
+		require.ErrorIs(t, err, list.ErrInsufficientPermissions)
+		err = f.addToChild(t, f.parentOwner, rec, nil)
+		require.ErrorIs(t, err, list.ErrInsufficientPermissions)
+		require.NotErrorIs(t, err, coordinatorproto.ErrParentPermissionDenied)
+		assert.Equal(t, list.AclPermissionsOwner, f.childPermissions(t, f.childOwner))
+	})
+	t.Run("a top-level space has no such removal", func(t *testing.T) {
+		f := newFamilyWithMembers(t)
+		f.expectSpace(spacestatus.StatusEntry{
+			SpaceId:     testParentId,
+			Identity:    f.parentOwner.SignKey.GetPublic().Account(),
+			IsShareable: true,
+		})
+		rec, err := f.aclOf(t, testParentId, f.parentOwner).RecordBuilder().BuildAccountRemoveNoRotate(pubKeys(f.parentReader))
+		_, err = f.addRecord(t, testParentId, f.parentOwner, rec, err)
+		require.ErrorIs(t, err, list.ErrInsufficientPermissions)
+		require.NotErrorIs(t, err, coordinatorproto.ErrParentPermissionDenied)
+	})
+
+	t.Run("an Admin of the parent does not remove the Owner or an Admin of the parent", func(t *testing.T) {
+		f := newFamilyWithMembers(t)
+		require.ErrorIs(t, f.removeAsParent(t, f.parentAdmin, f.otherAdmin), coordinatorproto.ErrParentPermissionDenied)
+		require.ErrorIs(t, f.removeAsParent(t, f.parentAdmin, f.parentOwner), coordinatorproto.ErrParentPermissionDenied)
+		// one such account refuses the whole record
+		require.ErrorIs(t, f.removeAsParent(t, f.parentAdmin, f.parentWriter, f.otherAdmin), coordinatorproto.ErrParentPermissionDenied)
+		for _, kept := range []*accountdata.AccountKeys{f.otherAdmin, f.parentOwner, f.parentWriter} {
+			assert.Equal(t, list.AclPermissionsWriter, f.childPermissions(t, kept))
+		}
+	})
+	t.Run("an Admin of the parent removes an account that left the parent", func(t *testing.T) {
+		f := newFamilyWithMembers(t)
+		f.putRemoval(t, testParentId, f.parentOwner, f.otherAdmin)
+		require.NoError(t, f.removeAsParent(t, f.parentAdmin, f.otherAdmin))
+		assert.Equal(t, list.AclPermissionsNone, f.childPermissions(t, f.otherAdmin))
+	})
+	t.Run("the Owner of the parent removes an Admin of the parent", func(t *testing.T) {
+		f := newFamilyWithMembers(t)
+		require.NoError(t, f.removeAsParent(t, f.parentOwner, f.parentAdmin, f.otherAdmin))
+		assert.Equal(t, list.AclPermissionsNone, f.childPermissions(t, f.parentAdmin))
+	})
+	t.Run("the owner of the child removes with the read key whoever the child's acl lets it", func(t *testing.T) {
+		f := newFamilyWithMembers(t)
+		require.NoError(t, f.remove(t, f.parentOwner, f.parentAdmin))
+		assert.Equal(t, list.AclPermissionsNone, f.childPermissions(t, f.parentOwner))
+		assert.Equal(t, list.AclPermissionsNone, f.childPermissions(t, f.parentAdmin))
+	})
+}
+
+func TestCoordinator_ChildOwnerChange(t *testing.T) {
+	newFamilyWithMembers := func(t *testing.T) *family {
+		f := newFamily(t)
+		require.NoError(t, f.add(t, list.AclPermissionsWriter, f.parentWriter, f.parentAdmin))
+		return f
+	}
+	// expectOwner expects the document of the child to take the new owner
+	expectOwner := func(f *family, newOwner *accountdata.AccountKeys) {
+		f.spaceStatus.EXPECT().ChangeOwner(gomock.Any(), testChildId, newOwner.SignKey.GetPublic().Account()).Return(nil)
+		f.deletionLog.EXPECT().AddOwnershipChange(gomock.Any(), testChildId, f.childOwner.SignKey.GetPublic().Account(), gomock.Any()).Return("logId", nil)
+	}
+
+	t.Run("the Owner of the parent hands the child to one of its members", func(t *testing.T) {
+		f := newFamilyWithMembers(t)
+		expectOwner(f, f.parentWriter)
+		require.NoError(t, f.changeOwnerAsParent(t, f.parentOwner, f.parentWriter))
+		assert.Equal(t, list.AclPermissionsOwner, f.childPermissions(t, f.parentWriter))
+		assert.Equal(t, list.AclPermissionsAdmin, f.childPermissions(t, f.childOwner))
+		// the Owner of the parent got nothing in the child
+		assert.Equal(t, list.AclPermissionsNone, f.childPermissions(t, f.parentOwner))
+	})
+	t.Run("the owner of the child hands it over itself", func(t *testing.T) {
+		f := newFamilyWithMembers(t)
+		expectOwner(f, f.parentWriter)
+		rec, err := f.childBuilder(t, f.childOwner).BuildOwnershipChange(list.OwnershipChangePayload{
+			NewOwner:            f.parentWriter.SignKey.GetPublic(),
+			OldOwnerPermissions: list.AclPermissionsWriter,
+		})
+		require.NoError(t, f.addToChild(t, f.childOwner, rec, err))
+		assert.Equal(t, list.AclPermissionsOwner, f.childPermissions(t, f.parentWriter))
+	})
+	t.Run("an account that is not the Owner of the parent changes no owner", func(t *testing.T) {
+		f := newFamilyWithMembers(t)
+		for name, author := range map[string]*accountdata.AccountKeys{
+			"an Admin of the parent":                      f.parentAdmin,
+			"an Admin of the parent outside of the child": f.otherAdmin,
+			"a Writer of the parent":                      f.parentWriter,
+			"an outsider":                                 f.outsider,
+		} {
+			require.ErrorIs(t, f.changeOwnerAsParent(t, author, f.parentWriter), coordinatorproto.ErrParentPermissionDenied, name)
+		}
+		assert.Equal(t, list.AclPermissionsOwner, f.childPermissions(t, f.childOwner))
+	})
+	t.Run("the new owner is a member of the parent, whoever hands the child over", func(t *testing.T) {
+		f := newFamilyWithMembers(t)
+		// the member of the child left the parent
+		f.putRemoval(t, testParentId, f.parentOwner, f.parentWriter)
+
+		require.ErrorIs(t, f.changeOwnerAsParent(t, f.parentOwner, f.parentWriter), coordinatorproto.ErrNotParentMember)
+		rec, err := f.childBuilder(t, f.childOwner).BuildOwnershipChange(list.OwnershipChangePayload{
+			NewOwner:            f.parentWriter.SignKey.GetPublic(),
+			OldOwnerPermissions: list.AclPermissionsAdmin,
+		})
+		require.ErrorIs(t, f.addToChild(t, f.childOwner, rec, err), coordinatorproto.ErrNotParentMember)
+		assert.Equal(t, list.AclPermissionsOwner, f.childPermissions(t, f.childOwner))
+		assert.Equal(t, list.AclPermissionsWriter, f.childPermissions(t, f.parentWriter))
+
+		// a member of the child that is in the parent takes it
+		expectOwner(f, f.parentAdmin)
+		require.NoError(t, f.changeOwnerAsParent(t, f.parentOwner, f.parentAdmin))
+	})
+	t.Run("the new owner is a member of the child", func(t *testing.T) {
+		f := newFamilyWithMembers(t)
+		// the builder refuses the record; one sent past that check fares no better
+		rec, err := f.childBuilder(t, f.parentOwner).BuildOwnershipChangeByParent(list.OwnershipChangePayload{
+			NewOwner:            f.parentReader.SignKey.GetPublic(),
+			OldOwnerPermissions: list.AclPermissionsAdmin,
+		})
+		require.Error(t, err)
+		err = f.addToChild(t, f.parentOwner, rec, nil)
+		require.Error(t, err)
+		require.NotErrorIs(t, err, coordinatorproto.ErrParentPermissionDenied)
+		assert.Equal(t, list.AclPermissionsOwner, f.childPermissions(t, f.childOwner))
+	})
+}
+
+// The refusals that come from the parent reach the client as registered coordinator errors.
+func TestRpcHandler_AclAddRecordChild(t *testing.T) {
+	f := newFamily(t)
+	require.NoError(t, f.add(t, list.AclPermissionsWriter, f.parentWriter, f.parentReader, f.otherAdmin))
+
+	// send sends the record of the child through the rpc handler and returns the code of its error
+	send := func(author *accountdata.AccountKeys, rec *consensusproto.RawRecord, buildErr error) uint64 {
+		require.NoError(t, buildErr)
+		payload, err := rec.MarshalVT()
+		require.NoError(t, err)
+		resp, err := f.drpcHandler.AclAddRecord(accountCtx(t, author.SignKey.GetPublic()), &coordinatorproto.AclAddRecordRequest{
+			SpaceId: testChildId,
+			Payload: payload,
+		})
+		require.Error(t, err)
+		assert.Nil(t, resp)
+		return rpcerr.Code(err)
+	}
+	code := func(c coordinatorproto.ErrorCodes) uint64 {
+		return uint64(coordinatorproto.ErrorCodes_ErrorOffset) + uint64(c)
+	}
+	removal := func(author, removed *accountdata.AccountKeys) uint64 {
+		rec, err := f.childBuilder(t, author).BuildAccountRemoveNoRotate(pubKeys(removed))
+		return send(author, rec, err)
+	}
+	ownerChange := func(author *accountdata.AccountKeys) uint64 {
+		rec, err := f.childBuilder(t, author).BuildOwnershipChangeByParent(list.OwnershipChangePayload{
+			NewOwner:            f.parentWriter.SignKey.GetPublic(),
+			OldOwnerPermissions: list.AclPermissionsAdmin,
+		})
+		return send(author, rec, err)
+	}
+	denied := code(coordinatorproto.ErrorCodes_ParentPermissionDenied)
+
+	assert.Equal(t, denied, removal(f.parentWriter, f.parentReader), "a removal by a Writer of the parent")
+	assert.Equal(t, denied, removal(f.outsider, f.parentReader), "a removal by an account that is not in the parent")
+	assert.Equal(t, denied, removal(f.parentAdmin, f.otherAdmin), "a removal of an Admin of the parent by another")
+	assert.Equal(t, denied, ownerChange(f.parentAdmin), "an owner change by an Admin of the parent")
+	assert.Equal(t, denied, ownerChange(f.outsider), "an owner change by an account that is not in the parent")
+
+	rec, err := f.childBuilder(t, f.childOwner).BuildAccountsAdd(list.AccountsAddPayload{Additions: []list.AccountAdd{{
+		Identity:    f.outsider.SignKey.GetPublic(),
+		Permissions: list.AclPermissionsReader,
+		Metadata:    []byte("metadata"),
+	}}})
+	assert.Equal(t, code(coordinatorproto.ErrorCodes_NotParentMember), send(f.childOwner, rec, err), "an account that is not in the parent added to the child")
 }

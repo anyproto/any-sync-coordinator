@@ -434,13 +434,21 @@ func (c *coordinator) AclAddRecord(ctx context.Context, spaceId string, payload 
 		return nil
 	}
 
+	opts := []acl.AddRecordOption{acl.WithAfterValid(afterValid)}
+	if child != nil {
+		// a top-level space has no parent to give anyone authority in it
+		opts = append(opts, acl.WithParentAuthorizer(child.authorize))
+	}
+
 	rawRecordWithId, err := c.acl.AddRecord(ctx, spaceId, rec, acl.Limits{
 		ReadMembers:  limits.SpaceMembersRead,
 		WriteMembers: limits.SpaceMembersWrite,
-	}, acl.WithAfterValid(afterValid))
+	}, opts...)
 	if err != nil {
 		if errors.Is(err, acl.ErrLimitExceed) {
 			err = coordinatorproto.ErrSpaceLimitReached
+		} else if child != nil {
+			err = child.refusal(err)
 		}
 		return
 	}
