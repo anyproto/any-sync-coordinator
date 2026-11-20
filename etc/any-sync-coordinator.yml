@@ -67,6 +67,9 @@ defaultLimits:
   spaceMembersRead: 1000
   spaceMembersWrite: 100
   sharedSpacesLimit: 10
+  # child spaces of all the spaces an account owns, for an account whose
+  # limits do not set it; without the key such an account can have none
+  childSpacesLimit: 10
   # files-v2 account storage pool for identities without an explicit
   # accountLimit document; must be non-zero on networks with fileV2 nodes
   fileStorageLimitBytes: 1073741824

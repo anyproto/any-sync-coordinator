@@ -180,7 +180,10 @@ func (r *rpcHandler) SpaceStatusCheckMany(ctx context.Context, req *coordinatorp
 		}
 		resp.Payloads = append(resp.Payloads, st)
 	}
-	resp.AccountLimits = &coordinatorproto.AccountLimits{SharedSpacesLimit: aLimits.SharedSpacesLimit}
+	resp.AccountLimits = &coordinatorproto.AccountLimits{
+		SharedSpacesLimit: aLimits.SharedSpacesLimit,
+		ChildSpacesLimit:  aLimits.ChildSpacesLimit,
+	}
 	return
 }
 

@@ -33,6 +33,7 @@ func TestRpcHandler_SpaceStatusCheckMany(t *testing.T) {
 			SpaceMembersRead:  4,
 			SpaceMembersWrite: 3,
 			SharedSpacesLimit: 2,
+			ChildSpacesLimit:  5,
 		}
 
 		fx.accountLimit.EXPECT().GetLimits(ctx, pubKey.Account()).Return(aLimits, nil)
@@ -54,6 +55,7 @@ func TestRpcHandler_SpaceStatusCheckMany(t *testing.T) {
 		require.NotNil(t, resp.AccountLimits)
 
 		assert.Equal(t, aLimits.SharedSpacesLimit, resp.AccountLimits.SharedSpacesLimit)
+		assert.Equal(t, aLimits.ChildSpacesLimit, resp.AccountLimits.ChildSpacesLimit)
 		assert.Equal(t, resp.Payloads[0].GetLimits().ReadMembers, aLimits.SpaceMembersRead)
 		assert.Equal(t, resp.Payloads[0].GetLimits().WriteMembers, aLimits.SpaceMembersWrite)
 		assert.Nil(t, resp.Payloads[1].GetLimits())

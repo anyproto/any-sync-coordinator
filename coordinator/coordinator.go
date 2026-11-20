@@ -301,6 +301,7 @@ func (c *coordinator) AccountLimitsSet(ctx context.Context, req *coordinatorprot
 		SpaceMembersRead:  req.SpaceMembersRead,
 		SpaceMembersWrite: req.SpaceMembersWrite,
 		SharedSpacesLimit: req.SharedSpacesLimit,
+		ChildSpacesLimit:  req.ChildSpacesLimit,
 	})
 }
 

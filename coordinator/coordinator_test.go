@@ -316,6 +316,41 @@ func TestCoordinator_AclAddRecord(t *testing.T) {
 	})
 }
 
+func TestCoordinator_AccountLimitsSet(t *testing.T) {
+	const peerId = "payment.peer"
+	peerCtx := peer.CtxWithPeerId(context.Background(), peerId)
+	req := &coordinatorproto.AccountLimitsSetRequest{
+		Identity:              "identity",
+		Reason:                "reason",
+		FileStorageLimitBytes: 1000,
+		SpaceMembersRead:      10,
+		SpaceMembersWrite:     5,
+		SharedSpacesLimit:     3,
+		ChildSpacesLimit:      7,
+	}
+	t.Run("only a payment node sets limits", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+		fx.nodeConf.EXPECT().NodeTypes(peerId).Return([]nodeconf.NodeType{nodeconf.NodeTypeTree})
+		require.ErrorIs(t, fx.AccountLimitsSet(peerCtx, req), coordinatorproto.ErrForbidden)
+	})
+	t.Run("every limit of the request is stored", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+		fx.nodeConf.EXPECT().NodeTypes(peerId).Return([]nodeconf.NodeType{nodeconf.NodeTypePaymentProcessingNode})
+		fx.accountLimit.EXPECT().SetLimits(peerCtx, accountlimit.Limits{
+			Identity:          "identity",
+			Reason:            "reason",
+			FileStorageBytes:  1000,
+			SpaceMembersRead:  10,
+			SpaceMembersWrite: 5,
+			SharedSpacesLimit: 3,
+			ChildSpacesLimit:  7,
+		}).Return(nil)
+		require.NoError(t, fx.AccountLimitsSet(peerCtx, req))
+	})
+}
+
 func TestCoordinator_AclGetRecords(t *testing.T) {
 	var (
 		spaceId = "space.id"
