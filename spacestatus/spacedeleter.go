@@ -69,6 +69,9 @@ type StatusEntry struct {
 	IsShareable          bool      `bson:"isShareable"`
 	// ParentSpaceId is the parent space of a child space, empty for a top-level space
 	ParentSpaceId string `bson:"parentSpaceId,omitempty"`
+	// DeletedByParentOwner marks a child whose deletion was made by the owner of its parent. The owner
+	// of the child does not take such a deletion back.
+	DeletedByParentOwner bool `bson:"deletedByParentOwner,omitempty"`
 }
 
 type spaceDeleter struct {

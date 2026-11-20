@@ -36,6 +36,8 @@ type StatusChange struct {
 	PeerId               string
 	SpaceId              string
 	NetworkId            string
+	// ByParentOwner tells that a deletion is made by the owner of the parent of the space
+	ByParentOwner bool
 }
 
 type AccountInfo struct {
@@ -171,6 +173,7 @@ type modifyStatusOp struct {
 		DeletionPayload      *[]byte                               `bson:"deletionPayload,omitempty"`
 		DeletionTimestamp    *int64                                `bson:"deletionTimestamp,omitempty"`
 		ToBeDeletedTimestamp *int64                                `bson:"toBeDeletedTimestamp,omitempty"`
+		DeletedByParentOwner *bool                                 `bson:"deletedByParentOwner,omitempty"`
 	} `bson:"$set"`
 }
 
@@ -263,11 +266,12 @@ func (s *spaceStatus) AccountRevertDeletion(ctx context.Context, payload Account
 		if !s.accountStatusFindTx(txCtx, identity, SpaceStatusDeletionPending) {
 			return coordinatorproto.ErrUnexpected
 		}
-		status := SpaceStatusDeletionPending
-		// Find all spaces with SpaceStatusDeletionPending status for the given identity
-		cursor, err := s.spaces.Find(txCtx, findStatusQuery{
-			Status:   &status,
-			Identity: identity,
+		// Find all spaces with SpaceStatusDeletionPending status for the given identity. A child that
+		// the owner of its parent deleted is not among them: its owner does not take that deletion back.
+		cursor, err := s.spaces.Find(txCtx, bson.M{
+			"status":               SpaceStatusDeletionPending,
+			"identity":             identity,
+			"deletedByParentOwner": bson.M{"$ne": true},
 		})
 		if err != nil {
 			return unexpectedOrTransient(err)
@@ -317,7 +321,8 @@ func (s *spaceStatus) SpaceDelete(ctx context.Context, payload SpaceDeletion) (t
 			return coordinatorproto.ErrUnexpected
 		}
 		identity := payload.Identity
-		if entry.ParentSpaceId != "" && entry.ParentSpaceId == payload.OwnerOfParent {
+		byParentOwner := entry.ParentSpaceId != "" && entry.ParentSpaceId == payload.OwnerOfParent
+		if byParentOwner {
 			// without an identity the document is matched whoever owns the child
 			identity = nil
 		}
@@ -332,6 +337,7 @@ func (s *spaceStatus) SpaceDelete(ctx context.Context, payload SpaceDeletion) (t
 			ToBeDeletedTimestamp: toBeDeletedTimestamp,
 			DeletionTimestamp:    deletionTimestamp,
 			SpaceId:              payload.SpaceId,
+			ByParentOwner:        byParentOwner,
 		}
 		if _, err = s.setStatusTx(txCtx, change, SpaceStatusCreated); err != nil {
 			return err
@@ -348,6 +354,11 @@ func (s *spaceStatus) ChangeStatus(ctx context.Context, change StatusChange) (en
 	switch change.Status {
 	case SpaceStatusCreated:
 		err = s.db.Tx(ctx, func(txCtx mongo.SessionContext) error {
+			// the owner of a child does not take back a deletion that the owner of the parent made
+			if current, err := s.getEntryTx(txCtx, change.SpaceId); err == nil && current.DeletedByParentOwner &&
+				change.Identity != nil && current.Identity == change.Identity.Account() {
+				return coordinatorproto.ErrParentPermissionDenied
+			}
 			if entry, err = s.setStatusTx(txCtx, change, SpaceStatusDeletionPending); err != nil {
 				return err
 			}
@@ -429,6 +440,9 @@ func (s *spaceStatus) modifyStatus(ctx context.Context, change StatusChange, old
 		op.Set.DeletionPayloadType = &change.DeletionPayloadType
 		op.Set.DeletionTimestamp = &change.DeletionTimestamp
 		op.Set.ToBeDeletedTimestamp = &change.ToBeDeletedTimestamp
+		if change.ByParentOwner {
+			op.Set.DeletedByParentOwner = &change.ByParentOwner
+		}
 	case SpaceStatusCreated:
 		// setting deletion data to empty values
 		emptyPayload := []byte(nil)
@@ -553,9 +567,9 @@ func (s *spaceStatus) NewChildStatus(ctx context.Context, spaceId string, identi
 // TakesChildPlace tells whether a sign registers a child anew and so takes a place, under its parent
 // and in the limit of the parent's owner: the child is not registered, or its deletion is final and
 // the sign is forced, which takes it back. A registered child holds its place until its deletion is
-// final, and a sign of it takes none.
+// final, and a sign of it takes none. No sign takes back a child that the owner of its parent deleted.
 func TakesChildPlace(registered bool, child StatusEntry, force bool) bool {
-	return !registered || (force && child.Status == SpaceStatusDeleted)
+	return !registered || (force && child.Status == SpaceStatusDeleted && !child.DeletedByParentOwner)
 }
 
 // parentTx returns the parent of a space that is being registered, if it can take the child. Its
@@ -660,7 +674,8 @@ func (s *spaceStatus) newStatus(ctx context.Context, spaceId string, identity cr
 			}
 		}
 		if !inserted {
-			if force {
+			// a forced sign takes a deleted space back, but not a child that the owner of its parent deleted
+			if force && !entry.DeletedByParentOwner {
 				_, err = s.setStatusTx(txCtx, StatusChange{
 					Identity: identity,
 					Status:   SpaceStatusCreated,

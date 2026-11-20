@@ -521,6 +521,47 @@ func TestSpaceStatus_DeleteParentAndChild(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, SpaceStatusDeletionPending, child.Status)
 		assert.Equal(t, creator.Account(), child.Identity)
+		assert.True(t, child.DeletedByParentOwner)
+	})
+	t.Run("the owner of a child does not take back a deletion that the owner of the parent made", func(t *testing.T) {
+		fx := newFamily(t)
+		require.NoError(t, fx.NewStatus(ctx, "tech.id", creator, SpaceTypeTech, anyTechSpaceType, false))
+		require.NoError(t, fx.NewStatus(ctx, "own.id", creator, SpaceTypeRegular, anySpaceType, false))
+		_, err := fx.SpaceDelete(ctx, deletion(childId, owner, parentId))
+		require.NoError(t, err)
+
+		// not by a forced sign
+		require.ErrorIs(t, fx.forceChild(childId, creator, parentId), coordinatorproto.ErrSpaceIsDeleted)
+		// not by the status change
+		_, err = fx.ChangeStatus(ctx, StatusChange{Identity: creator, Status: SpaceStatusCreated, SpaceId: childId})
+		require.ErrorIs(t, err, coordinatorproto.ErrParentPermissionDenied)
+		// not by the revert of the deletion of its account, which takes back the rest
+		_, err = fx.AccountDelete(ctx, AccountDeletion{AccountInfo: AccountInfo{Identity: creator}})
+		require.NoError(t, err)
+		require.NoError(t, fx.AccountRevertDeletion(ctx, AccountInfo{Identity: creator}))
+		assert.Equal(t, SpaceStatusCreated, status(t, fx, "own.id"))
+		assert.Equal(t, SpaceStatusDeletionPending, status(t, fx, childId))
+
+		// nor once the deletion is final, when a forced sign takes back any other space
+		fx.finalDelete(t, childId, SpaceStatusDeletionPending)
+		require.ErrorIs(t, fx.forceChild(childId, creator, parentId), coordinatorproto.ErrSpaceIsDeleted)
+		assert.Equal(t, SpaceStatusDeleted, status(t, fx, childId))
+	})
+	t.Run("the owner of a child takes back a deletion it made", func(t *testing.T) {
+		fx := newFamily(t)
+		_, err := fx.SpaceDelete(ctx, deletion(childId, creator, ""))
+		require.NoError(t, err)
+		child, err := fx.Status(ctx, childId)
+		require.NoError(t, err)
+		assert.False(t, child.DeletedByParentOwner)
+		require.NoError(t, fx.forceChild(childId, creator, parentId))
+		assert.Equal(t, SpaceStatusCreated, status(t, fx, childId))
+
+		_, err = fx.SpaceDelete(ctx, deletion(childId, creator, ""))
+		require.NoError(t, err)
+		_, err = fx.ChangeStatus(ctx, StatusChange{Identity: creator, Status: SpaceStatusCreated, SpaceId: childId})
+		require.NoError(t, err)
+		assert.Equal(t, SpaceStatusCreated, status(t, fx, childId))
 	})
 	t.Run("the owner of a space that is not the parent deletes no child", func(t *testing.T) {
 		fx := newFamily(t)
