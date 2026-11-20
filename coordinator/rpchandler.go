@@ -608,3 +608,7 @@ func (r *rpcHandler) FileUsageReport(ctx context.Context, req *coordinatorproto.
 	}
 	return &coordinatorproto.FileUsageReportResponse{}, nil
 }
+
+func (r *rpcHandler) SpaceChildren(ctx context.Context, req *coordinatorproto.SpaceChildrenRequest) (*coordinatorproto.SpaceChildrenResponse, error) {
+	return (&coordinatorproto.DRPCCoordinatorUnimplementedServer{}).SpaceChildren(ctx, req)
+}
