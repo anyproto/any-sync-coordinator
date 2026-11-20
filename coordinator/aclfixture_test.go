@@ -172,6 +172,24 @@ func (fx *fixture) putMembers(t *testing.T, spaceId string, owner *accountdata.A
 	fx.put(t, spaceId, rec, err)
 }
 
+// removePayload removes the accounts and changes the read key to a new one
+func removePayload(t *testing.T, accounts ...*accountdata.AccountKeys) list.AccountRemovePayload {
+	metadataKey, _, err := crypto.GenerateRandomEd25519KeyPair()
+	require.NoError(t, err)
+	readKey, err := crypto.NewRandomAES()
+	require.NoError(t, err)
+	return list.AccountRemovePayload{
+		Identities: pubKeys(accounts...),
+		Change:     list.ReadKeyChangePayload{MetadataKey: metadataKey, ReadKey: readKey},
+	}
+}
+
+// putRemoval removes accounts from the acl, as its owner does
+func (fx *fixture) putRemoval(t *testing.T, spaceId string, owner *accountdata.AccountKeys, accounts ...*accountdata.AccountKeys) {
+	rec, err := fx.aclOf(t, spaceId, owner).RecordBuilder().BuildAccountRemove(removePayload(t, accounts...))
+	fx.put(t, spaceId, rec, err)
+}
+
 // addRecord sends the record to the coordinator as the account, then lets the network deliver it
 func (fx *fixture) addRecord(t *testing.T, spaceId string, author *accountdata.AccountKeys, rec *consensusproto.RawRecord, buildErr error) (*consensusproto.RawRecordWithId, error) {
 	require.NoError(t, buildErr)

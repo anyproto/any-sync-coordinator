@@ -413,12 +413,25 @@ func (c *coordinator) AclAddRecord(ctx context.Context, spaceId string, payload 
 		return nil, err
 	}
 
+	// a record of a child space is also checked against the parent of the space
+	var child *childRecord
+	if statusEntry.ParentSpaceId != "" {
+		if child, err = c.newChildRecord(ctx, statusEntry.ParentSpaceId, rec); err != nil {
+			return nil, err
+		}
+	}
+
 	// the owner is taken from the state the record leads to: the cached acl takes the record in only
 	// when the consensus node sends it back, which can be after this call returns
 	var owner crypto.PubKey
-	afterValid := func(_, after *list.AclState) (err error) {
-		owner, err = after.OwnerPubKey()
-		return err
+	afterValid := func(before, after *list.AclState) (err error) {
+		if owner, err = after.OwnerPubKey(); err != nil {
+			return err
+		}
+		if child != nil {
+			return child.afterValid(before, after)
+		}
+		return nil
 	}
 
 	rawRecordWithId, err := c.acl.AddRecord(ctx, spaceId, rec, acl.Limits{
