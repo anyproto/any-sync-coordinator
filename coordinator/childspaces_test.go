@@ -416,3 +416,66 @@ func TestCoordinator_SpaceDeleteChild(t *testing.T) {
 		require.ErrorIs(t, err, coordinatorproto.ErrSpaceNotExists)
 	})
 }
+
+func TestRpcHandler_SpaceChildren(t *testing.T) {
+	caller := newAccount(t).SignKey.GetPublic()
+	listCtx := accountCtx(t, caller)
+	req := &coordinatorproto.SpaceChildrenRequest{SpaceId: testParentId}
+
+	t.Run("an Admin or the Owner of the space gets its children with their status", func(t *testing.T) {
+		for _, permissions := range []list.AclPermissions{list.AclPermissionsAdmin, list.AclPermissionsOwner} {
+			fx := newFixture(t)
+			fx.spaceStatus.EXPECT().Status(listCtx, testParentId).Return(parentEntry(nil), nil)
+			fx.acl.EXPECT().Permissions(listCtx, isKey(caller), testParentId).Return(permissions, nil)
+			fx.spaceStatus.EXPECT().Children(listCtx, testParentId).Return([]spacestatus.StatusEntry{
+				{SpaceId: "child.1", Status: spacestatus.SpaceStatusCreated, ParentSpaceId: testParentId},
+				{SpaceId: "child.2", Status: spacestatus.SpaceStatusDeletionPending, ParentSpaceId: testParentId},
+			}, nil)
+
+			resp, err := fx.drpcHandler.SpaceChildren(listCtx, req)
+			require.NoError(t, err)
+			require.Len(t, resp.Children, 2)
+			assert.Equal(t, "child.1", resp.Children[0].SpaceId)
+			assert.Equal(t, coordinatorproto.SpaceStatus_SpaceStatusCreated, resp.Children[0].Status)
+			assert.Equal(t, "child.2", resp.Children[1].SpaceId)
+			assert.Equal(t, coordinatorproto.SpaceStatus_SpaceStatusPendingDeletion, resp.Children[1].Status)
+			fx.finish(t)
+		}
+	})
+	t.Run("a space without children answers with an empty list", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+		fx.spaceStatus.EXPECT().Status(listCtx, testParentId).Return(parentEntry(nil), nil)
+		fx.acl.EXPECT().Permissions(listCtx, isKey(caller), testParentId).Return(list.AclPermissionsOwner, nil)
+		fx.spaceStatus.EXPECT().Children(listCtx, testParentId).Return(nil, nil)
+
+		resp, err := fx.drpcHandler.SpaceChildren(listCtx, req)
+		require.NoError(t, err)
+		assert.Empty(t, resp.Children)
+	})
+	t.Run("an account below Admin gets no list", func(t *testing.T) {
+		for _, permissions := range []list.AclPermissions{list.AclPermissionsWriter, list.AclPermissionsReader, list.AclPermissionsGuest, list.AclPermissionsNone} {
+			fx := newFixture(t)
+			fx.spaceStatus.EXPECT().Status(listCtx, testParentId).Return(parentEntry(nil), nil)
+			fx.acl.EXPECT().Permissions(listCtx, isKey(caller), testParentId).Return(permissions, nil)
+
+			resp, err := fx.drpcHandler.SpaceChildren(listCtx, req)
+			require.ErrorIs(t, err, coordinatorproto.ErrParentPermissionDenied)
+			assert.Nil(t, resp)
+			fx.finish(t)
+		}
+	})
+	t.Run("a space that is deleted or does not exist has no list", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+		fx.spaceStatus.EXPECT().Status(listCtx, testParentId).Return(parentEntry(func(e *spacestatus.StatusEntry) {
+			e.Status = spacestatus.SpaceStatusDeletionPending
+		}), nil)
+		_, err := fx.drpcHandler.SpaceChildren(listCtx, req)
+		require.ErrorIs(t, err, coordinatorproto.ErrSpaceIsDeleted)
+
+		fx.spaceStatus.EXPECT().Status(listCtx, testParentId).Return(spacestatus.StatusEntry{}, coordinatorproto.ErrSpaceNotExists)
+		_, err = fx.drpcHandler.SpaceChildren(listCtx, req)
+		require.ErrorIs(t, err, coordinatorproto.ErrSpaceNotExists)
+	})
+}

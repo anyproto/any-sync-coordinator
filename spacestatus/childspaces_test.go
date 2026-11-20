@@ -601,6 +601,45 @@ func TestSpaceStatus_DeleteParentAndChild(t *testing.T) {
 	})
 }
 
+func TestSpaceStatus_Children(t *testing.T) {
+	const (
+		parentId      = "parent.id"
+		otherParentId = "otherParent.id"
+	)
+	owner, creator := newIdentity(t), newIdentity(t)
+	fx := newChildFixture(t)
+	fx.newParent(t, parentId, owner)
+	fx.newParent(t, otherParentId, owner)
+	for _, childId := range []string{"child.3", "child.1", "child.2", "child.4"} {
+		require.NoError(t, fx.newChild(childId, creator, parentId))
+	}
+	require.NoError(t, fx.newChild("otherChild.1", creator, otherParentId))
+	fx.setPending(t, "child.2", creator)
+	fx.finalDelete(t, "child.3", SpaceStatusCreated)
+
+	children, err := fx.Children(ctx, parentId)
+	require.NoError(t, err)
+	type child struct {
+		id     string
+		status int
+	}
+	var got []child
+	for _, entry := range children {
+		assert.Equal(t, parentId, entry.ParentSpaceId)
+		got = append(got, child{entry.SpaceId, entry.Status})
+	}
+	// a child is listed with its status until its deletion is final
+	assert.Equal(t, []child{
+		{"child.1", SpaceStatusCreated},
+		{"child.2", SpaceStatusDeletionPending},
+		{"child.4", SpaceStatusCreated},
+	}, got)
+
+	children, err = fx.Children(ctx, "child.1")
+	require.NoError(t, err)
+	assert.Empty(t, children)
+}
+
 func TestSpaceStatus_AccountDeleteWithChildren(t *testing.T) {
 	const (
 		techId   = "tech.id"

@@ -102,6 +102,21 @@ func (mr *MockSpaceStatusMockRecorder) ChangeStatus(ctx, change any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ChangeStatus", reflect.TypeOf((*MockSpaceStatus)(nil).ChangeStatus), ctx, change)
 }
 
+// Children mocks base method.
+func (m *MockSpaceStatus) Children(ctx context.Context, parentSpaceId string) ([]spacestatus.StatusEntry, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Children", ctx, parentSpaceId)
+	ret0, _ := ret[0].([]spacestatus.StatusEntry)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Children indicates an expected call of Children.
+func (mr *MockSpaceStatusMockRecorder) Children(ctx, parentSpaceId any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Children", reflect.TypeOf((*MockSpaceStatus)(nil).Children), ctx, parentSpaceId)
+}
+
 // Close mocks base method.
 func (m *MockSpaceStatus) Close(ctx context.Context) error {
 	m.ctrl.T.Helper()

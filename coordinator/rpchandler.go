@@ -612,6 +612,28 @@ func (r *rpcHandler) FileUsageReport(ctx context.Context, req *coordinatorproto.
 	return &coordinatorproto.FileUsageReportResponse{}, nil
 }
 
-func (r *rpcHandler) SpaceChildren(ctx context.Context, req *coordinatorproto.SpaceChildrenRequest) (*coordinatorproto.SpaceChildrenResponse, error) {
-	return (&coordinatorproto.DRPCCoordinatorUnimplementedServer{}).SpaceChildren(ctx, req)
+func (r *rpcHandler) SpaceChildren(ctx context.Context, req *coordinatorproto.SpaceChildrenRequest) (resp *coordinatorproto.SpaceChildrenResponse, err error) {
+	st := time.Now()
+	defer func() {
+		r.c.metric.RequestLog(ctx, "coordinator.spaceChildren",
+			metric.TotalDur(time.Since(st)),
+			metric.SpaceId(req.SpaceId),
+			zap.String("addr", peer.CtxPeerAddr(ctx)),
+			zap.Error(err),
+		)
+	}()
+	children, err := r.c.SpaceChildren(ctx, req.SpaceId)
+	if err != nil {
+		return nil, err
+	}
+	resp = &coordinatorproto.SpaceChildrenResponse{
+		Children: make([]*coordinatorproto.SpaceChild, 0, len(children)),
+	}
+	for _, child := range children {
+		resp.Children = append(resp.Children, &coordinatorproto.SpaceChild{
+			SpaceId: child.SpaceId,
+			Status:  coordinatorproto.SpaceStatus(child.Status),
+		})
+	}
+	return resp, nil
 }

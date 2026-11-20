@@ -512,6 +512,30 @@ func (c *coordinator) AclAddRecord(ctx context.Context, spaceId string, payload 
 	return rawRecordWithId, nil
 }
 
+// SpaceChildren lists the children of a space for an Admin or the Owner of that space. A member below
+// that sees only the children it belongs to, in its own list of spaces.
+func (c *coordinator) SpaceChildren(ctx context.Context, spaceId string) (children []spacestatus.StatusEntry, err error) {
+	accountPubKey, err := peer.CtxPubKey(ctx)
+	if err != nil {
+		return
+	}
+	statusEntry, err := c.spaceStatus.Status(ctx, spaceId)
+	if err != nil {
+		return
+	}
+	if statusEntry.Status != spacestatus.SpaceStatusCreated {
+		return nil, coordinatorproto.ErrSpaceIsDeleted
+	}
+	permissions, err := c.acl.Permissions(ctx, accountPubKey, spaceId)
+	if err != nil {
+		return
+	}
+	if !permissions.CanManageAccounts() {
+		return nil, coordinatorproto.ErrParentPermissionDenied
+	}
+	return c.spaceStatus.Children(ctx, spaceId)
+}
+
 func (c *coordinator) AclGetRecords(ctx context.Context, spaceId, aclHead string) (result []*consensusproto.RawRecordWithId, err error) {
 	statusEntry, err := c.spaceStatus.Status(ctx, spaceId)
 	if err != nil {

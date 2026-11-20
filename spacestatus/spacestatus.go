@@ -113,6 +113,8 @@ type SpaceStatus interface {
 	AccountDelete(ctx context.Context, payload AccountDeletion) (toBeDeleted int64, err error)
 	AccountRevertDeletion(ctx context.Context, payload AccountInfo) (err error)
 	Status(ctx context.Context, spaceId string) (entry StatusEntry, err error)
+	// Children returns the children of a space, each until its deletion is final
+	Children(ctx context.Context, parentSpaceId string) (children []StatusEntry, err error)
 
 	MakeShareable(ctx context.Context, spaceId string, spaceType SpaceType, limit uint32) (err error)
 	MakeUnshareable(ctx context.Context, spaceId string) (err error)
@@ -492,6 +494,17 @@ func (s *spaceStatus) Status(ctx context.Context, spaceId string) (entry StatusE
 	}
 	err = res.Decode(&entry)
 	return
+}
+
+func (s *spaceStatus) Children(ctx context.Context, parentSpaceId string) (children []StatusEntry, err error) {
+	cur, err := s.spaces.Find(ctx, childrenQuery(parentSpaceId), options.Find().SetSort(bson.M{"_id": 1}))
+	if err != nil {
+		return nil, unexpectedOrTransient(err)
+	}
+	if err = cur.All(ctx, &children); err != nil {
+		return nil, unexpectedOrTransient(err)
+	}
+	return children, nil
 }
 
 func (s *spaceStatus) accountStatusFindTx(txCtx mongo.SessionContext, identity string, status int) (found bool) {
