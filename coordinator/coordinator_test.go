@@ -234,39 +234,10 @@ func TestCoordinator_AclAddRecord(t *testing.T) {
 		fx.acl.EXPECT().AddRecord(ctx, spaceId, rec, acl.Limits{
 			ReadMembers:  4,
 			WriteMembers: 2,
-		}).Return(nil, acl.ErrLimitExceed)
+		}, gomock.Any()).Return(nil, acl.ErrLimitExceed)
 
 		_, err := fx.AclAddRecord(ctx, spaceId, recBytes)
 		require.ErrorIs(t, err, coordinatorproto.ErrSpaceLimitReached)
-	})
-	t.Run("success", func(t *testing.T) {
-		fx := newFixture(t)
-		defer fx.finish(t)
-
-		fx.spaceStatus.EXPECT().Status(ctx, spaceId).Return(spacestatus.StatusEntry{
-			SpaceId:     spaceId,
-			Identity:    pubKey.Account(),
-			IsShareable: true,
-		}, nil)
-		fx.accountLimit.EXPECT().GetLimitsBySpace(ctx, spaceId).Return(accountlimit.SpaceLimits{
-			SpaceMembersRead:  4,
-			SpaceMembersWrite: 2,
-		}, nil)
-		rawRec := &consensusproto.RawRecordWithId{
-			Payload: recBytes,
-			Id:      "id",
-		}
-		fx.acl.EXPECT().AddRecord(ctx, spaceId, rec, acl.Limits{
-			ReadMembers:  4,
-			WriteMembers: 2,
-		}).Return(rawRec, nil)
-		fx.aclEventLog.EXPECT().AddLog(ctx, gomock.Any()).Return(nil)
-
-		fx.acl.EXPECT().OwnerPubKey(ctx, spaceId).Return(pubKey, nil)
-
-		res, err := fx.AclAddRecord(ctx, spaceId, recBytes)
-		require.NoError(t, err)
-		assert.Equal(t, rawRec, res)
 	})
 	t.Run("space deleted", func(t *testing.T) {
 		fx := newFixture(t)
@@ -280,39 +251,63 @@ func TestCoordinator_AclAddRecord(t *testing.T) {
 		_, err := fx.AclAddRecord(ctx, spaceId, recBytes)
 		require.ErrorIs(t, err, coordinatorproto.ErrSpaceIsDeleted)
 	})
-	t.Run("change owner", func(t *testing.T) {
-		fx := newFixture(t)
-		defer fx.finish(t)
+}
 
-		fx.spaceStatus.EXPECT().Status(ctx, spaceId).Return(spacestatus.StatusEntry{
+func TestCoordinator_AclAddRecordOwner(t *testing.T) {
+	const spaceId = "space.id"
+	owner, member := newAccount(t), newAccount(t)
+
+	newSpace := func(t *testing.T) *fixture {
+		fx := newAclFixture(t)
+		t.Cleanup(func() { fx.finish(t) })
+		fx.newAcl(t, spaceId, owner)
+		fx.putMembers(t, spaceId, owner, list.AclPermissionsWriter, member)
+		fx.expectSpace(spacestatus.StatusEntry{
 			SpaceId:     spaceId,
-			Identity:    pubKey.Account(),
+			Identity:    owner.SignKey.GetPublic().Account(),
 			IsShareable: true,
-		}, nil)
-		fx.accountLimit.EXPECT().GetLimitsBySpace(ctx, spaceId).Return(accountlimit.SpaceLimits{
-			SpaceMembersRead:  4,
-			SpaceMembersWrite: 2,
-		}, nil)
-		rawRec := &consensusproto.RawRecordWithId{
-			Payload: recBytes,
-			Id:      "id",
-		}
-		fx.acl.EXPECT().AddRecord(ctx, spaceId, rec, acl.Limits{
-			ReadMembers:  4,
-			WriteMembers: 2,
-		}).Return(rawRec, nil)
-		fx.aclEventLog.EXPECT().AddLog(ctx, gomock.Any()).Return(nil)
+		})
+		return fx
+	}
 
-		_, newPubKey, err := crypto.GenerateRandomEd25519KeyPair()
+	t.Run("a record that keeps the owner leaves the document as it is", func(t *testing.T) {
+		fx := newSpace(t)
+		fx.aclEventLog.EXPECT().AddLog(gomock.Any(), gomock.Any()).Return(nil)
+
+		rec, err := fx.aclOf(t, spaceId, owner).RecordBuilder().BuildPermissionChange(list.PermissionChangePayload{
+			Identity:    member.SignKey.GetPublic(),
+			Permissions: list.AclPermissionsReader,
+		})
+		added, err := fx.addRecord(t, spaceId, owner, rec, err)
+		require.NoError(t, err)
+		assert.Equal(t, list.AclPermissionsReader, permissionsOf(fx.aclOf(t, spaceId, owner), member))
+		assert.Equal(t, fx.consensus.log(spaceId)[2], added)
+	})
+	t.Run("the document takes the owner the record leads to before the network sends the record back", func(t *testing.T) {
+		fx := newSpace(t)
+		fx.aclEventLog.EXPECT().AddLog(gomock.Any(), gomock.Any()).Return(nil)
+
+		rec, err := fx.aclOf(t, spaceId, owner).RecordBuilder().BuildOwnershipChange(list.OwnershipChangePayload{
+			NewOwner:            member.SignKey.GetPublic(),
+			OldOwnerPermissions: list.AclPermissionsAdmin,
+		})
+		require.NoError(t, err)
+		payload, err := rec.MarshalVT()
 		require.NoError(t, err)
 
-		fx.acl.EXPECT().OwnerPubKey(ctx, spaceId).Return(newPubKey, nil)
-		fx.spaceStatus.EXPECT().ChangeOwner(ctx, spaceId, newPubKey.Account())
-		fx.deletionLog.EXPECT().AddOwnershipChange(ctx, spaceId, pubKey.Account(), rawRec.Id).Return("logId", nil)
-
-		res, err := fx.AclAddRecord(ctx, spaceId, recBytes)
+		fx.spaceStatus.EXPECT().ChangeOwner(gomock.Any(), spaceId, member.SignKey.GetPublic().Account()).Return(nil)
+		fx.deletionLog.EXPECT().AddOwnershipChange(gomock.Any(), spaceId, owner.SignKey.GetPublic().Account(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, _, _, recordId string) (string, error) {
+				assert.Equal(t, fx.consensus.log(spaceId)[2].Id, recordId)
+				return "logId", nil
+			})
+		// the acl service has not seen the record yet when the call returns
+		changed, err := fx.AclAddRecord(accountCtx(t, owner.SignKey.GetPublic()), spaceId, payload)
 		require.NoError(t, err)
-		assert.Equal(t, rawRec, res)
+		cachedOwner, err := fx.coordinator.acl.OwnerPubKey(context.Background(), spaceId)
+		require.NoError(t, err)
+		assert.True(t, cachedOwner.Equals(owner.SignKey.GetPublic()))
+		assert.Equal(t, fx.consensus.log(spaceId)[2], changed)
 	})
 }
 
@@ -384,6 +379,15 @@ func TestCoordinator_AclGetRecords(t *testing.T) {
 }
 
 func newFixture(t *testing.T) *fixture {
+	return buildFixture(t, nil)
+}
+
+// newAclFixture runs the coordinator with the real acl service over acl logs kept in memory
+func newAclFixture(t *testing.T) *fixture {
+	return buildFixture(t, newTestConsensus())
+}
+
+func buildFixture(t *testing.T, consensus *testConsensus) *fixture {
 	ctrl := gomock.NewController(t)
 	fx := &fixture{
 		coordinator:  New().(*coordinator),
@@ -399,6 +403,7 @@ func newFixture(t *testing.T) *fixture {
 		fileUsage:    mock_fileusage.NewMockFileUsage(ctrl),
 		pool:         mock_pool.NewMockService(ctrl),
 		inviteStore:  mock_invitestore.NewMockInviteStore(ctrl),
+		consensus:    consensus,
 		a:            new(app.App),
 		ctrl:         ctrl,
 	}
@@ -409,7 +414,12 @@ func newFixture(t *testing.T) *fixture {
 	anymock.ExpectComp(fx.deletionLog.EXPECT(), deletionlog.CName)
 	anymock.ExpectComp(fx.inbox.EXPECT(), inbox.CName)
 	anymock.ExpectComp(fx.subscribe.EXPECT(), subscribe.CName)
-	anymock.ExpectComp(fx.acl.EXPECT(), acl.CName)
+	if consensus == nil {
+		anymock.ExpectComp(fx.acl.EXPECT(), acl.CName)
+	} else {
+		// without a network id the acl service asks for no acceptor signature on the records
+		fx.nodeConf.EXPECT().Configuration().Return(nodeconf.Configuration{}).AnyTimes()
+	}
 	anymock.ExpectComp(fx.accountLimit.EXPECT(), accountlimit.CName)
 	anymock.ExpectComp(fx.fileUsage.EXPECT(), fileusage.CName)
 	anymock.ExpectComp(fx.aclEventLog.EXPECT(), acleventlog.CName)
@@ -427,12 +437,16 @@ func newFixture(t *testing.T) *fixture {
 		Register(fx.deletionLog).
 		Register(fx.inbox).
 		Register(fx.subscribe).
-		Register(fx.acl).
 		Register(fx.accountLimit).
 		Register(fx.fileUsage).
 		Register(fx.pool).
 		Register(fx.inviteStore).
 		Register(rpctest.NewTestServer())
+	if consensus == nil {
+		fx.a.Register(fx.acl)
+	} else {
+		fx.a.Register(acl.New()).Register(consensus)
+	}
 
 	require.NoError(t, fx.a.Start(ctx))
 	return fx
@@ -454,6 +468,8 @@ type fixture struct {
 	fileUsage    *mock_fileusage.MockFileUsage
 	pool         *mock_pool.MockService
 	inviteStore  *mock_invitestore.MockInviteStore
+	// consensus is set when the coordinator runs with the real acl service
+	consensus *testConsensus
 }
 
 func (fx *fixture) finish(t *testing.T) {

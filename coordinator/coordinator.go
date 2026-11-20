@@ -413,10 +413,18 @@ func (c *coordinator) AclAddRecord(ctx context.Context, spaceId string, payload 
 		return nil, err
 	}
 
+	// the owner is taken from the state the record leads to: the cached acl takes the record in only
+	// when the consensus node sends it back, which can be after this call returns
+	var owner crypto.PubKey
+	afterValid := func(_, after *list.AclState) (err error) {
+		owner, err = after.OwnerPubKey()
+		return err
+	}
+
 	rawRecordWithId, err := c.acl.AddRecord(ctx, spaceId, rec, acl.Limits{
 		ReadMembers:  limits.SpaceMembersRead,
 		WriteMembers: limits.SpaceMembersWrite,
-	})
+	}, acl.WithAfterValid(afterValid))
 	if err != nil {
 		if errors.Is(err, acl.ErrLimitExceed) {
 			err = coordinatorproto.ErrSpaceLimitReached
@@ -438,13 +446,9 @@ func (c *coordinator) AclAddRecord(ctx context.Context, spaceId string, payload 
 		return
 	}
 
-	ownerPubKey, err := c.acl.OwnerPubKey(ctx, spaceId)
-	if err != nil {
-		return
-	}
-	if ownerPubKey.Account() != statusEntry.Identity {
-		log.InfoCtx(ctx, "owner change detected", zap.String("spaceId", spaceId), zap.String("newOwner", ownerPubKey.Account()), zap.String("oldOwner", statusEntry.Identity))
-		if err = c.spaceStatus.ChangeOwner(ctx, spaceId, ownerPubKey.Account()); err != nil {
+	if owner != nil && owner.Account() != statusEntry.Identity {
+		log.InfoCtx(ctx, "owner change detected", zap.String("spaceId", spaceId), zap.String("newOwner", owner.Account()), zap.String("oldOwner", statusEntry.Identity))
+		if err = c.spaceStatus.ChangeOwner(ctx, spaceId, owner.Account()); err != nil {
 			return
 		}
 		if _, err = c.deletionLog.AddOwnershipChange(ctx, spaceId, statusEntry.Identity, rawRecordWithId.Id); err != nil {
