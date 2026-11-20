@@ -559,3 +559,60 @@ func TestSpaceStatus_DeleteParentAndChild(t *testing.T) {
 		}
 	})
 }
+
+func TestSpaceStatus_AccountDeleteWithChildren(t *testing.T) {
+	const (
+		techId   = "tech.id"
+		parentId = "parent.id"
+		childId  = "child.id"
+	)
+	owner, other := newIdentity(t), newIdentity(t)
+	status := func(t *testing.T, fx *fixture, spaceId string) int {
+		entry, err := fx.Status(ctx, spaceId)
+		require.NoError(t, err)
+		return entry.Status
+	}
+	// newAccount is an account with its tech space, which stands for the account, and a parent
+	newAccount := func(t *testing.T) *fixture {
+		fx := newChildFixture(t)
+		require.NoError(t, fx.NewStatus(ctx, techId, owner, SpaceTypeTech, anyTechSpaceType, false))
+		fx.newParent(t, parentId, owner)
+		return fx
+	}
+	deleteAccount := func(fx *fixture) error {
+		_, err := fx.AccountDelete(ctx, AccountDeletion{AccountInfo: AccountInfo{Identity: owner}})
+		return err
+	}
+
+	t.Run("an account whose space has a child of another account is not deleted", func(t *testing.T) {
+		fx := newAccount(t)
+		require.NoError(t, fx.newChild(childId, other, parentId))
+		require.ErrorIs(t, deleteAccount(fx), coordinatorproto.ErrSpaceHasChildren)
+		for _, spaceId := range []string{techId, parentId, childId} {
+			assert.Equal(t, SpaceStatusCreated, status(t, fx, spaceId), spaceId)
+		}
+
+		// the child holds the account until its deletion is final
+		fx.setPending(t, childId, other)
+		require.ErrorIs(t, deleteAccount(fx), coordinatorproto.ErrSpaceHasChildren)
+		fx.finalDelete(t, childId, SpaceStatusDeletionPending)
+		require.NoError(t, deleteAccount(fx))
+		assert.Equal(t, SpaceStatusDeletionPending, status(t, fx, parentId))
+	})
+	t.Run("the children the account owns are deleted with it", func(t *testing.T) {
+		fx := newAccount(t)
+		require.NoError(t, fx.newChild(childId, owner, parentId))
+		require.NoError(t, deleteAccount(fx))
+		for _, spaceId := range []string{techId, parentId, childId} {
+			assert.Equal(t, SpaceStatusDeletionPending, status(t, fx, spaceId), spaceId)
+		}
+	})
+	t.Run("a child the account owns under the space of another account does not hold it", func(t *testing.T) {
+		fx := newAccount(t)
+		fx.newParent(t, "otherParent.id", other)
+		require.NoError(t, fx.newChild(childId, owner, "otherParent.id"))
+		require.NoError(t, deleteAccount(fx))
+		assert.Equal(t, SpaceStatusDeletionPending, status(t, fx, childId))
+		assert.Equal(t, SpaceStatusCreated, status(t, fx, "otherParent.id"))
+	})
+}

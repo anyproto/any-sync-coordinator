@@ -224,6 +224,9 @@ func (s *spaceStatus) AccountDelete(ctx context.Context, payload AccountDeletion
 		if err = cursor.All(txCtx, &spaces); err != nil {
 			return unexpectedOrTransient(err)
 		}
+		if err = s.checkNoChildrenOfOthersTx(txCtx, identity, spaces); err != nil {
+			return err
+		}
 
 		// Iterate through the spaces and call setStatusTx
 		for _, space := range spaces {
@@ -505,6 +508,28 @@ func childrenQuery(parentSpaceId string) bson.M {
 // an account that may delete the space learns that it has children.
 func (s *spaceStatus) checkNoChildrenTx(txCtx mongo.SessionContext, spaceId string) error {
 	count, err := s.spaces.CountDocuments(txCtx, childrenQuery(spaceId), options.Count().SetLimit(1))
+	if err != nil {
+		return unexpectedOrTransient(err)
+	}
+	if count > 0 {
+		return coordinatorproto.ErrSpaceHasChildren
+	}
+	return nil
+}
+
+// checkNoChildrenOfOthersTx refuses the deletion of an account while a space it owns has a child of
+// another account: the child would be left without a parent. The children the account owns itself are
+// deleted with it.
+func (s *spaceStatus) checkNoChildrenOfOthersTx(txCtx mongo.SessionContext, identity string, owned []StatusEntry) error {
+	parentIds := make([]string, 0, len(owned))
+	for _, space := range owned {
+		parentIds = append(parentIds, space.SpaceId)
+	}
+	count, err := s.spaces.CountDocuments(txCtx, bson.M{
+		"parentSpaceId": bson.M{"$in": parentIds},
+		"status":        bson.M{"$ne": SpaceStatusDeleted},
+		"identity":      bson.M{"$ne": identity},
+	}, options.Count().SetLimit(1))
 	if err != nil {
 		return unexpectedOrTransient(err)
 	}
