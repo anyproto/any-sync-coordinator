@@ -77,6 +77,10 @@ const (
 
 var (
 	ErrStatusExists = errors.New("space status exists")
+	// ErrChildTakesPlace is answered to a sign of a child that takes a place when its caller found it to
+	// take none: the deletion of the child became final after the caller read its status. The caller
+	// reads the status again and decides anew.
+	ErrChildTakesPlace = errors.New("the sign of the child space takes a place")
 )
 
 const collName = "spaces"
@@ -87,6 +91,12 @@ type configProvider interface {
 
 type SpaceStatus interface {
 	NewStatus(ctx context.Context, spaceId string, identity crypto.PubKey, spaceType SpaceType, headerType string, force bool) (err error)
+	// NewChildStatus registers a space as NewStatus does, as a child of parentSpaceId. A sign that
+	// takes a place (see TakesChildPlace) needs a parent that passes CheckParent. Any other sign of a
+	// child is answered as the sign of a top-level space is. creatorChecked tells that the caller found
+	// the sign to take a place and checked its creator against the parent; a sign that takes a place
+	// without that check answers ErrChildTakesPlace.
+	NewChildStatus(ctx context.Context, spaceId string, identity crypto.PubKey, spaceType SpaceType, headerType string, force bool, parentSpaceId string, creatorChecked bool) (err error)
 	// ChangeStatus is deprecated, use only for backwards compatibility
 	ChangeStatus(ctx context.Context, change StatusChange) (entry StatusEntry, err error)
 	ChangeOwner(ctx context.Context, spaceId, newOwnerId string) (err error)
@@ -164,6 +174,8 @@ type insertNewSpaceOp struct {
 	HeaderType  string    `bson:"headerType,omitempty"`
 	IsShareable bool      `bson:"isShareable"`
 	SpaceId     string    `bson:"_id"`
+	// ParentSpaceId is set for a child space
+	ParentSpaceId string `bson:"parentSpaceId,omitempty"`
 }
 
 func (s *spaceStatus) AccountDelete(ctx context.Context, payload AccountDeletion) (toBeDeleted int64, err error) {
@@ -465,10 +477,46 @@ func (s *spaceStatus) getSpaceTypeTx(txCtx mongo.SessionContext, spaceId string)
 }
 
 func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity crypto.PubKey, spaceType SpaceType, headerType string, force bool) error {
+	return s.newStatus(ctx, spaceId, identity, spaceType, headerType, force, "", false)
+}
+
+func (s *spaceStatus) NewChildStatus(ctx context.Context, spaceId string, identity crypto.PubKey, spaceType SpaceType, headerType string, force bool, parentSpaceId string, creatorChecked bool) error {
+	if parentSpaceId == "" {
+		return coordinatorproto.ErrParentSpaceInvalid
+	}
+	return s.newStatus(ctx, spaceId, identity, spaceType, headerType, force, parentSpaceId, creatorChecked)
+}
+
+// TakesChildPlace tells whether a sign registers a child anew and so takes a place under its parent:
+// the child is not registered, or its deletion is final and the sign is forced, which takes it back.
+// A registered child holds its place until its deletion is final, and a sign of it takes none.
+func TakesChildPlace(registered bool, child StatusEntry, force bool) bool {
+	return !registered || (force && child.Status == SpaceStatusDeleted)
+}
+
+// parentTx returns the parent of a space that is being registered, if it can take the child. Its
+// write makes the transaction conflict with a deletion of the parent and with another registration
+// under it, so each of them sees the other.
+func (s *spaceStatus) parentTx(txCtx mongo.SessionContext, parentSpaceId string) (parent StatusEntry, err error) {
+	err = s.spaces.FindOneAndUpdate(txCtx,
+		bson.M{"_id": parentSpaceId},
+		bson.M{"$inc": bson.M{"childRev": 1}},
+	).Decode(&parent)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return StatusEntry{}, coordinatorproto.ErrParentSpaceNotAvailable
+		}
+		return StatusEntry{}, unexpectedOrTransient(err)
+	}
+	return parent, CheckParent(parent)
+}
+
+func (s *spaceStatus) newStatus(ctx context.Context, spaceId string, identity crypto.PubKey, spaceType SpaceType, headerType string, force bool, parentSpaceId string, creatorChecked bool) error {
 	return s.db.Tx(ctx, func(txCtx mongo.SessionContext) error {
 		if s.accountStatusFindTx(txCtx, identity.Account(), SpaceStatusDeletionPending) {
 			return coordinatorproto.ErrAccountIsDeleted
 		}
+		isChild := parentSpaceId != ""
 		entry, err := s.Status(txCtx, spaceId)
 		notFound := err == coordinatorproto.ErrSpaceNotExists
 		if err != nil && !notFound {
@@ -478,14 +526,25 @@ func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity cr
 			// save back compatibility
 			return nil
 		}
+		// only a child that takes a place is checked against the parent
+		takesPlace := isChild && TakesChildPlace(!notFound, entry, force)
+		if takesPlace && !creatorChecked {
+			return ErrChildTakesPlace
+		}
+		if takesPlace {
+			if _, err = s.parentTx(txCtx, parentSpaceId); err != nil {
+				return err
+			}
+		}
 		var inserted bool
 		if notFound {
 			if _, err = s.spaces.InsertOne(txCtx, insertNewSpaceOp{
-				Identity:   identity.Account(),
-				Status:     SpaceStatusCreated,
-				SpaceId:    spaceId,
-				Type:       spaceType,
-				HeaderType: headerType,
+				Identity:      identity.Account(),
+				Status:        SpaceStatusCreated,
+				SpaceId:       spaceId,
+				Type:          spaceType,
+				HeaderType:    headerType,
+				ParentSpaceId: parentSpaceId,
 			}); err != nil {
 				return err
 			} else {
@@ -601,6 +660,13 @@ func (s *spaceStatus) Name() (name string) {
 
 func (s *spaceStatus) Run(ctx context.Context) (err error) {
 	_ = s.spaces.Database().CreateCollection(ctx, collName)
+	// serves the children of a parent; top-level spaces have no such field and stay out of it
+	if _, err = s.spaces.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "parentSpaceId", Value: 1}},
+		Options: options.Index().SetSparse(true),
+	}); err != nil {
+		return err
+	}
 	s.deleter.Run(s.spaces, func(ctx context.Context, spaceId string) error {
 		_, err = s.setStatus(
 			ctx,

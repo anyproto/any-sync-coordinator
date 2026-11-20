@@ -67,6 +67,8 @@ type StatusEntry struct {
 	Type                 SpaceType `bson:"type"`
 	HeaderType           string    `bson:"headerType,omitempty"`
 	IsShareable          bool      `bson:"isShareable"`
+	// ParentSpaceId is the parent space of a child space, empty for a top-level space
+	ParentSpaceId string `bson:"parentSpaceId,omitempty"`
 }
 
 type spaceDeleter struct {

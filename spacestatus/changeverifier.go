@@ -62,6 +62,46 @@ const (
 	anyOneToOneSpaceType = "any.onetoone"
 )
 
+// canNest reports whether a space of this class and header type can be a parent or a child space.
+// Only the regular space of the `any` product can: every other type, and a derived space, which
+// carries the same header type, cannot.
+func canNest(spaceType SpaceType, headerType string) bool {
+	return spaceType == SpaceTypeRegular && headerType == anySpaceType
+}
+
+// CheckParent tells whether a space can be the parent of a space that is being signed: it is not
+// deleted, and it is a top-level space that can be nested.
+func CheckParent(parent StatusEntry) error {
+	if parent.Status != SpaceStatusCreated {
+		return coordinatorproto.ErrParentSpaceNotAvailable
+	}
+	if parent.ParentSpaceId != "" || !canNest(parent.Type, parent.HeaderType) {
+		return coordinatorproto.ErrParentSpaceInvalid
+	}
+	return nil
+}
+
+// HeaderParent returns the id of the parent space the header names, empty for a top-level space.
+// spaceType and headerType are what VerifySpaceHeader returned for the header. A header that names a
+// parent is refused unless it is a v1 header of a space that can be nested.
+func HeaderParent(headerBytes []byte, spaceType SpaceType, headerType string) (parentSpaceId string, err error) {
+	rawHeader := &spacesyncproto.RawSpaceHeader{}
+	if err = rawHeader.UnmarshalVT(headerBytes); err != nil {
+		return
+	}
+	header := &spacesyncproto.SpaceHeader{}
+	if err = header.UnmarshalVT(rawHeader.SpaceHeader); err != nil {
+		return
+	}
+	if header.ParentSpaceId == "" {
+		return "", nil
+	}
+	if header.Version != spacesyncproto.SpaceHeaderVersion_SpaceHeaderVersion1 || !canNest(spaceType, headerType) {
+		return "", coordinatorproto.ErrParentSpaceInvalid
+	}
+	return header.ParentSpaceId, nil
+}
+
 func verifyHeaderSignatureOneToOne(identity crypto.PubKey, rawHeader *spacesyncproto.RawSpaceHeader) (err error) {
 	var header spacesyncproto.SpaceHeader
 	err = header.UnmarshalVT(rawHeader.SpaceHeader)
