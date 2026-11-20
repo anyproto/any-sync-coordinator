@@ -479,3 +479,61 @@ func TestRpcHandler_SpaceChildren(t *testing.T) {
 		require.ErrorIs(t, err, coordinatorproto.ErrSpaceNotExists)
 	})
 }
+
+// The status of a child tells the caller's own place in the child, as for any space: an account is
+// the owner there only when it owns the child itself.
+func TestRpcHandler_SpaceStatusCheckChild(t *testing.T) {
+	childOwner := newAccount(t).SignKey.GetPublic()
+	parentOwner := newAccount(t).SignKey.GetPublic()
+	child := spacestatus.StatusEntry{
+		SpaceId:       testChildId,
+		Identity:      childOwner.Account(),
+		Type:          spacestatus.SpaceTypeRegular,
+		HeaderType:    testAnySpaceType,
+		IsShareable:   true,
+		ParentSpaceId: testParentId,
+	}
+	parent := parentEntry(func(e *spacestatus.StatusEntry) { e.Identity = parentOwner.Account() })
+	limits := accountlimit.Limits{SpaceMembersRead: 4, SpaceMembersWrite: 3, SharedSpacesLimit: 2, ChildSpacesLimit: 7}
+
+	// check returns what the single and the batch status check tell the account about the space
+	check := func(t *testing.T, account crypto.PubKey, entry spacestatus.StatusEntry) (single, batch *coordinatorproto.SpaceStatusPayload) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+		checkCtx := accountCtx(t, account)
+		fx.spaceStatus.EXPECT().Status(checkCtx, entry.SpaceId).Return(entry, nil).Times(2)
+		fx.accountLimit.EXPECT().GetLimits(checkCtx, account.Account()).Return(limits, nil).AnyTimes()
+
+		one, err := fx.drpcHandler.SpaceStatusCheck(checkCtx, &coordinatorproto.SpaceStatusCheckRequest{SpaceId: entry.SpaceId})
+		require.NoError(t, err)
+		many, err := fx.drpcHandler.SpaceStatusCheckMany(checkCtx, &coordinatorproto.SpaceStatusCheckManyRequest{SpaceIds: []string{entry.SpaceId}})
+		require.NoError(t, err)
+		require.Len(t, many.Payloads, 1)
+		assert.Equal(t, uint32(7), many.AccountLimits.ChildSpacesLimit)
+		assert.Equal(t, uint32(2), many.AccountLimits.SharedSpacesLimit)
+		return one.Payload, many.Payloads[0]
+	}
+
+	t.Run("the Owner of the parent is not the owner of a child it does not own", func(t *testing.T) {
+		single, batch := check(t, parentOwner, child)
+		for _, payload := range []*coordinatorproto.SpaceStatusPayload{single, batch} {
+			assert.Equal(t, coordinatorproto.SpacePermissions_SpacePermissionsUnknown, payload.Permissions)
+			assert.Nil(t, payload.Limits)
+			assert.True(t, payload.IsShared)
+		}
+	})
+	t.Run("the owner of the child is its owner", func(t *testing.T) {
+		single, batch := check(t, childOwner, child)
+		for _, payload := range []*coordinatorproto.SpaceStatusPayload{single, batch} {
+			assert.Equal(t, coordinatorproto.SpacePermissions_SpacePermissionsOwner, payload.Permissions)
+			require.NotNil(t, payload.Limits)
+			assert.Equal(t, uint32(4), payload.Limits.ReadMembers)
+		}
+	})
+	t.Run("the Owner of the parent is the owner of the parent", func(t *testing.T) {
+		single, batch := check(t, parentOwner, parent)
+		for _, payload := range []*coordinatorproto.SpaceStatusPayload{single, batch} {
+			assert.Equal(t, coordinatorproto.SpacePermissions_SpacePermissionsOwner, payload.Permissions)
+		}
+	})
+}
