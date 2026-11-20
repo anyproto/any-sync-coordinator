@@ -182,17 +182,49 @@ func (c *coordinator) SpaceDelete(ctx context.Context, spaceId string, deletionD
 	if err != nil {
 		return
 	}
+	ownerOfParent, err := c.ownerOfParent(ctx, spaceId, accountPubKey)
+	if err != nil {
+		return
+	}
 	return c.spaceStatus.SpaceDelete(ctx, spacestatus.SpaceDeletion{
 		DeletionPayload:   payload,
 		DeletionPayloadId: payloadId,
 		SpaceId:           spaceId,
 		DeletionPeriod:    time.Duration(deletionDurationSecs) * time.Minute,
+		OwnerOfParent:     ownerOfParent,
 		AccountInfo: spacestatus.AccountInfo{
 			Identity:  accountPubKey,
 			PeerId:    peerId,
 			NetworkId: c.nodeConf.Configuration().NetworkId,
 		},
 	})
+}
+
+// ownerOfParent returns the parent of a child space for an account that deletes the child as the
+// owner of that parent, and nothing for the owner of the child or for another space. An account that
+// owns neither the child nor its parent is refused.
+func (c *coordinator) ownerOfParent(ctx context.Context, spaceId string, account crypto.PubKey) (parentSpaceId string, err error) {
+	entry, err := c.spaceStatus.Status(ctx, spaceId)
+	if err != nil {
+		if errors.Is(err, coordinatorproto.ErrSpaceNotExists) {
+			return "", nil
+		}
+		return "", err
+	}
+	if entry.ParentSpaceId == "" || entry.Identity == account.Account() {
+		return "", nil
+	}
+	parentOwner, err := c.acl.OwnerPubKey(ctx, entry.ParentSpaceId)
+	if err != nil {
+		if errors.Is(err, consensuserr.ErrLogNotFound) {
+			return "", coordinatorproto.ErrParentSpaceNotAvailable
+		}
+		return "", err
+	}
+	if !parentOwner.Equals(account) {
+		return "", coordinatorproto.ErrParentPermissionDenied
+	}
+	return entry.ParentSpaceId, nil
 }
 
 // StatusChange is deprecated use only for backwards compatibility

@@ -13,6 +13,7 @@ import (
 	"github.com/anyproto/any-sync/consensus/consensusproto/consensuserr"
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/net/peer"
+	"github.com/anyproto/any-sync/nodeconf"
 	"github.com/anyproto/any-sync/util/cidutil"
 	"github.com/anyproto/any-sync/util/crypto"
 	"github.com/stretchr/testify/assert"
@@ -333,5 +334,85 @@ func TestCoordinator_SpaceSignChild(t *testing.T) {
 		receipt, _, err := fx.SpaceSign(signCtx, spaceId, header, false)
 		require.NoError(t, err)
 		require.NotNil(t, receipt)
+	})
+}
+
+func TestCoordinator_SpaceDeleteChild(t *testing.T) {
+	const networkId = "network.id"
+	caller := newAccount(t).SignKey.GetPublic()
+	other := newAccount(t).SignKey.GetPublic()
+	deleteCtx := accountCtx(t, caller)
+	childEntry := func(owner crypto.PubKey) spacestatus.StatusEntry {
+		return spacestatus.StatusEntry{
+			SpaceId:       testChildId,
+			Identity:      owner.Account(),
+			Type:          spacestatus.SpaceTypeRegular,
+			HeaderType:    testAnySpaceType,
+			ParentSpaceId: testParentId,
+		}
+	}
+	// expectDelete expects the deletion to reach the space status as the owner of the given parent
+	expectDelete := func(fx *fixture, spaceId, ownerOfParent string, err error) {
+		fx.nodeConf.EXPECT().Configuration().Return(nodeconf.Configuration{NetworkId: networkId})
+		fx.spaceStatus.EXPECT().SpaceDelete(deleteCtx, gomock.Cond(func(d spacestatus.SpaceDeletion) bool {
+			return d.SpaceId == spaceId && d.OwnerOfParent == ownerOfParent && d.Identity.Equals(caller) && d.NetworkId == networkId
+		})).Return(int64(100), err)
+	}
+
+	t.Run("the owner of a child deletes it as the owner of any space does", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+		fx.spaceStatus.EXPECT().Status(deleteCtx, testChildId).Return(childEntry(caller), nil)
+		expectDelete(fx, testChildId, "", nil)
+
+		toBeDeleted, err := fx.SpaceDelete(deleteCtx, testChildId, 60, []byte("payload"), "payload.id")
+		require.NoError(t, err)
+		assert.Equal(t, int64(100), toBeDeleted)
+	})
+	t.Run("the Owner of the parent deletes a child", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+		fx.spaceStatus.EXPECT().Status(deleteCtx, testChildId).Return(childEntry(other), nil)
+		fx.acl.EXPECT().OwnerPubKey(deleteCtx, testParentId).Return(caller, nil)
+		expectDelete(fx, testChildId, testParentId, nil)
+
+		_, err := fx.SpaceDelete(deleteCtx, testChildId, 60, []byte("payload"), "payload.id")
+		require.NoError(t, err)
+	})
+	t.Run("an account that owns neither the child nor the parent deletes nothing", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+		fx.spaceStatus.EXPECT().Status(deleteCtx, testChildId).Return(childEntry(other), nil)
+		fx.acl.EXPECT().OwnerPubKey(deleteCtx, testParentId).Return(other, nil)
+
+		_, err := fx.SpaceDelete(deleteCtx, testChildId, 60, []byte("payload"), "payload.id")
+		require.ErrorIs(t, err, coordinatorproto.ErrParentPermissionDenied)
+	})
+	t.Run("the acl of the parent is not on the network", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+		fx.spaceStatus.EXPECT().Status(deleteCtx, testChildId).Return(childEntry(other), nil)
+		fx.acl.EXPECT().OwnerPubKey(deleteCtx, testParentId).Return(nil, consensuserr.ErrLogNotFound)
+
+		_, err := fx.SpaceDelete(deleteCtx, testChildId, 60, []byte("payload"), "payload.id")
+		require.ErrorIs(t, err, coordinatorproto.ErrParentSpaceNotAvailable)
+	})
+	t.Run("a top-level space is deleted without a look at any parent", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+		fx.spaceStatus.EXPECT().Status(deleteCtx, testParentId).Return(parentEntry(nil), nil)
+		expectDelete(fx, testParentId, "", coordinatorproto.ErrSpaceHasChildren)
+
+		_, err := fx.SpaceDelete(deleteCtx, testParentId, 60, []byte("payload"), "payload.id")
+		require.ErrorIs(t, err, coordinatorproto.ErrSpaceHasChildren)
+	})
+	t.Run("a space that does not exist is answered by the space status", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+		fx.spaceStatus.EXPECT().Status(deleteCtx, testChildId).Return(spacestatus.StatusEntry{}, coordinatorproto.ErrSpaceNotExists)
+		expectDelete(fx, testChildId, "", coordinatorproto.ErrSpaceNotExists)
+
+		_, err := fx.SpaceDelete(deleteCtx, testChildId, 60, []byte("payload"), "payload.id")
+		require.ErrorIs(t, err, coordinatorproto.ErrSpaceNotExists)
 	})
 }

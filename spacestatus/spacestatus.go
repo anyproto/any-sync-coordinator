@@ -55,6 +55,9 @@ type SpaceDeletion struct {
 	DeletionPayloadId string
 	SpaceId           string
 	DeletionPeriod    time.Duration
+	// OwnerOfParent is the space the coordinator found the account to be the owner of. The owner of
+	// a parent deletes its children as their owners do; it is ignored for any other space.
+	OwnerOfParent string
 	AccountInfo
 }
 
@@ -295,14 +298,14 @@ func (s *spaceStatus) SpaceDelete(ctx context.Context, payload SpaceDeletion) (t
 		toBeDeletedTimestamp = tm.Add(payload.DeletionPeriod).Unix()
 	)
 	err = s.db.Tx(ctx, func(txCtx mongo.SessionContext) error {
-		spType, err := s.getSpaceTypeTx(txCtx, payload.SpaceId)
+		entry, err := s.getEntryTx(txCtx, payload.SpaceId)
 		if err != nil {
 			if db.IsTransientTransactionError(err) {
 				return err
 			}
 			return coordinatorproto.ErrSpaceNotExists
 		}
-		switch spType {
+		switch entry.Type {
 		case SpaceTypeOneToOne:
 			log.Debug("cannot delete onetoone space", zap.Error(err), zap.String("spaceId", payload.SpaceId))
 			return coordinatorproto.ErrUnexpected
@@ -310,11 +313,16 @@ func (s *spaceStatus) SpaceDelete(ctx context.Context, payload SpaceDeletion) (t
 			log.Debug("cannot delete tech space", zap.Error(err), zap.String("spaceId", payload.SpaceId))
 			return coordinatorproto.ErrUnexpected
 		}
+		identity := payload.Identity
+		if entry.ParentSpaceId != "" && entry.ParentSpaceId == payload.OwnerOfParent {
+			// without an identity the document is matched whoever owns the child
+			identity = nil
+		}
 		change := StatusChange{
 			DeletionPayloadType:  coordinatorproto.DeletionPayloadType_Confirm,
 			DeletionPayload:      payload.DeletionPayload,
 			DeletionPayloadId:    payload.DeletionPayloadId,
-			Identity:             payload.Identity,
+			Identity:             identity,
 			PeerId:               payload.PeerId,
 			NetworkId:            payload.NetworkId,
 			Status:               SpaceStatusDeletionPending,
@@ -322,8 +330,10 @@ func (s *spaceStatus) SpaceDelete(ctx context.Context, payload SpaceDeletion) (t
 			DeletionTimestamp:    deletionTimestamp,
 			SpaceId:              payload.SpaceId,
 		}
-		_, err = s.setStatusTx(txCtx, change, SpaceStatusCreated)
-		return err
+		if _, err = s.setStatusTx(txCtx, change, SpaceStatusCreated); err != nil {
+			return err
+		}
+		return s.checkNoChildrenTx(txCtx, payload.SpaceId)
 	})
 	if err != nil {
 		return
@@ -350,7 +360,13 @@ func (s *spaceStatus) ChangeStatus(ctx context.Context, change StatusChange) (en
 			log.Debug("failed to verify payload", zap.Error(err))
 			return StatusEntry{}, coordinatorproto.ErrUnexpected
 		}
-		return s.setStatus(ctx, change, SpaceStatusCreated)
+		err = s.db.Tx(ctx, func(txCtx mongo.SessionContext) error {
+			if entry, err = s.setStatusTx(txCtx, change, SpaceStatusCreated); err != nil {
+				return err
+			}
+			return s.checkNoChildrenTx(txCtx, change.SpaceId)
+		})
+		return
 	default:
 		return StatusEntry{}, coordinatorproto.ErrUnexpected
 	}
@@ -469,15 +485,33 @@ func (s *spaceStatus) accountStatusFindTx(txCtx mongo.SessionContext, identity s
 	return false
 }
 
-func (s *spaceStatus) getSpaceTypeTx(txCtx mongo.SessionContext, spaceId string) (spaceType SpaceType, err error) {
-	var entry StatusEntry
+func (s *spaceStatus) getEntryTx(txCtx mongo.SessionContext, spaceId string) (entry StatusEntry, err error) {
 	err = s.spaces.FindOne(txCtx, findStatusQuery{
 		SpaceId: spaceId,
 	}).Decode(&entry)
-	if err != nil {
-		return
+	return
+}
+
+// childrenQuery matches the children of a space. A child is one until its deletion is final.
+func childrenQuery(parentSpaceId string) bson.M {
+	return bson.M{
+		"parentSpaceId": parentSpaceId,
+		"status":        bson.M{"$ne": SpaceStatusDeleted},
 	}
-	return entry.Type, nil
+}
+
+// checkNoChildrenTx refuses the deletion of a space that still has children: they would be left
+// without the owner that answers for them. It runs after the deletion passed its own checks, so only
+// an account that may delete the space learns that it has children.
+func (s *spaceStatus) checkNoChildrenTx(txCtx mongo.SessionContext, spaceId string) error {
+	count, err := s.spaces.CountDocuments(txCtx, childrenQuery(spaceId), options.Count().SetLimit(1))
+	if err != nil {
+		return unexpectedOrTransient(err)
+	}
+	if count > 0 {
+		return coordinatorproto.ErrSpaceHasChildren
+	}
+	return nil
 }
 
 func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity crypto.PubKey, spaceType SpaceType, headerType string, force bool) error {

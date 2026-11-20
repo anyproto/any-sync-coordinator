@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/util/crypto"
@@ -446,5 +447,115 @@ func TestSpaceStatus_ChildShareable(t *testing.T) {
 		child, err := fx.Status(ctx, childId)
 		require.NoError(t, err)
 		assert.True(t, child.IsShareable)
+	})
+}
+
+func TestSpaceStatus_DeleteParentAndChild(t *testing.T) {
+	const (
+		parentId = "parent.id"
+		childId  = "child.id"
+	)
+	owner, creator, other := newIdentity(t), newIdentity(t), newIdentity(t)
+	deletion := func(spaceId string, account crypto.PubKey, ownerOfParent string) SpaceDeletion {
+		return SpaceDeletion{
+			SpaceId:        spaceId,
+			DeletionPeriod: time.Hour,
+			OwnerOfParent:  ownerOfParent,
+			AccountInfo:    AccountInfo{Identity: account},
+		}
+	}
+	status := func(t *testing.T, fx *fixture, spaceId string) int {
+		entry, err := fx.Status(ctx, spaceId)
+		require.NoError(t, err)
+		return entry.Status
+	}
+	newFamily := func(t *testing.T) *fixture {
+		fx := newChildFixture(t)
+		fx.newParent(t, parentId, owner)
+		require.NoError(t, fx.newChild(childId, creator, parentId))
+		return fx
+	}
+
+	t.Run("a parent that has a child is not deleted", func(t *testing.T) {
+		fx := newFamily(t)
+		_, err := fx.SpaceDelete(ctx, deletion(parentId, owner, ""))
+		require.ErrorIs(t, err, coordinatorproto.ErrSpaceHasChildren)
+		assert.Equal(t, SpaceStatusCreated, status(t, fx, parentId))
+
+		_, err = fx.ChangeStatus(ctx, StatusChange{
+			DeletionPayloadType: coordinatorproto.DeletionPayloadType_Confirm,
+			Identity:            owner,
+			Status:              SpaceStatusDeletionPending,
+			SpaceId:             parentId,
+		})
+		require.ErrorIs(t, err, coordinatorproto.ErrSpaceHasChildren)
+		assert.Equal(t, SpaceStatusCreated, status(t, fx, parentId))
+	})
+	t.Run("a child whose deletion is pending still holds its parent", func(t *testing.T) {
+		fx := newFamily(t)
+		_, err := fx.SpaceDelete(ctx, deletion(childId, creator, ""))
+		require.NoError(t, err)
+		_, err = fx.SpaceDelete(ctx, deletion(parentId, owner, ""))
+		require.ErrorIs(t, err, coordinatorproto.ErrSpaceHasChildren)
+	})
+	t.Run("a parent is deleted once the deletion of its children is final", func(t *testing.T) {
+		fx := newFamily(t)
+		_, err := fx.SpaceDelete(ctx, deletion(childId, creator, ""))
+		require.NoError(t, err)
+		fx.finalDelete(t, childId, SpaceStatusDeletionPending)
+		_, err = fx.SpaceDelete(ctx, deletion(parentId, owner, ""))
+		require.NoError(t, err)
+		assert.Equal(t, SpaceStatusDeletionPending, status(t, fx, parentId))
+	})
+	t.Run("an account that cannot delete the parent does not learn of its children", func(t *testing.T) {
+		fx := newFamily(t)
+		_, err := fx.SpaceDelete(ctx, deletion(parentId, other, ""))
+		require.Error(t, err)
+		require.NotErrorIs(t, err, coordinatorproto.ErrSpaceHasChildren)
+	})
+	t.Run("the owner of the parent deletes a child", func(t *testing.T) {
+		fx := newFamily(t)
+		_, err := fx.SpaceDelete(ctx, deletion(childId, owner, parentId))
+		require.NoError(t, err)
+		child, err := fx.Status(ctx, childId)
+		require.NoError(t, err)
+		assert.Equal(t, SpaceStatusDeletionPending, child.Status)
+		assert.Equal(t, creator.Account(), child.Identity)
+	})
+	t.Run("the owner of a space that is not the parent deletes no child", func(t *testing.T) {
+		fx := newFamily(t)
+		fx.newParent(t, "otherParent.id", other)
+		_, err := fx.SpaceDelete(ctx, deletion(childId, other, "otherParent.id"))
+		require.Error(t, err)
+		assert.Equal(t, SpaceStatusCreated, status(t, fx, childId))
+	})
+	t.Run("the owner of the parent has no such right over a top-level space", func(t *testing.T) {
+		fx := newFamily(t)
+		fx.newParent(t, "space.id", other)
+		_, err := fx.SpaceDelete(ctx, deletion("space.id", owner, parentId))
+		require.Error(t, err)
+		_, err = fx.SpaceDelete(ctx, deletion("space.id", owner, "space.id"))
+		require.Error(t, err)
+		assert.Equal(t, SpaceStatusCreated, status(t, fx, "space.id"))
+	})
+	t.Run("a child and the deletion of its parent do not pass each other", func(t *testing.T) {
+		fx := newChildFixture(t)
+		for i := 0; i < 20; i++ {
+			parent, child := fmt.Sprint("parent.", i), fmt.Sprint("child.", i)
+			fx.newParent(t, parent, owner)
+			signed, deleted := make(chan error, 1), make(chan error, 1)
+			go func() { signed <- fx.newChild(child, creator, parent) }()
+			go func() {
+				_, err := fx.SpaceDelete(ctx, deletion(parent, owner, ""))
+				deleted <- err
+			}()
+			signErr, deleteErr := <-signed, <-deleted
+			if signErr == nil {
+				require.ErrorIs(t, deleteErr, coordinatorproto.ErrSpaceHasChildren, "the child is signed")
+			} else {
+				require.ErrorIs(t, signErr, coordinatorproto.ErrParentSpaceNotAvailable)
+				require.NoError(t, deleteErr, "the child is refused")
+			}
+		}
 	})
 }
