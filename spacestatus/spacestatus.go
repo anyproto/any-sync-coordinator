@@ -90,6 +90,10 @@ var (
 
 const collName = "spaces"
 
+// childLocksCollName names the collection with a document for each account that owns the parent of a
+// child space. Every registration that takes a place of the account writes to its document.
+const childLocksCollName = "childSpacesLock"
+
 // ChildSpacesLimit returns the childSpacesLimit of an account
 type ChildSpacesLimit func(ctx context.Context, identity string) (limit uint32, err error)
 
@@ -134,6 +138,7 @@ func New() SpaceStatus {
 type spaceStatus struct {
 	conf             Config
 	spaces           *mongo.Collection
+	childLocks       *mongo.Collection
 	verifier         ChangeVerifier
 	deleter          SpaceDeleter
 	db               db.Database
@@ -603,10 +608,19 @@ func (s *spaceStatus) parentTx(txCtx mongo.SessionContext, parentSpaceId string)
 }
 
 // checkChildSpacesLimitTx refuses a child that takes the owner of its parent over the owner's
-// childSpacesLimit. It runs after the child is stored, so the count includes it. Registrations under
-// one parent run one after another (see parentTx); two under different parents of one owner at the same
-// instant do not see each other's child and can both pass, as with the shared spaces limit.
+// childSpacesLimit. It runs after the child is stored, so the count includes it.
 func (s *spaceStatus) checkChildSpacesLimitTx(txCtx mongo.SessionContext, owner string, limit ChildSpacesLimit) error {
+	// Two transactions that register a child for one owner under different parents do not see each
+	// other's child. The write to the owner's document makes them conflict, so the later one runs
+	// again and counts the child of the first.
+	_, err := s.childLocks.UpdateOne(txCtx,
+		bson.M{"_id": owner},
+		bson.M{"$inc": bson.M{"rev": 1}},
+		options.Update().SetUpsert(true),
+	)
+	if err != nil {
+		return unexpectedOrTransient(err)
+	}
 	allowed, err := limit(txCtx, owner)
 	if err != nil {
 		return err
@@ -789,6 +803,7 @@ func (s *spaceStatus) ChangeOwner(ctx context.Context, spaceId, ownerId string) 
 func (s *spaceStatus) Init(a *app.App) (err error) {
 	s.db = a.MustComponent(db.CName).(db.Database)
 	s.spaces = s.db.Db().Collection(collName)
+	s.childLocks = s.db.Db().Collection(childLocksCollName)
 	s.verifier = getChangeVerifier()
 	s.conf = a.MustComponent("config").(configProvider).GetSpaceStatus()
 	s.deletionPeriod = time.Duration(s.conf.DeletionPeriodDays*24) * time.Hour
@@ -803,6 +818,7 @@ func (s *spaceStatus) Name() (name string) {
 
 func (s *spaceStatus) Run(ctx context.Context) (err error) {
 	_ = s.spaces.Database().CreateCollection(ctx, collName)
+	_ = s.spaces.Database().CreateCollection(ctx, childLocksCollName)
 	// serves the children of a parent; top-level spaces have no such field and stay out of it
 	if _, err = s.spaces.Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys:    bson.D{{Key: "parentSpaceId", Value: 1}},

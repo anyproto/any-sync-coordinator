@@ -399,6 +399,32 @@ func TestSpaceStatus_ChildSpacesLimit(t *testing.T) {
 		}
 		assert.Equal(t, limit, signed)
 	})
+	t.Run("signs under two parents of one owner at the same time do not pass the limit", func(t *testing.T) {
+		fx := newChildFixture(t)
+		fx.newParent(t, parentId, owner)
+		fx.newParent(t, otherParentId, owner)
+		const (
+			limit = 3
+			signs = 8
+		)
+		errs := make(chan error, signs)
+		for i := 0; i < signs; i++ {
+			parent := []string{parentId, otherParentId}[i%2]
+			go func() {
+				errs <- fx.NewChildStatus(ctx, fmt.Sprint("child.", i), creator, SpaceTypeRegular, anySpaceType, false, parent,
+					func(context.Context, string) (uint32, error) { return limit, nil }, true)
+			}()
+		}
+		var signed int
+		for i := 0; i < signs; i++ {
+			if err := <-errs; err == nil {
+				signed++
+			} else {
+				require.ErrorIs(t, err, coordinatorproto.ErrChildSpacesLimitReached)
+			}
+		}
+		assert.Equal(t, limit, signed)
+	})
 	t.Run("an error of the limit refuses the child", func(t *testing.T) {
 		fx := newChildFixture(t)
 		fx.newParent(t, parentId, owner)

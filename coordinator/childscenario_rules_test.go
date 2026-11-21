@@ -2,9 +2,11 @@ package coordinator
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
 	"testing"
 
+	"github.com/anyproto/any-sync/commonspace/object/accountdata"
 	"github.com/anyproto/any-sync/commonspace/object/acl/list"
 	"github.com/anyproto/any-sync/commonspace/spacepayloads"
 	"github.com/anyproto/any-sync/commonspace/spacesyncproto"
@@ -205,4 +207,53 @@ func TestChildScenario_DerivedParent(t *testing.T) {
 	child, err := n.createChild(owner, derived.id)
 	require.ErrorIs(t, err, coordinatorproto.ErrParentSpaceInvalid)
 	assert.False(t, n.registered(child.id))
+}
+
+// The limit of an owner holds across its parents: of two children that ask for its last place at the
+// same instant, one under each parent, one is signed.
+func TestChildScenario_LimitAcrossParents(t *testing.T) {
+	n := newNetwork(t, accountlimit.SpaceLimits{SharedSpacesLimit: 10, ChildSpacesLimit: 3})
+	for round := 0; round < 5; round++ {
+		o := n.newOrg()
+		second := n.newSharedSpace(o.owner)
+		secondWriter := newAccount(t)
+		require.NoError(t, n.add(second.id, o.owner, list.AclPermissionsWriter, secondWriter))
+		n.mustCreateChild(o.writer, o.parent.id)
+		n.mustCreateChild(o.writer, o.parent.id)
+
+		creators := []*accountdata.AccountKeys{o.writer, secondWriter}
+		children := []space{
+			newSpace(t, o.writer, testAnySpaceType, o.parent.id),
+			newSpace(t, secondWriter, testAnySpaceType, second.id),
+		}
+		errs := make([]error, len(children))
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for i := range children {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				errs[i] = n.signOnly(creators[i], children[i], false)
+			}()
+		}
+		close(start)
+		wg.Wait()
+
+		var signed int
+		for i, err := range errs {
+			if err == nil {
+				signed++
+				continue
+			}
+			require.ErrorIs(t, err, coordinatorproto.ErrChildSpacesLimitReached)
+			assert.False(t, n.registered(children[i].id))
+		}
+		assert.Equal(t, 1, signed, "round %d", round)
+		listed, err := n.children(o.owner, o.parent.id)
+		require.NoError(t, err)
+		listedSecond, err := n.children(o.owner, second.id)
+		require.NoError(t, err)
+		assert.Equal(t, 3, len(listed)+len(listedSecond), "round %d", round)
+	}
 }
