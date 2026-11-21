@@ -257,3 +257,20 @@ func TestChildScenario_LimitAcrossParents(t *testing.T) {
 		assert.Equal(t, 3, len(listed)+len(listedSecond), "round %d", round)
 	}
 }
+
+// The children of a space are listed once its acl is on the network: until the push that follows the
+// sign, the coordinator cannot tell the role of the caller.
+func TestChildScenario_ChildrenBeforePush(t *testing.T) {
+	n := newNetwork(t, roomyLimits)
+	owner := newAccount(t)
+	parent := newSpace(t, owner, testAnySpaceType, "")
+	require.NoError(t, n.signOnly(owner, parent, false))
+
+	_, err := n.children(owner, parent.id)
+	require.ErrorIs(t, err, coordinatorproto.ErrParentSpaceNotAvailable)
+
+	n.push(parent)
+	listed, err := n.children(owner, parent.id)
+	require.NoError(t, err)
+	assert.Empty(t, listed)
+}

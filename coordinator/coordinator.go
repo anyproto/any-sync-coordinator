@@ -528,6 +528,10 @@ func (c *coordinator) SpaceChildren(ctx context.Context, spaceId string) (childr
 	}
 	permissions, err := c.acl.Permissions(ctx, accountPubKey, spaceId)
 	if err != nil {
+		if errors.Is(err, consensuserr.ErrLogNotFound) {
+			// the space is signed, but its acl has not reached the network yet
+			return nil, coordinatorproto.ErrParentSpaceNotAvailable
+		}
 		return
 	}
 	if !permissions.CanManageAccounts() {

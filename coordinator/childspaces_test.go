@@ -13,6 +13,7 @@ import (
 	"github.com/anyproto/any-sync/consensus/consensusproto/consensuserr"
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/net/peer"
+	"github.com/anyproto/any-sync/net/rpc/rpcerr"
 	"github.com/anyproto/any-sync/nodeconf"
 	"github.com/anyproto/any-sync/util/cidutil"
 	"github.com/anyproto/any-sync/util/crypto"
@@ -464,6 +465,17 @@ func TestRpcHandler_SpaceChildren(t *testing.T) {
 			assert.Nil(t, resp)
 			fx.finish(t)
 		}
+	})
+	t.Run("a space whose acl is not on the network yet answers that it is not available", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+		fx.spaceStatus.EXPECT().Status(listCtx, testParentId).Return(parentEntry(nil), nil)
+		fx.acl.EXPECT().Permissions(listCtx, isKey(caller), testParentId).Return(list.AclPermissionsNone, consensuserr.ErrLogNotFound)
+
+		resp, err := fx.drpcHandler.SpaceChildren(listCtx, req)
+		require.ErrorIs(t, err, coordinatorproto.ErrParentSpaceNotAvailable)
+		assert.Equal(t, uint64(coordinatorproto.ErrorCodes_ErrorOffset)+uint64(coordinatorproto.ErrorCodes_ParentSpaceNotAvailable), rpcerr.Code(err))
+		assert.Nil(t, resp)
 	})
 	t.Run("a space that is deleted or does not exist has no list", func(t *testing.T) {
 		fx := newFixture(t)
