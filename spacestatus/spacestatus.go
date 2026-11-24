@@ -328,10 +328,15 @@ func (s *spaceStatus) SpaceDelete(ctx context.Context, payload SpaceDeletion) (t
 			return coordinatorproto.ErrUnexpected
 		}
 		identity := payload.Identity
+		oldStatus := SpaceStatusCreated
 		byParentOwner := entry.ParentSpaceId != "" && entry.ParentSpaceId == payload.OwnerOfParent
 		if byParentOwner {
 			// without an identity the document is matched whoever owns the child
 			identity = nil
+			// a deletion that the owner of the child made becomes the one of the owner of the parent
+			if entry.Status == SpaceStatusDeletionPending && !entry.DeletedByParentOwner {
+				oldStatus = SpaceStatusDeletionPending
+			}
 		}
 		change := StatusChange{
 			DeletionPayloadType:  coordinatorproto.DeletionPayloadType_Confirm,
@@ -346,7 +351,7 @@ func (s *spaceStatus) SpaceDelete(ctx context.Context, payload SpaceDeletion) (t
 			SpaceId:              payload.SpaceId,
 			ByParentOwner:        byParentOwner,
 		}
-		if _, err = s.setStatusTx(txCtx, change, SpaceStatusCreated); err != nil {
+		if _, err = s.setStatusTx(txCtx, change, oldStatus); err != nil {
 			return err
 		}
 		return s.checkNoChildrenTx(txCtx, payload.SpaceId)

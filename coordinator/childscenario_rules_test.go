@@ -159,6 +159,56 @@ func TestChildScenario_DeletionByParentOwner(t *testing.T) {
 	})
 }
 
+// The Owner of the parent deletes a child that is in deletion by its owner. The deletion is then the one
+// of the Owner of the parent, with its period, and the owner of the child does not take it back.
+func TestChildScenario_DeletionByParentOwnerOfChildInDeletion(t *testing.T) {
+	for name, byAccount := range map[string]bool{"the owner deleted the child": false, "the owner deleted its account": true} {
+		t.Run(name, func(t *testing.T) {
+			n := newNetwork(t, roomyLimits)
+			o := n.newOrg()
+			require.NoError(t, n.sign(o.writer, newTechSpace(t, o.writer), false))
+			child := n.mustCreateChild(o.writer, o.parent.id)
+			if byAccount {
+				require.NoError(t, n.deleteAccount(o.writer))
+			} else {
+				require.NoError(t, n.deleteSpace(o.writer, child.id))
+			}
+			byOwner := n.status(child.id)
+			require.Equal(t, spacestatus.SpaceStatusDeletionPending, byOwner.Status)
+
+			payload := []byte("payload of the Owner of the parent")
+			resp, err := n.c.drpcHandler.SpaceDelete(n.ctx(o.owner), &coordinatorproto.SpaceDeleteRequest{
+				SpaceId:           child.id,
+				DeletionPayload:   payload,
+				DeletionPayloadId: "payload.id",
+				DeletionDuration:  120,
+			})
+			require.NoError(t, err)
+			entry := n.status(child.id)
+			assert.Equal(t, spacestatus.SpaceStatusDeletionPending, entry.Status)
+			assert.True(t, entry.DeletedByParentOwner)
+			assert.Equal(t, accountOf(o.writer), entry.Identity)
+			assert.Equal(t, payload, entry.DeletionPayload)
+			assert.Equal(t, int(coordinatorproto.DeletionPayloadType_Confirm), entry.DeletionPayloadType)
+			assert.Equal(t, resp.ToBeDeletedTimestamp, entry.ToBeDeletedTimestamp)
+			assert.NotEqual(t, byOwner.ToBeDeletedTimestamp, entry.ToBeDeletedTimestamp)
+
+			// the owner of the child takes its account back, and the child by none of its ways
+			if !byAccount {
+				require.NoError(t, n.deleteAccount(o.writer))
+			}
+			require.NoError(t, n.revertAccountDeletion(o.writer))
+			require.ErrorIs(t, n.sign(o.writer, child, true), coordinatorproto.ErrSpaceIsDeleted)
+			require.ErrorIs(t, n.revertDeletion(o.writer, child.id), coordinatorproto.ErrParentPermissionDenied)
+			assert.Equal(t, spacestatus.SpaceStatusDeletionPending, n.status(child.id).Status)
+
+			// a deletion that is its own already answers the Owner of the parent as a repeated one
+			require.ErrorIs(t, n.deleteSpace(o.owner, child.id), coordinatorproto.ErrSpaceDeletionPending)
+			assert.Equal(t, entry.ToBeDeletedTimestamp, n.status(child.id).ToBeDeletedTimestamp)
+		})
+	}
+}
+
 // guestEntry is one way into the guest role of a space: a record that gives the account the role
 type guestEntry struct {
 	name    string
