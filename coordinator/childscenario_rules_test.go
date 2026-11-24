@@ -7,10 +7,14 @@ import (
 	"testing"
 
 	"github.com/anyproto/any-sync/commonspace/object/accountdata"
+	"github.com/anyproto/any-sync/commonspace/object/acl/aclrecordproto"
 	"github.com/anyproto/any-sync/commonspace/object/acl/list"
+	"github.com/anyproto/any-sync/commonspace/object/acl/recordverifier"
 	"github.com/anyproto/any-sync/commonspace/spacepayloads"
 	"github.com/anyproto/any-sync/commonspace/spacesyncproto"
+	"github.com/anyproto/any-sync/consensus/consensusproto"
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
+	"github.com/anyproto/any-sync/net/rpc/rpcerr"
 	"github.com/anyproto/any-sync/util/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -361,4 +365,98 @@ func TestChildScenario_ChildrenBeforePush(t *testing.T) {
 	listed, err := n.children(owner, parent.id)
 	require.NoError(t, err)
 	assert.Empty(t, listed)
+}
+
+// withRoot is a space whose creator signed a header that binds the given acl root
+func withRoot(t *testing.T, creator *accountdata.AccountKeys, spaceType, parentSpaceId string, root *consensusproto.RawRecordWithId) space {
+	spaceId, header := newRawHeader(t, creator, func(h *spacesyncproto.SpaceHeader) {
+		h.SpaceType, h.ParentSpaceId, h.AclPayload = spaceType, parentSpaceId, root.Payload
+	})
+	return space{id: spaceId, header: header, root: root}
+}
+
+// The creator of an organization and of a space of an organization is its first owner: the v1 header
+// binds an acl root that the account that signed the header wrote, and that is not a one-to-one root.
+func TestChildScenario_AclRoot(t *testing.T) {
+	const refusal = "requires the v1 header with the acl root of its creator"
+	n := newNetwork(t, roomyLimits)
+	o := n.newOrg()
+	outsider := newAccount(t)
+	key := func(account *accountdata.AccountKeys) []byte {
+		raw, err := account.SignKey.GetPublic().Marshall()
+		require.NoError(t, err)
+		return raw
+	}
+	// the creator builds the one-to-one space with the outsider alone
+	oneToOne, err := spacepayloads.StoragePayloadForOneToOneSpaceWithType(o.writer.SignKey, outsider.SignKey.GetPublic(), spacepayloads.SpaceTypeOneToOneAny)
+	require.NoError(t, err)
+	// a one-to-one root names the accounts of the space itself, whoever signs it
+	named, err := list.NewAclRecordBuilder("", crypto.NewKeyStorage(), nil, recordverifier.NewValidateFull()).BuildOneToOneRoot(
+		list.RootContent{PrivKey: o.writer.SignKey, MasterKey: o.writer.SignKey},
+		&aclrecordproto.AclOneToOneInfo{Owner: key(outsider), Writers: [][]byte{key(o.writer), key(outsider)}},
+	)
+	require.NoError(t, err)
+	roots := map[string]*consensusproto.RawRecordWithId{
+		"the root of an outsider":                  newAclRoot(t, outsider.SignKey),
+		"the root of a one-to-one space":           oneToOne.AclWithId,
+		"a one-to-one root that the creator signs": named,
+	}
+	refused := func(t *testing.T, s space, name string) {
+		err := n.sign(o.writer, s, false)
+		require.ErrorContains(t, err, refusal, name)
+		// the error is not one of the coordinator's
+		assert.Zero(t, rpcerr.Code(err), name)
+		assert.False(t, n.registered(s.id), name)
+	}
+
+	t.Run("a space of an organization with a root that is not its creator's own", func(t *testing.T) {
+		for name, root := range roots {
+			refused(t, withRoot(t, o.writer, testOrganizationSpaceType, o.parent.id, root), name)
+		}
+		listed, err := n.children(o.owner, o.parent.id)
+		require.NoError(t, err)
+		assert.Empty(t, listed)
+	})
+	t.Run("an organization with a root that is not its creator's own", func(t *testing.T) {
+		for name, root := range roots {
+			refused(t, withRoot(t, o.writer, testOrganizationType, "", root), name)
+		}
+	})
+	t.Run("a header that binds no root", func(t *testing.T) {
+		for name, change := range map[string]func(h *spacesyncproto.SpaceHeader){
+			"a space of an organization without a root": func(h *spacesyncproto.SpaceHeader) { h.ParentSpaceId, h.AclPayload = o.parent.id, nil },
+			"an organization without a root": func(h *spacesyncproto.SpaceHeader) {
+				h.SpaceType, h.ParentSpaceId, h.AclPayload = testOrganizationType, "", nil
+			},
+			"an organization with a v0 header": func(h *spacesyncproto.SpaceHeader) {
+				h.SpaceType, h.ParentSpaceId, h.Version = testOrganizationType, "", spacesyncproto.SpaceHeaderVersion_SpaceHeaderVersion0
+			},
+		} {
+			spaceId, header := newRawHeader(t, o.writer, change)
+			refused(t, space{id: spaceId, header: header}, name)
+		}
+	})
+	t.Run("the root of the creator", func(t *testing.T) {
+		organization := withRoot(t, o.writer, testOrganizationType, "", newAclRoot(t, o.writer.SignKey))
+		require.NoError(t, n.sign(o.writer, organization, false))
+		child := withRoot(t, o.writer, testOrganizationSpaceType, o.parent.id, newAclRoot(t, o.writer.SignKey))
+		require.NoError(t, n.sign(o.writer, child, false))
+		assert.Equal(t, list.AclPermissionsOwner, n.permissions(child.id, o.writer))
+	})
+	t.Run("a space of another type keeps the root it is given", func(t *testing.T) {
+		regular := withRoot(t, o.writer, testAnySpaceType, "", roots["the root of an outsider"])
+		require.NoError(t, n.sign(o.writer, regular, false))
+		owner, err := n.c.acl.OwnerPubKey(context.Background(), regular.id)
+		require.NoError(t, err)
+		assert.True(t, owner.Equals(outsider.SignKey.GetPublic()))
+
+		// a one-to-one space is signed, and its acl holds both accounts as writers
+		s := space{id: oneToOne.SpaceHeaderWithId.Id, header: oneToOne.SpaceHeaderWithId.RawHeader, root: oneToOne.AclWithId}
+		require.NoError(t, n.sign(o.writer, s, false))
+		for _, account := range []*accountdata.AccountKeys{o.writer, outsider} {
+			permissions, err := n.c.acl.Permissions(context.Background(), account.SignKey.GetPublic(), s.id)
+			require.NoError(t, err)
+			assert.Equal(t, list.AclPermissionsWriter, permissions)
+		}
+	})
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/anyproto/any-sync/commonspace/object/tree/treechangeproto"
 	"github.com/anyproto/any-sync/commonspace/settings"
 	"github.com/anyproto/any-sync/commonspace/spacesyncproto"
+	"github.com/anyproto/any-sync/consensus/consensusproto"
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/util/crypto"
 )
@@ -180,6 +181,30 @@ func verifyHeaderSignature(identity crypto.PubKey, rawHeader *spacesyncproto.Raw
 	return nil
 
 }
+
+// verifyOwnAclRoot checks that the header binds the acl root of the space and that the root is its
+// signer's own. Only the v1 header binds the root. The author of the root is the first owner of the
+// space, and a one-to-one root names the accounts of the space itself.
+func verifyOwnAclRoot(identity crypto.PubKey, header *spacesyncproto.SpaceHeader) error {
+	refusal := fmt.Errorf("space type %s requires the v1 header with the acl root of its creator", header.SpaceType)
+	if header.Version != spacesyncproto.SpaceHeaderVersion_SpaceHeaderVersion1 {
+		return refusal
+	}
+	rawRoot := &consensusproto.RawRecord{}
+	if err := rawRoot.UnmarshalVT(header.AclPayload); err != nil {
+		return refusal
+	}
+	root := &aclrecordproto.AclRoot{}
+	if err := root.UnmarshalVT(rawRoot.Payload); err != nil {
+		return refusal
+	}
+	owner, err := crypto.UnmarshalEd25519PublicKeyProto(root.Identity)
+	if err != nil || root.OneToOneInfo != nil || !owner.Equals(identity) {
+		return refusal
+	}
+	return nil
+}
+
 // VerifySpaceHeader checks the header signature and maps the header's
 // space type string to the stored SpaceType enum. headerType is the raw
 // string from the header, returned for persistence and logging.
@@ -234,6 +259,9 @@ func VerifySpaceHeader(identity crypto.PubKey, headerBytes []byte) (spaceType Sp
 		// a header without a timestamp is of a derived space, and neither type is derived
 		if header.Timestamp == 0 {
 			return 0, headerType, fmt.Errorf("space type %s requires a timestamp", header.SpaceType)
+		}
+		if err = verifyOwnAclRoot(identity, header); err != nil {
+			return 0, headerType, err
 		}
 		return SpaceTypeRegular, headerType, nil
 	default:

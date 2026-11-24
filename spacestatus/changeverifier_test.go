@@ -3,6 +3,9 @@ package spacestatus
 import (
 	"testing"
 
+	"github.com/anyproto/any-sync/commonspace/object/acl/aclrecordproto"
+	"github.com/anyproto/any-sync/commonspace/object/acl/list"
+	"github.com/anyproto/any-sync/commonspace/object/acl/recordverifier"
 	"github.com/anyproto/any-sync/commonspace/spacepayloads"
 	"github.com/anyproto/any-sync/commonspace/spacesyncproto"
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
@@ -32,6 +35,20 @@ func TestVerifySpaceHeader(t *testing.T) {
 		require.NoError(t, err)
 		return rawHeaderBytes
 	}
+	// aclRoot is the payload of an acl root that the author signs, a one-to-one root with oneToOne
+	aclRoot := func(t *testing.T, author crypto.PrivKey, oneToOne *aclrecordproto.AclOneToOneInfo) []byte {
+		builder := list.NewAclRecordBuilder("", crypto.NewKeyStorage(), nil, recordverifier.NewValidateFull())
+		content := list.RootContent{PrivKey: author, MasterKey: author}
+		if oneToOne != nil {
+			root, err := builder.BuildOneToOneRoot(content, oneToOne)
+			require.NoError(t, err)
+			return root.Payload
+		}
+		root, err := builder.BuildRoot(content)
+		require.NoError(t, err)
+		return root.Payload
+	}
+	v1 := spacesyncproto.SpaceHeaderVersion_SpaceHeaderVersion1
 
 	t.Run("invalid signature", func(t *testing.T) {
 		_, _, err := VerifySpaceHeader(puKey, newRawHeader(t, &spacesyncproto.SpaceHeader{
@@ -110,10 +127,45 @@ func TestVerifySpaceHeader(t *testing.T) {
 				Timestamp:        123243,
 				SpaceType:        tp,
 				FileprotoVersion: spacesyncproto.SpaceFileProtoVersion_SpaceFileProtoVersionV2,
+				AclPayload:       aclRoot(t, privKey, nil),
+				Version:          v1,
 			}, false))
 			require.NoError(t, err, tp)
 			assert.Equal(t, SpaceTypeRegular, spaceType, tp)
 			assert.Equal(t, tp, headerType)
+		}
+	})
+	t.Run("an organization and its space need the acl root of the signer in a v1 header", func(t *testing.T) {
+		otherKey, otherPub, err := crypto.GenerateRandomEd25519KeyPair()
+		require.NoError(t, err)
+		signer, err := puKey.Marshall()
+		require.NoError(t, err)
+		other, err := otherPub.Marshall()
+		require.NoError(t, err)
+		oneToOne := &aclrecordproto.AclOneToOneInfo{Owner: other, Writers: [][]byte{signer, other}}
+		for name, change := range map[string]func(h *spacesyncproto.SpaceHeader){
+			"no root":                                 func(h *spacesyncproto.SpaceHeader) { h.AclPayload = nil },
+			"not a root":                              func(h *spacesyncproto.SpaceHeader) { h.AclPayload = []byte("root") },
+			"a v0 header, which binds no root":        func(h *spacesyncproto.SpaceHeader) { h.Version = spacesyncproto.SpaceHeaderVersion_SpaceHeaderVersion0 },
+			"the root of another account":             func(h *spacesyncproto.SpaceHeader) { h.AclPayload = aclRoot(t, otherKey, nil) },
+			"a one-to-one root that the signer signs": func(h *spacesyncproto.SpaceHeader) { h.AclPayload = aclRoot(t, privKey, oneToOne) },
+		} {
+			header := &spacesyncproto.SpaceHeader{
+				Timestamp:        123243,
+				FileprotoVersion: spacesyncproto.SpaceFileProtoVersion_SpaceFileProtoVersionV2,
+				AclPayload:       aclRoot(t, privKey, nil),
+				Version:          v1,
+			}
+			change(header)
+			for _, tp := range []string{anyOrganizationType, anyOrganizationSpaceType} {
+				header.SpaceType = tp
+				_, _, err := VerifySpaceHeader(puKey, newRawHeader(t, header, false))
+				assert.ErrorContains(t, err, "requires the v1 header with the acl root of its creator", "%s: %s", tp, name)
+			}
+			// a space of another type keeps any root
+			header.SpaceType = anySpaceType
+			_, _, err := VerifySpaceHeader(puKey, newRawHeader(t, header, false))
+			assert.NoError(t, err, name)
 		}
 	})
 	t.Run("an organization and its space without a timestamp rejected", func(t *testing.T) {

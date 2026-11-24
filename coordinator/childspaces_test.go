@@ -8,8 +8,10 @@ import (
 
 	"github.com/anyproto/any-sync/commonspace/object/accountdata"
 	"github.com/anyproto/any-sync/commonspace/object/acl/list"
+	"github.com/anyproto/any-sync/commonspace/object/acl/recordverifier"
 	"github.com/anyproto/any-sync/commonspace/spacepayloads"
 	"github.com/anyproto/any-sync/commonspace/spacesyncproto"
+	"github.com/anyproto/any-sync/consensus/consensusproto"
 	"github.com/anyproto/any-sync/consensus/consensusproto/consensuserr"
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/net/peer"
@@ -62,6 +64,22 @@ func newChildHeader(t *testing.T, creator *accountdata.AccountKeys, parentSpaceI
 	return payload.SpaceHeaderWithId.Id, payload.SpaceHeaderWithId.RawHeader
 }
 
+// newAclRoot builds the root of the acl of a space that the author creates
+func newAclRoot(t *testing.T, author crypto.PrivKey) *consensusproto.RawRecordWithId {
+	metadataKey, _, err := crypto.GenerateRandomEd25519KeyPair()
+	require.NoError(t, err)
+	readKey, err := crypto.NewRandomAES()
+	require.NoError(t, err)
+	root, err := list.NewAclRecordBuilder("", crypto.NewKeyStorage(), nil, recordverifier.NewValidateFull()).BuildRoot(list.RootContent{
+		PrivKey:   author,
+		MasterKey: author,
+		Change:    list.ReadKeyChangePayload{MetadataKey: metadataKey, ReadKey: readKey},
+		Metadata:  []byte("metadata"),
+	})
+	require.NoError(t, err)
+	return root
+}
+
 // newRawHeader signs the header of a space of an organization, after change adjusted it
 func newRawHeader(t *testing.T, creator *accountdata.AccountKeys, change func(h *spacesyncproto.SpaceHeader)) (spaceId string, header []byte) {
 	identity, err := creator.SignKey.GetPublic().Marshall()
@@ -73,6 +91,7 @@ func newRawHeader(t *testing.T, creator *accountdata.AccountKeys, change func(h 
 		ReplicationKey:   42,
 		FileprotoVersion: spacesyncproto.SpaceFileProtoVersion_SpaceFileProtoVersionV2,
 		ParentSpaceId:    testParentId,
+		AclPayload:       newAclRoot(t, creator.SignKey).Payload,
 		Version:          spacesyncproto.SpaceHeaderVersion_SpaceHeaderVersion1,
 	}
 	change(spaceHeader)
