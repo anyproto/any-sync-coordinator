@@ -27,18 +27,18 @@ func newChildFixture(t *testing.T) *fixture {
 	return fx
 }
 
-// newParent registers a space that can be a parent
+// newParent registers an organization, the space that can be a parent
 func (fx *fixture) newParent(t *testing.T, spaceId string, owner crypto.PubKey) {
-	require.NoError(t, fx.NewStatus(ctx, spaceId, owner, SpaceTypeRegular, anySpaceType, false))
+	require.NoError(t, fx.NewStatus(ctx, spaceId, owner, SpaceTypeRegular, anyOrganizationType, false))
 }
 
 func (fx *fixture) newChild(spaceId string, creator crypto.PubKey, parentSpaceId string) error {
-	return fx.NewChildStatus(ctx, spaceId, creator, SpaceTypeRegular, anySpaceType, false, parentSpaceId, noChildLimit, true)
+	return fx.NewChildStatus(ctx, spaceId, creator, SpaceTypeRegular, anyOrganizationSpaceType, false, parentSpaceId, noChildLimit, true)
 }
 
 // forceChild signs a child with the force request, which takes a deleted space back
 func (fx *fixture) forceChild(spaceId string, creator crypto.PubKey, parentSpaceId string) error {
-	return fx.NewChildStatus(ctx, spaceId, creator, SpaceTypeRegular, anySpaceType, true, parentSpaceId, noChildLimit, true)
+	return fx.NewChildStatus(ctx, spaceId, creator, SpaceTypeRegular, anyOrganizationSpaceType, true, parentSpaceId, noChildLimit, true)
 }
 
 // noChildLimit lets every account have any number of children
@@ -67,7 +67,7 @@ func (l *childLimits) limit(_ context.Context, identity string) (uint32, error) 
 }
 
 func (fx *fixture) signChild(spaceId string, creator crypto.PubKey, parentSpaceId string, force bool, limits *childLimits) error {
-	return fx.NewChildStatus(ctx, spaceId, creator, SpaceTypeRegular, anySpaceType, force, parentSpaceId, limits.limit, true)
+	return fx.NewChildStatus(ctx, spaceId, creator, SpaceTypeRegular, anyOrganizationSpaceType, force, parentSpaceId, limits.limit, true)
 }
 
 // finalDelete ends the deletion of a space as the deleter does
@@ -107,7 +107,7 @@ func TestSpaceStatus_NewChildStatus(t *testing.T) {
 			SpaceId:       childId,
 			Identity:      creator.Account(),
 			Type:          SpaceTypeRegular,
-			HeaderType:    anySpaceType,
+			HeaderType:    anyOrganizationSpaceType,
 			Status:        SpaceStatusCreated,
 			IsShareable:   true,
 			ParentSpaceId: parentId,
@@ -184,7 +184,7 @@ func TestSpaceStatus_NewChildStatus(t *testing.T) {
 		fx := newChildFixture(t)
 		fx.newParent(t, parentId, owner)
 		unchecked := func(force bool) error {
-			return fx.NewChildStatus(ctx, childId, creator, SpaceTypeRegular, anySpaceType, force, parentId, noChildLimit, false)
+			return fx.NewChildStatus(ctx, childId, creator, SpaceTypeRegular, anyOrganizationSpaceType, force, parentId, noChildLimit, false)
 		}
 		// a new child
 		require.ErrorIs(t, unchecked(false), ErrChildTakesPlace)
@@ -204,17 +204,18 @@ func TestSpaceStatus_NewChildStatus(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, SpaceStatusDeleted, child.Status)
 	})
-	t.Run("the parent is not a regular any.space", func(t *testing.T) {
+	t.Run("the parent is not an organization", func(t *testing.T) {
 		for name, tc := range map[string]struct {
 			spaceType  SpaceType
 			headerType string
 		}{
-			"tech":    {SpaceTypeTech, anyTechSpaceType},
-			"1-1":     {SpaceTypeOneToOne, anyOneToOneSpaceType},
-			"derived": {SpaceTypePersonal, anySpaceType},
-			"anytype": {SpaceTypeRegular, regularSpaceType},
-			"chat":    {SpaceTypeRegular, chatSpaceType},
-			"untyped": {SpaceTypeRegular, ""},
+			"any.space": {SpaceTypeRegular, anySpaceType},
+			"tech":      {SpaceTypeTech, anyTechSpaceType},
+			"1-1":       {SpaceTypeOneToOne, anyOneToOneSpaceType},
+			"derived":   {SpaceTypePersonal, anySpaceType},
+			"anytype":   {SpaceTypeRegular, regularSpaceType},
+			"chat":      {SpaceTypeRegular, chatSpaceType},
+			"untyped":   {SpaceTypeRegular, ""},
 		} {
 			t.Run(name, func(t *testing.T) {
 				fx := newChildFixture(t)
@@ -385,7 +386,7 @@ func TestSpaceStatus_ChildSpacesLimit(t *testing.T) {
 		errs := make(chan error, signs)
 		for i := 0; i < signs; i++ {
 			go func() {
-				errs <- fx.NewChildStatus(ctx, fmt.Sprint("child.", i), creator, SpaceTypeRegular, anySpaceType, false, parentId,
+				errs <- fx.NewChildStatus(ctx, fmt.Sprint("child.", i), creator, SpaceTypeRegular, anyOrganizationSpaceType, false, parentId,
 					func(context.Context, string) (uint32, error) { return limit, nil }, true)
 			}()
 		}
@@ -411,7 +412,7 @@ func TestSpaceStatus_ChildSpacesLimit(t *testing.T) {
 		for i := 0; i < signs; i++ {
 			parent := []string{parentId, otherParentId}[i%2]
 			go func() {
-				errs <- fx.NewChildStatus(ctx, fmt.Sprint("child.", i), creator, SpaceTypeRegular, anySpaceType, false, parent,
+				errs <- fx.NewChildStatus(ctx, fmt.Sprint("child.", i), creator, SpaceTypeRegular, anyOrganizationSpaceType, false, parent,
 					func(context.Context, string) (uint32, error) { return limit, nil }, true)
 			}()
 		}
@@ -429,7 +430,7 @@ func TestSpaceStatus_ChildSpacesLimit(t *testing.T) {
 		fx := newChildFixture(t)
 		fx.newParent(t, parentId, owner)
 		limitErr := errors.New("no limits")
-		err := fx.NewChildStatus(ctx, "child.1", creator, SpaceTypeRegular, anySpaceType, false, parentId, func(context.Context, string) (uint32, error) {
+		err := fx.NewChildStatus(ctx, "child.1", creator, SpaceTypeRegular, anyOrganizationSpaceType, false, parentId, func(context.Context, string) (uint32, error) {
 			return 0, limitErr
 		}, true)
 		require.ErrorIs(t, err, limitErr)
@@ -461,6 +462,17 @@ func TestSpaceStatus_ChildShareable(t *testing.T) {
 		fx.newParent(t, parentId, owner)
 		require.NoError(t, fx.newChild(childId, owner, parentId))
 		require.NoError(t, fx.MakeShareable(ctx, parentId, SpaceTypeRegular, 1))
+	})
+	t.Run("an organization counts against the shared spaces limit of its owner with the regular spaces", func(t *testing.T) {
+		fx := newChildFixture(t)
+		fx.newParent(t, parentId, owner)
+		require.NoError(t, fx.NewStatus(ctx, spaceId, owner, SpaceTypeRegular, anySpaceType, false))
+
+		require.NoError(t, fx.MakeShareable(ctx, parentId, SpaceTypeRegular, 1))
+		require.ErrorIs(t, fx.MakeShareable(ctx, spaceId, SpaceTypeRegular, 1), coordinatorproto.ErrSpaceLimitReached)
+		require.NoError(t, fx.MakeShareable(ctx, spaceId, SpaceTypeRegular, 2))
+		fx.newParent(t, "parent.2", owner)
+		require.ErrorIs(t, fx.MakeShareable(ctx, "parent.2", SpaceTypeRegular, 2), coordinatorproto.ErrSpaceLimitReached)
 	})
 	t.Run("making a child shareable neither counts nor fails", func(t *testing.T) {
 		fx := newChildFixture(t)

@@ -185,20 +185,28 @@ func TestChildScenario_NewOwnerInParent(t *testing.T) {
 	assert.Equal(t, accountOf(o.writer), n.status(child.id).Identity)
 }
 
-// A derived space carries the type of a regular space of the SDK and no timestamp. It is no parent.
+// A derived space carries no timestamp. With the type of a regular space of the SDK it is no parent,
+// and it is not signed with the type of an organization.
 func TestChildScenario_DerivedParent(t *testing.T) {
 	n := newNetwork(t, roomyLimits)
 	owner := newAccount(t)
-	masterKey, _, err := crypto.GenerateRandomEd25519KeyPair()
-	require.NoError(t, err)
-	payload, err := spacepayloads.StoragePayloadForSpaceDeriveV1(spacepayloads.SpaceDerivePayload{
-		SigningKey:       owner.SignKey,
-		MasterKey:        masterKey,
-		SpaceType:        testAnySpaceType,
-		FileProtoVersion: spacesyncproto.SpaceFileProtoVersion_SpaceFileProtoVersionV2,
-	})
-	require.NoError(t, err)
-	derived := space{id: payload.SpaceHeaderWithId.Id, header: payload.SpaceHeaderWithId.RawHeader, root: payload.AclWithId}
+	derive := func(spaceType string) space {
+		masterKey, _, err := crypto.GenerateRandomEd25519KeyPair()
+		require.NoError(t, err)
+		payload, err := spacepayloads.StoragePayloadForSpaceDeriveV1(spacepayloads.SpaceDerivePayload{
+			SigningKey:       owner.SignKey,
+			MasterKey:        masterKey,
+			SpaceType:        spaceType,
+			FileProtoVersion: spacesyncproto.SpaceFileProtoVersion_SpaceFileProtoVersionV2,
+		})
+		require.NoError(t, err)
+		return space{id: payload.SpaceHeaderWithId.Id, header: payload.SpaceHeaderWithId.RawHeader, root: payload.AclWithId}
+	}
+	derivedOrganization := derive(testOrganizationType)
+	require.ErrorContains(t, n.sign(owner, derivedOrganization, false), "requires a timestamp")
+	assert.False(t, n.registered(derivedOrganization.id))
+
+	derived := derive(testAnySpaceType)
 	require.NoError(t, n.sign(owner, derived, false))
 	entry := n.status(derived.id)
 	assert.Equal(t, spacestatus.SpaceTypePersonal, entry.Type)
@@ -215,7 +223,7 @@ func TestChildScenario_LimitAcrossParents(t *testing.T) {
 	n := newNetwork(t, accountlimit.SpaceLimits{SharedSpacesLimit: 10, ChildSpacesLimit: 3})
 	for round := 0; round < 5; round++ {
 		o := n.newOrg()
-		second := n.newSharedSpace(o.owner)
+		second := n.newOrganization(o.owner)
 		secondWriter := newAccount(t)
 		require.NoError(t, n.add(second.id, o.owner, list.AclPermissionsWriter, secondWriter))
 		n.mustCreateChild(o.writer, o.parent.id)
@@ -223,8 +231,8 @@ func TestChildScenario_LimitAcrossParents(t *testing.T) {
 
 		creators := []*accountdata.AccountKeys{o.writer, secondWriter}
 		children := []space{
-			newSpace(t, o.writer, testAnySpaceType, o.parent.id),
-			newSpace(t, secondWriter, testAnySpaceType, second.id),
+			newSpace(t, o.writer, testOrganizationSpaceType, o.parent.id),
+			newSpace(t, secondWriter, testOrganizationSpaceType, second.id),
 		}
 		errs := make([]error, len(children))
 		start := make(chan struct{})
@@ -263,7 +271,7 @@ func TestChildScenario_LimitAcrossParents(t *testing.T) {
 func TestChildScenario_ChildrenBeforePush(t *testing.T) {
 	n := newNetwork(t, roomyLimits)
 	owner := newAccount(t)
-	parent := newSpace(t, owner, testAnySpaceType, "")
+	parent := newSpace(t, owner, testOrganizationType, "")
 	require.NoError(t, n.signOnly(owner, parent, false))
 
 	_, err := n.children(owner, parent.id)

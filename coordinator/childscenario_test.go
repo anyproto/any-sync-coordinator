@@ -25,6 +25,7 @@ import (
 	"github.com/anyproto/any-sync/net/peer/mock_peer"
 	"github.com/anyproto/any-sync/net/pool"
 	"github.com/anyproto/any-sync/net/pool/mock_pool"
+	"github.com/anyproto/any-sync/net/rpc/rpcerr"
 	"github.com/anyproto/any-sync/net/rpc/rpctest"
 	"github.com/anyproto/any-sync/nodeconf"
 	"github.com/anyproto/any-sync/nodeconf/mock_nodeconf"
@@ -227,17 +228,27 @@ func (n *network) makeShareable(account *accountdata.AccountKeys, spaceId string
 	return err
 }
 
-// newSharedSpace creates a top-level any.space of the owner and shares it
-func (n *network) newSharedSpace(owner *accountdata.AccountKeys) space {
-	s := newSpace(n.t, owner, testAnySpaceType, "")
+// newShared creates a top-level space of the type for the owner and shares it
+func (n *network) newShared(owner *accountdata.AccountKeys, spaceType string) space {
+	s := newSpace(n.t, owner, spaceType, "")
 	require.NoError(n.t, n.sign(owner, s, false))
 	require.NoError(n.t, n.makeShareable(owner, s.id))
 	return s
 }
 
-// createChild creates a child of the parent on the device of the creator and pushes it
+// newSharedSpace creates a top-level any.space of the owner and shares it
+func (n *network) newSharedSpace(owner *accountdata.AccountKeys) space {
+	return n.newShared(owner, testAnySpaceType)
+}
+
+// newOrganization creates an organization of the owner and shares it
+func (n *network) newOrganization(owner *accountdata.AccountKeys) space {
+	return n.newShared(owner, testOrganizationType)
+}
+
+// createChild creates a space of the organization on the device of the creator and pushes it
 func (n *network) createChild(creator *accountdata.AccountKeys, parentSpaceId string) (space, error) {
-	child := newSpace(n.t, creator, testAnySpaceType, parentSpaceId)
+	child := newSpace(n.t, creator, testOrganizationSpaceType, parentSpaceId)
 	return child, n.sign(creator, child, false)
 }
 
@@ -451,7 +462,7 @@ func (n *network) children(account *accountdata.AccountKeys, parentSpaceId strin
 	return children, nil
 }
 
-// org is a shared parent space with an account in each role of it
+// org is a shared organization with an account in each role of it
 type org struct {
 	parent                       space
 	owner, admin, writer, reader *accountdata.AccountKeys
@@ -459,7 +470,7 @@ type org struct {
 
 func (n *network) newOrg() org {
 	o := org{owner: newAccount(n.t), admin: newAccount(n.t), writer: newAccount(n.t), reader: newAccount(n.t)}
-	o.parent = n.newSharedSpace(o.owner)
+	o.parent = n.newOrganization(o.owner)
 	n.join(o, list.AclPermissionsAdmin, o.admin)
 	n.join(o, list.AclPermissionsWriter, o.writer)
 	n.join(o, list.AclPermissionsReader, o.reader)
@@ -524,7 +535,7 @@ func TestChildScenario_Creation(t *testing.T) {
 		first := n.mustCreateChild(o.writer, o.parent.id)
 
 		require.NoError(t, n.setPermissions(o.parent.id, o.owner, o.writer, list.AclPermissionsReader))
-		second := newSpace(t, o.writer, testAnySpaceType, o.parent.id)
+		second := newSpace(t, o.writer, testOrganizationSpaceType, o.parent.id)
 		require.ErrorIs(t, n.sign(o.writer, second, false), coordinatorproto.ErrParentPermissionDenied)
 		assert.False(t, n.registered(second.id))
 		require.NoError(t, n.sign(o.writer, first, false))
@@ -542,17 +553,45 @@ func TestChildScenario_Creation(t *testing.T) {
 		assert.Equal(t, spacestatus.SpaceStatusCreated, n.status(second.id).Status)
 	})
 
+	t.Run("an organization is signed as a top-level regular space, and its space as a child of it", func(t *testing.T) {
+		n := newNetwork(t, roomyLimits)
+		owner := newAccount(t)
+		organization := newSpace(t, owner, testOrganizationType, "")
+		require.NoError(t, n.sign(owner, organization, false))
+		assert.Equal(t, spacestatus.StatusEntry{
+			SpaceId:    organization.id,
+			Identity:   accountOf(owner),
+			Type:       spacestatus.SpaceTypeRegular,
+			HeaderType: testOrganizationType,
+			Status:     spacestatus.SpaceStatusCreated,
+		}, n.status(organization.id))
+
+		child := n.mustCreateChild(owner, organization.id)
+		assert.Equal(t, spacestatus.StatusEntry{
+			SpaceId:       child.id,
+			Identity:      accountOf(owner),
+			Type:          spacestatus.SpaceTypeRegular,
+			HeaderType:    testOrganizationSpaceType,
+			Status:        spacestatus.SpaceStatusCreated,
+			IsShareable:   true,
+			ParentSpaceId: organization.id,
+		}, n.status(child.id))
+	})
+
 	t.Run("a space that cannot be a parent", func(t *testing.T) {
 		n := newNetwork(t, roomyLimits)
 		creator := newAccount(t)
 
-		notSigned := newSpace(t, creator, testAnySpaceType, "")
-		pending := n.newSharedSpace(creator)
+		notSigned := newSpace(t, creator, testOrganizationType, "")
+		notPushed := newSpace(t, creator, testOrganizationType, "")
+		require.NoError(t, n.signOnly(creator, notPushed, false))
+		pending := n.newOrganization(creator)
 		require.NoError(t, n.deleteSpace(creator, pending.id))
-		deleted := n.newSharedSpace(creator)
+		deleted := n.newOrganization(creator)
 		require.NoError(t, n.deleteSpace(creator, deleted.id))
 		n.endDeletionPeriod(deleted.id)
-		child := n.mustCreateChild(creator, n.newSharedSpace(creator).id)
+		child := n.mustCreateChild(creator, n.newOrganization(creator).id)
+		regular := n.newSharedSpace(creator)
 		tech := newTechSpace(t, creator)
 		require.NoError(t, n.sign(creator, tech, false))
 		oneToOnePayload, err := spacepayloads.StoragePayloadForOneToOneSpaceWithType(creator.SignKey, newAccount(t).SignKey.GetPublic(), spacepayloads.SpaceTypeOneToOneAny)
@@ -569,14 +608,16 @@ func TestChildScenario_Creation(t *testing.T) {
 			parentSpaceId string
 			err           error
 		}{
-			"a space that was never signed":     {notSigned.id, coordinatorproto.ErrParentSpaceNotAvailable},
-			"a space whose deletion is pending": {pending.id, coordinatorproto.ErrParentSpaceNotAvailable},
-			"a deleted space":                   {deleted.id, coordinatorproto.ErrParentSpaceNotAvailable},
-			"a child":                           {child.id, coordinatorproto.ErrParentSpaceInvalid},
-			"a tech space":                      {tech.id, coordinatorproto.ErrParentSpaceInvalid},
-			"a 1-1 space":                       {oneToOne.id, coordinatorproto.ErrParentSpaceInvalid},
-			"an anytype space":                  {anytypeSpace.id, coordinatorproto.ErrParentSpaceInvalid},
-			"an anytype chat space":             {chatSpace.id, coordinatorproto.ErrParentSpaceInvalid},
+			"an organization that was never signed":           {notSigned.id, coordinatorproto.ErrParentSpaceNotAvailable},
+			"an organization whose acl is not on the network": {notPushed.id, coordinatorproto.ErrParentSpaceNotAvailable},
+			"an organization whose deletion is pending":       {pending.id, coordinatorproto.ErrParentSpaceNotAvailable},
+			"a deleted organization":                          {deleted.id, coordinatorproto.ErrParentSpaceNotAvailable},
+			"a space of an organization":                      {child.id, coordinatorproto.ErrParentSpaceInvalid},
+			"a regular any.space":                             {regular.id, coordinatorproto.ErrParentSpaceInvalid},
+			"a tech space":                                    {tech.id, coordinatorproto.ErrParentSpaceInvalid},
+			"a 1-1 space":                                     {oneToOne.id, coordinatorproto.ErrParentSpaceInvalid},
+			"an anytype space":                                {anytypeSpace.id, coordinatorproto.ErrParentSpaceInvalid},
+			"an anytype chat space":                           {chatSpace.id, coordinatorproto.ErrParentSpaceInvalid},
 		} {
 			grandchild, err := n.createChild(creator, tc.parentSpaceId)
 			require.ErrorIs(t, err, tc.err, name)
@@ -584,7 +625,7 @@ func TestChildScenario_Creation(t *testing.T) {
 		}
 	})
 
-	t.Run("a child that is not a v1 any.space", func(t *testing.T) {
+	t.Run("a child that is not a v1 space of an organization", func(t *testing.T) {
 		n := newNetwork(t, roomyLimits)
 		o := n.newOrg()
 		v0Id, v0Header := newRawHeader(t, o.writer, func(h *spacesyncproto.SpaceHeader) {
@@ -596,13 +637,52 @@ func TestChildScenario_Creation(t *testing.T) {
 			h.SpaceType = "any.techspace"
 		})
 		for name, child := range map[string]space{
-			"a v0 header":      {id: v0Id, header: v0Header},
-			"an anytype space": newSpace(t, o.writer, "anytype.space", o.parent.id),
-			"a chat space":     newSpace(t, o.writer, "anytype.chatspace", o.parent.id),
-			"a tech space":     {id: techId, header: techHeader},
+			"a v0 header":         {id: v0Id, header: v0Header},
+			"an organization":     newSpace(t, o.writer, testOrganizationType, o.parent.id),
+			"a regular any.space": newSpace(t, o.writer, testAnySpaceType, o.parent.id),
+			"an anytype space":    newSpace(t, o.writer, "anytype.space", o.parent.id),
+			"a chat space":        newSpace(t, o.writer, "anytype.chatspace", o.parent.id),
+			"a tech space":        {id: techId, header: techHeader},
 		} {
 			require.ErrorIs(t, n.sign(o.writer, child, false), coordinatorproto.ErrParentSpaceInvalid, name)
 			assert.False(t, n.registered(child.id), name)
+		}
+	})
+
+	t.Run("a header that the type of an organization or of its space does not allow", func(t *testing.T) {
+		n := newNetwork(t, roomyLimits)
+		o := n.newOrg()
+		noFileProto := spacesyncproto.SpaceFileProtoVersion_SpaceFileProtoVersionUnspecified
+		child := func(h *spacesyncproto.SpaceHeader) { h.ParentSpaceId = o.parent.id }
+		organization := func(h *spacesyncproto.SpaceHeader) { h.SpaceType, h.ParentSpaceId = testOrganizationType, "" }
+		for name, tc := range map[string]struct {
+			change func(h *spacesyncproto.SpaceHeader)
+			err    string
+		}{
+			"a space of an organization that names no parent": {func(h *spacesyncproto.SpaceHeader) { h.ParentSpaceId = "" }, "requires a parent space"},
+			"a space of an organization without fileproto v2": {func(h *spacesyncproto.SpaceHeader) {
+				child(h)
+				h.FileprotoVersion = noFileProto
+			}, "requires fileproto version"},
+			"a space of an organization without a timestamp": {func(h *spacesyncproto.SpaceHeader) {
+				child(h)
+				h.Timestamp = 0
+			}, "requires a timestamp"},
+			"an organization without fileproto v2": {func(h *spacesyncproto.SpaceHeader) {
+				organization(h)
+				h.FileprotoVersion = noFileProto
+			}, "requires fileproto version"},
+			"an organization without a timestamp": {func(h *spacesyncproto.SpaceHeader) {
+				organization(h)
+				h.Timestamp = 0
+			}, "requires a timestamp"},
+		} {
+			spaceId, header := newRawHeader(t, o.writer, tc.change)
+			err := n.signOnly(o.writer, space{id: spaceId, header: header}, false)
+			require.ErrorContains(t, err, tc.err, name)
+			// the error is not one of the coordinator's
+			assert.Zero(t, rpcerr.Code(err), name)
+			assert.False(t, n.registered(spaceId), name)
 		}
 	})
 
@@ -632,7 +712,7 @@ func TestChildScenario_Limit(t *testing.T) {
 	t.Run("the children under every parent of one owner share its limit, whoever creates them", func(t *testing.T) {
 		n := newNetwork(t, accountlimit.SpaceLimits{SharedSpacesLimit: 10, ChildSpacesLimit: 3})
 		o := n.newOrg()
-		second := n.newSharedSpace(o.owner)
+		second := n.newOrganization(o.owner)
 		secondWriter := newAccount(t)
 		require.NoError(t, n.add(second.id, o.owner, list.AclPermissionsWriter, secondWriter))
 
@@ -700,7 +780,7 @@ func TestChildScenario_Limit(t *testing.T) {
 		first := n.mustCreateChild(a.writer, a.parent.id)
 		n.mustCreateChild(a.writer, a.parent.id)
 		n.mustCreateChild(b.writer, b.parent.id)
-		another := n.newSharedSpace(a.owner)
+		another := n.newOrganization(a.owner)
 		_, err := n.createChild(a.owner, another.id)
 		require.ErrorIs(t, err, coordinatorproto.ErrChildSpacesLimitReached)
 
@@ -765,7 +845,7 @@ func TestChildScenario_Limit(t *testing.T) {
 		writers := n.newMembers(o, list.AclPermissionsWriter, 8)
 		children := make([]space, len(writers))
 		for i, writer := range writers {
-			children[i] = newSpace(t, writer, testAnySpaceType, o.parent.id)
+			children[i] = newSpace(t, writer, testOrganizationSpaceType, o.parent.id)
 		}
 
 		errs := make([]error, len(writers))
@@ -1164,32 +1244,34 @@ func TestChildScenario_DeletionAndList(t *testing.T) {
 
 func TestChildScenario_TopLevel(t *testing.T) {
 	t.Run("a top-level space gives nobody the authority of a parent", func(t *testing.T) {
-		n := newNetwork(t, roomyLimits)
-		owner, admin, writer, outsider := newAccount(t), newAccount(t), newAccount(t), newAccount(t)
-		s := n.newSharedSpace(owner)
-		require.NoError(t, n.add(s.id, owner, list.AclPermissionsAdmin, admin))
-		require.NoError(t, n.add(s.id, owner, list.AclPermissionsWriter, writer))
+		for _, spaceType := range []string{testAnySpaceType, testOrganizationType} {
+			n := newNetwork(t, roomyLimits)
+			owner, admin, writer, outsider := newAccount(t), newAccount(t), newAccount(t), newAccount(t)
+			s := n.newShared(owner, spaceType)
+			require.NoError(t, n.add(s.id, owner, list.AclPermissionsAdmin, admin), spaceType)
+			require.NoError(t, n.add(s.id, owner, list.AclPermissionsWriter, writer), spaceType)
 
-		require.Error(t, n.removeKeyless(s.id, owner, writer))
-		require.Error(t, n.removeKeyless(s.id, admin, writer))
-		assert.Equal(t, list.AclPermissionsWriter, n.permissions(s.id, writer))
-		require.Error(t, n.changeOwnerAsParent(s.id, admin, writer, list.AclPermissionsAdmin))
-		require.Error(t, n.transfer(s.id, admin, writer, list.AclPermissionsAdmin))
-		assert.Equal(t, list.AclPermissionsOwner, n.permissions(s.id, owner))
-		require.Error(t, n.deleteSpace(admin, s.id))
-		assert.Equal(t, spacestatus.SpaceStatusCreated, n.status(s.id).Status)
+			require.Error(t, n.removeKeyless(s.id, owner, writer), spaceType)
+			require.Error(t, n.removeKeyless(s.id, admin, writer), spaceType)
+			assert.Equal(t, list.AclPermissionsWriter, n.permissions(s.id, writer), spaceType)
+			require.Error(t, n.changeOwnerAsParent(s.id, admin, writer, list.AclPermissionsAdmin), spaceType)
+			require.Error(t, n.transfer(s.id, admin, writer, list.AclPermissionsAdmin), spaceType)
+			assert.Equal(t, list.AclPermissionsOwner, n.permissions(s.id, owner), spaceType)
+			require.Error(t, n.deleteSpace(admin, s.id), spaceType)
+			assert.Equal(t, spacestatus.SpaceStatusCreated, n.status(s.id).Status, spaceType)
 
-		// any account is added, and the owner hands the space over itself
-		require.NoError(t, n.add(s.id, owner, list.AclPermissionsReader, outsider))
-		require.NoError(t, n.transfer(s.id, owner, admin, list.AclPermissionsWriter))
-		assert.Equal(t, accountOf(admin), n.status(s.id).Identity)
-		require.NoError(t, n.deleteSpace(admin, s.id))
+			// any account is added, and the owner hands the space over itself
+			require.NoError(t, n.add(s.id, owner, list.AclPermissionsReader, outsider), spaceType)
+			require.NoError(t, n.transfer(s.id, owner, admin, list.AclPermissionsWriter), spaceType)
+			assert.Equal(t, accountOf(admin), n.status(s.id).Identity, spaceType)
+			require.NoError(t, n.deleteSpace(admin, s.id), spaceType)
+		}
 	})
 
-	t.Run("sharing a top-level space and its limit work as before", func(t *testing.T) {
+	t.Run("an organization is shared as a top-level any.space is, within the same limit", func(t *testing.T) {
 		n := newNetwork(t, accountlimit.SpaceLimits{SharedSpacesLimit: 1, ChildSpacesLimit: 10})
 		owner, writer, stranger := newAccount(t), newAccount(t), newAccount(t)
-		first := newSpace(t, owner, testAnySpaceType, "")
+		first := newSpace(t, owner, testOrganizationType, "")
 		require.NoError(t, n.sign(owner, first, false))
 		require.ErrorIs(t, n.add(first.id, owner, list.AclPermissionsWriter, writer), coordinatorproto.ErrSpaceNotShareable)
 		require.ErrorIs(t, n.makeShareable(stranger, first.id), coordinatorproto.ErrForbidden)
@@ -1200,10 +1282,20 @@ func TestChildScenario_TopLevel(t *testing.T) {
 		second := newSpace(t, owner, testAnySpaceType, "")
 		require.NoError(t, n.sign(owner, second, false))
 		require.ErrorIs(t, n.makeShareable(owner, second.id), coordinatorproto.ErrSpaceLimitReached)
-		// a child of the shared space changes none of it
+		// a space of the organization changes none of it
 		n.mustCreateChild(writer, first.id)
 		require.ErrorIs(t, n.makeShareable(owner, second.id), coordinatorproto.ErrSpaceLimitReached)
 		assert.False(t, n.statusCheck(owner, second.id).IsShared)
 		assert.Equal(t, uint32(1), n.accountLimits(owner).SharedSpacesLimit)
+	})
+
+	t.Run("a regular any.space at the shared spaces limit keeps an organization from being shared", func(t *testing.T) {
+		n := newNetwork(t, accountlimit.SpaceLimits{SharedSpacesLimit: 1, ChildSpacesLimit: 10})
+		owner := newAccount(t)
+		n.newSharedSpace(owner)
+		organization := newSpace(t, owner, testOrganizationType, "")
+		require.NoError(t, n.sign(owner, organization, false))
+		require.ErrorIs(t, n.makeShareable(owner, organization.id), coordinatorproto.ErrSpaceLimitReached)
+		assert.False(t, n.statusCheck(owner, organization.id).IsShared)
 	})
 }

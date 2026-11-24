@@ -26,8 +26,10 @@ import (
 )
 
 const (
-	testParentId     = "parent.id"
-	testAnySpaceType = "any.space"
+	testParentId              = "parent.id"
+	testAnySpaceType          = "any.space"
+	testOrganizationType      = "any.organization"
+	testOrganizationSpaceType = "any.organization.space"
 )
 
 // accountCtx is the context of a request made by the account
@@ -37,7 +39,7 @@ func accountCtx(t *testing.T, identity crypto.PubKey) context.Context {
 	return peer.CtxWithPeerId(peer.CtxWithIdentity(context.Background(), raw), "peer.id")
 }
 
-// newChildHeader builds the header any-sync gives a regular any.space created under a parent
+// newChildHeader builds the header any-sync gives a space of an organization created under a parent
 func newChildHeader(t *testing.T, creator *accountdata.AccountKeys, parentSpaceId string) (spaceId string, header []byte) {
 	masterKey, _, err := crypto.GenerateRandomEd25519KeyPair()
 	require.NoError(t, err)
@@ -47,7 +49,7 @@ func newChildHeader(t *testing.T, creator *accountdata.AccountKeys, parentSpaceI
 	require.NoError(t, err)
 	payload, err := spacepayloads.StoragePayloadForSpaceCreateV1(spacepayloads.SpaceCreatePayload{
 		SigningKey:       creator.SignKey,
-		SpaceType:        testAnySpaceType,
+		SpaceType:        testOrganizationSpaceType,
 		ReplicationKey:   42,
 		MasterKey:        masterKey,
 		ReadKey:          readKey,
@@ -60,14 +62,14 @@ func newChildHeader(t *testing.T, creator *accountdata.AccountKeys, parentSpaceI
 	return payload.SpaceHeaderWithId.Id, payload.SpaceHeaderWithId.RawHeader
 }
 
-// newRawHeader signs a header that names a parent, after change adjusted it
+// newRawHeader signs the header of a space of an organization, after change adjusted it
 func newRawHeader(t *testing.T, creator *accountdata.AccountKeys, change func(h *spacesyncproto.SpaceHeader)) (spaceId string, header []byte) {
 	identity, err := creator.SignKey.GetPublic().Marshall()
 	require.NoError(t, err)
 	spaceHeader := &spacesyncproto.SpaceHeader{
 		Identity:         identity,
 		Timestamp:        time.Now().Unix(),
-		SpaceType:        testAnySpaceType,
+		SpaceType:        testOrganizationSpaceType,
 		ReplicationKey:   42,
 		FileprotoVersion: spacesyncproto.SpaceFileProtoVersion_SpaceFileProtoVersionV2,
 		ParentSpaceId:    testParentId,
@@ -104,7 +106,7 @@ func parentEntry(change func(e *spacestatus.StatusEntry)) spacestatus.StatusEntr
 		SpaceId:    testParentId,
 		Identity:   "parent.owner",
 		Type:       spacestatus.SpaceTypeRegular,
-		HeaderType: testAnySpaceType,
+		HeaderType: testOrganizationType,
 		Status:     spacestatus.SpaceStatusCreated,
 	}
 	if change != nil {
@@ -133,7 +135,7 @@ func TestCoordinator_SpaceSignChild(t *testing.T) {
 			SpaceId:       childId,
 			Identity:      creatorKey.Account(),
 			Type:          spacestatus.SpaceTypeRegular,
-			HeaderType:    testAnySpaceType,
+			HeaderType:    testOrganizationSpaceType,
 			Status:        status,
 			IsShareable:   true,
 			ParentSpaceId: testParentId,
@@ -146,13 +148,13 @@ func TestCoordinator_SpaceSignChild(t *testing.T) {
 			expectFirstSign(fx)
 			fx.spaceStatus.EXPECT().Status(signCtx, testParentId).Return(parentEntry(nil), nil)
 			fx.acl.EXPECT().Permissions(signCtx, isKey(creatorKey), testParentId).Return(permissions, nil)
-			fx.spaceStatus.EXPECT().NewChildStatus(signCtx, childId, isKey(creatorKey), spacestatus.SpaceTypeRegular, testAnySpaceType, false, testParentId, gomock.Any(), true).Return(nil)
+			fx.spaceStatus.EXPECT().NewChildStatus(signCtx, childId, isKey(creatorKey), spacestatus.SpaceTypeRegular, testOrganizationSpaceType, false, testParentId, gomock.Any(), true).Return(nil)
 			expectReceipt(fx)
 
 			receipt, headerType, err := fx.SpaceSign(signCtx, childId, childHeader, false)
 			require.NoError(t, err)
 			require.NotNil(t, receipt)
-			assert.Equal(t, testAnySpaceType, headerType)
+			assert.Equal(t, testOrganizationSpaceType, headerType)
 			fx.finish(t)
 		}
 	})
@@ -168,7 +170,7 @@ func TestCoordinator_SpaceSignChild(t *testing.T) {
 		} {
 			fx := newSignFixture(t)
 			fx.spaceStatus.EXPECT().Status(signCtx, childId).Return(registered(tc.status), nil)
-			fx.spaceStatus.EXPECT().NewChildStatus(signCtx, childId, isKey(creatorKey), spacestatus.SpaceTypeRegular, testAnySpaceType, tc.force, testParentId, gomock.Any(), false).Return(nil)
+			fx.spaceStatus.EXPECT().NewChildStatus(signCtx, childId, isKey(creatorKey), spacestatus.SpaceTypeRegular, testOrganizationSpaceType, tc.force, testParentId, gomock.Any(), false).Return(nil)
 			expectReceipt(fx)
 
 			receipt, _, err := fx.SpaceSign(signCtx, childId, childHeader, tc.force)
@@ -181,7 +183,7 @@ func TestCoordinator_SpaceSignChild(t *testing.T) {
 		for _, status := range []int{spacestatus.SpaceStatusDeleted, spacestatus.SpaceStatusDeletionPending} {
 			fx := newSignFixture(t)
 			fx.spaceStatus.EXPECT().Status(signCtx, childId).Return(registered(status), nil)
-			fx.spaceStatus.EXPECT().NewChildStatus(signCtx, childId, isKey(creatorKey), spacestatus.SpaceTypeRegular, testAnySpaceType, false, testParentId, gomock.Any(), false).
+			fx.spaceStatus.EXPECT().NewChildStatus(signCtx, childId, isKey(creatorKey), spacestatus.SpaceTypeRegular, testOrganizationSpaceType, false, testParentId, gomock.Any(), false).
 				Return(coordinatorproto.ErrSpaceIsDeleted)
 
 			receipt, _, err := fx.SpaceSign(signCtx, childId, childHeader, false)
@@ -206,7 +208,7 @@ func TestCoordinator_SpaceSignChild(t *testing.T) {
 		gomock.InOrder(
 			// the deletion is pending when the sign starts and final when the child is registered
 			fx.spaceStatus.EXPECT().Status(signCtx, childId).Return(registered(spacestatus.SpaceStatusDeletionPending), nil),
-			fx.spaceStatus.EXPECT().NewChildStatus(signCtx, childId, isKey(creatorKey), spacestatus.SpaceTypeRegular, testAnySpaceType, true, testParentId, gomock.Any(), false).
+			fx.spaceStatus.EXPECT().NewChildStatus(signCtx, childId, isKey(creatorKey), spacestatus.SpaceTypeRegular, testOrganizationSpaceType, true, testParentId, gomock.Any(), false).
 				Return(spacestatus.ErrChildTakesPlace),
 			fx.spaceStatus.EXPECT().Status(signCtx, childId).Return(registered(spacestatus.SpaceStatusDeleted), nil),
 			fx.spaceStatus.EXPECT().Status(signCtx, testParentId).Return(parentEntry(nil), nil),
@@ -223,7 +225,7 @@ func TestCoordinator_SpaceSignChild(t *testing.T) {
 		expectFirstSign(fx)
 		fx.spaceStatus.EXPECT().Status(signCtx, testParentId).Return(parentEntry(nil), nil)
 		fx.acl.EXPECT().Permissions(signCtx, isKey(creatorKey), testParentId).Return(list.AclPermissionsWriter, nil)
-		fx.spaceStatus.EXPECT().NewChildStatus(signCtx, childId, isKey(creatorKey), spacestatus.SpaceTypeRegular, testAnySpaceType, true, testParentId, gomock.Any(), true).Return(nil)
+		fx.spaceStatus.EXPECT().NewChildStatus(signCtx, childId, isKey(creatorKey), spacestatus.SpaceTypeRegular, testOrganizationSpaceType, true, testParentId, gomock.Any(), true).Return(nil)
 		expectReceipt(fx)
 
 		_, _, err := fx.SpaceSign(signCtx, childId, childHeader, true)
@@ -236,7 +238,7 @@ func TestCoordinator_SpaceSignChild(t *testing.T) {
 		fx.spaceStatus.EXPECT().Status(signCtx, testParentId).Return(parentEntry(nil), nil)
 		fx.acl.EXPECT().Permissions(signCtx, isKey(creatorKey), testParentId).Return(list.AclPermissionsWriter, nil)
 		fx.accountLimit.EXPECT().GetLimits(signCtx, "parent.owner").Return(accountlimit.Limits{SharedSpacesLimit: 3, ChildSpacesLimit: 7}, nil)
-		fx.spaceStatus.EXPECT().NewChildStatus(signCtx, childId, isKey(creatorKey), spacestatus.SpaceTypeRegular, testAnySpaceType, false, testParentId, gomock.Any(), true).
+		fx.spaceStatus.EXPECT().NewChildStatus(signCtx, childId, isKey(creatorKey), spacestatus.SpaceTypeRegular, testOrganizationSpaceType, false, testParentId, gomock.Any(), true).
 			DoAndReturn(func(ctx context.Context, _ string, _ crypto.PubKey, _ spacestatus.SpaceType, _ string, _ bool, _ string, limit spacestatus.ChildSpacesLimit, _ bool) error {
 				max, err := limit(ctx, "parent.owner")
 				require.NoError(t, err)
@@ -291,12 +293,17 @@ func TestCoordinator_SpaceSignChild(t *testing.T) {
 		_, _, err := fx.SpaceSign(signCtx, childId, childHeader, false)
 		require.ErrorIs(t, err, coordinatorproto.ErrParentSpaceNotAvailable)
 	})
-	t.Run("the parent is not a top-level regular any.space", func(t *testing.T) {
+	t.Run("the parent is not an organization", func(t *testing.T) {
 		for name, change := range map[string]func(e *spacestatus.StatusEntry){
-			"a child":          func(e *spacestatus.StatusEntry) { e.ParentSpaceId = "grandparent.id" },
-			"a tech space":     func(e *spacestatus.StatusEntry) { e.Type, e.HeaderType = spacestatus.SpaceTypeTech, "any.techspace" },
-			"a 1-1 space":      func(e *spacestatus.StatusEntry) { e.Type, e.HeaderType = spacestatus.SpaceTypeOneToOne, "any.onetoone" },
-			"a derived space":  func(e *spacestatus.StatusEntry) { e.Type = spacestatus.SpaceTypePersonal },
+			"a space of an organization": func(e *spacestatus.StatusEntry) {
+				e.ParentSpaceId, e.HeaderType = "grandparent.id", testOrganizationSpaceType
+			},
+			"a regular any.space": func(e *spacestatus.StatusEntry) { e.HeaderType = testAnySpaceType },
+			"a tech space":        func(e *spacestatus.StatusEntry) { e.Type, e.HeaderType = spacestatus.SpaceTypeTech, "any.techspace" },
+			"a 1-1 space":         func(e *spacestatus.StatusEntry) { e.Type, e.HeaderType = spacestatus.SpaceTypeOneToOne, "any.onetoone" },
+			"a derived space": func(e *spacestatus.StatusEntry) {
+				e.Type, e.HeaderType = spacestatus.SpaceTypePersonal, testAnySpaceType
+			},
 			"an anytype space": func(e *spacestatus.StatusEntry) { e.HeaderType = "anytype.space" },
 		} {
 			fx := newSignFixture(t)
@@ -308,14 +315,16 @@ func TestCoordinator_SpaceSignChild(t *testing.T) {
 			fx.finish(t)
 		}
 	})
-	t.Run("the header of the child is not a v1 header of a regular any.space", func(t *testing.T) {
+	t.Run("a header that names a parent is not a v1 header of a space of an organization", func(t *testing.T) {
 		for name, change := range map[string]func(h *spacesyncproto.SpaceHeader){
-			"not v1":           func(h *spacesyncproto.SpaceHeader) { h.Version = spacesyncproto.SpaceHeaderVersion_SpaceHeaderVersion0 },
-			"a derived space":  func(h *spacesyncproto.SpaceHeader) { h.Timestamp = 0 },
-			"a tech space":     func(h *spacesyncproto.SpaceHeader) { h.SpaceType = "any.techspace" },
-			"an anytype space": func(h *spacesyncproto.SpaceHeader) { h.SpaceType = "anytype.space" },
-			"a chat space":     func(h *spacesyncproto.SpaceHeader) { h.SpaceType = "anytype.chatspace" },
-			"an untyped space": func(h *spacesyncproto.SpaceHeader) { h.SpaceType = "" },
+			"not v1":              func(h *spacesyncproto.SpaceHeader) { h.Version = spacesyncproto.SpaceHeaderVersion_SpaceHeaderVersion0 },
+			"an organization":     func(h *spacesyncproto.SpaceHeader) { h.SpaceType = testOrganizationType },
+			"a regular any.space": func(h *spacesyncproto.SpaceHeader) { h.SpaceType = testAnySpaceType },
+			"a derived any.space": func(h *spacesyncproto.SpaceHeader) { h.SpaceType, h.Timestamp = testAnySpaceType, 0 },
+			"a tech space":        func(h *spacesyncproto.SpaceHeader) { h.SpaceType = "any.techspace" },
+			"an anytype space":    func(h *spacesyncproto.SpaceHeader) { h.SpaceType = "anytype.space" },
+			"a chat space":        func(h *spacesyncproto.SpaceHeader) { h.SpaceType = "anytype.chatspace" },
+			"an untyped space":    func(h *spacesyncproto.SpaceHeader) { h.SpaceType = "" },
 		} {
 			fx := newSignFixture(t)
 			spaceId, header := newRawHeader(t, creator, change)
@@ -325,16 +334,49 @@ func TestCoordinator_SpaceSignChild(t *testing.T) {
 			fx.finish(t)
 		}
 	})
-	t.Run("a header that names no parent is signed as before", func(t *testing.T) {
-		fx := newSignFixture(t)
-		defer fx.finish(t)
-		spaceId, header := newRawHeader(t, creator, func(h *spacesyncproto.SpaceHeader) { h.ParentSpaceId = "" })
-		fx.spaceStatus.EXPECT().NewStatus(signCtx, spaceId, isKey(creatorKey), spacestatus.SpaceTypeRegular, testAnySpaceType, false).Return(nil)
-		expectReceipt(fx)
+	t.Run("a header that the type of an organization or of its space does not allow", func(t *testing.T) {
+		noFileProto := spacesyncproto.SpaceFileProtoVersion_SpaceFileProtoVersionUnspecified
+		organization := func(h *spacesyncproto.SpaceHeader) { h.SpaceType, h.ParentSpaceId = testOrganizationType, "" }
+		for name, tc := range map[string]struct {
+			change func(h *spacesyncproto.SpaceHeader)
+			err    string
+		}{
+			"a space of an organization that names no parent": {func(h *spacesyncproto.SpaceHeader) { h.ParentSpaceId = "" }, "requires a parent space"},
+			"a space of an organization without fileproto v2": {func(h *spacesyncproto.SpaceHeader) { h.FileprotoVersion = noFileProto }, "requires fileproto version"},
+			"a space of an organization without a timestamp":  {func(h *spacesyncproto.SpaceHeader) { h.Timestamp = 0 }, "requires a timestamp"},
+			"an organization without fileproto v2": {func(h *spacesyncproto.SpaceHeader) {
+				organization(h)
+				h.FileprotoVersion = noFileProto
+			}, "requires fileproto version"},
+			"an organization without a timestamp": {func(h *spacesyncproto.SpaceHeader) {
+				organization(h)
+				h.Timestamp = 0
+			}, "requires a timestamp"},
+		} {
+			fx := newSignFixture(t)
+			spaceId, header := newRawHeader(t, creator, tc.change)
 
-		receipt, _, err := fx.SpaceSign(signCtx, spaceId, header, false)
-		require.NoError(t, err)
-		require.NotNil(t, receipt)
+			receipt, _, err := fx.SpaceSign(signCtx, spaceId, header, false)
+			require.ErrorContains(t, err, tc.err, name)
+			// the error is not one of the coordinator's
+			assert.Zero(t, rpcerr.Code(err), name)
+			assert.Nil(t, receipt, name)
+			fx.finish(t)
+		}
+	})
+	t.Run("an organization and a regular any.space are signed as top-level regular spaces", func(t *testing.T) {
+		for _, spaceType := range []string{testOrganizationType, testAnySpaceType} {
+			fx := newSignFixture(t)
+			spaceId, header := newRawHeader(t, creator, func(h *spacesyncproto.SpaceHeader) { h.SpaceType, h.ParentSpaceId = spaceType, "" })
+			fx.spaceStatus.EXPECT().NewStatus(signCtx, spaceId, isKey(creatorKey), spacestatus.SpaceTypeRegular, spaceType, false).Return(nil)
+			expectReceipt(fx)
+
+			receipt, headerType, err := fx.SpaceSign(signCtx, spaceId, header, false)
+			require.NoError(t, err, spaceType)
+			require.NotNil(t, receipt, spaceType)
+			assert.Equal(t, spaceType, headerType)
+			fx.finish(t)
+		}
 	})
 }
 
@@ -348,7 +390,7 @@ func TestCoordinator_SpaceDeleteChild(t *testing.T) {
 			SpaceId:       testChildId,
 			Identity:      owner.Account(),
 			Type:          spacestatus.SpaceTypeRegular,
-			HeaderType:    testAnySpaceType,
+			HeaderType:    testOrganizationSpaceType,
 			ParentSpaceId: testParentId,
 		}
 	}
@@ -501,7 +543,7 @@ func TestRpcHandler_SpaceStatusCheckChild(t *testing.T) {
 		SpaceId:       testChildId,
 		Identity:      childOwner.Account(),
 		Type:          spacestatus.SpaceTypeRegular,
-		HeaderType:    testAnySpaceType,
+		HeaderType:    testOrganizationSpaceType,
 		IsShareable:   true,
 		ParentSpaceId: testParentId,
 	}

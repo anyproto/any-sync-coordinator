@@ -51,7 +51,7 @@ func newFamily(t *testing.T) *family {
 		SpaceId:       testChildId,
 		Identity:      f.childOwner.SignKey.GetPublic().Account(),
 		Type:          spacestatus.SpaceTypeRegular,
-		HeaderType:    testAnySpaceType,
+		HeaderType:    testOrganizationSpaceType,
 		IsShareable:   true,
 		ParentSpaceId: testParentId,
 	})
@@ -268,7 +268,7 @@ func TestCoordinator_ChildAdmission(t *testing.T) {
 			SpaceId:     testParentId,
 			Identity:    f.parentOwner.SignKey.GetPublic().Account(),
 			Type:        spacestatus.SpaceTypeRegular,
-			HeaderType:  testAnySpaceType,
+			HeaderType:  testOrganizationType,
 			IsShareable: true,
 		})
 		rec, err := f.aclOf(t, testParentId, f.parentOwner).RecordBuilder().BuildAccountsAdd(list.AccountsAddPayload{Additions: []list.AccountAdd{{
@@ -288,6 +288,8 @@ func TestCoordinator_ChildAdmission(t *testing.T) {
 		fx.expectSpace(spacestatus.StatusEntry{
 			SpaceId:       testChildId,
 			Identity:      owner.SignKey.GetPublic().Account(),
+			Type:          spacestatus.SpaceTypeRegular,
+			HeaderType:    testOrganizationSpaceType,
 			IsShareable:   true,
 			ParentSpaceId: "lost.parent.id",
 		})

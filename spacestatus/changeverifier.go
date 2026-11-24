@@ -60,30 +60,38 @@ const (
 	anySpaceType         = "any.space"
 	anyTechSpaceType     = "any.techspace"
 	anyOneToOneSpaceType = "any.onetoone"
+	// An organization is the space that can have child spaces. A child carries the organization
+	// space type and names its organization in the header. Both require fileproto v2.
+	anyOrganizationType      = "any.organization"
+	anyOrganizationSpaceType = "any.organization.space"
 )
 
-// canNest reports whether a space of this class and header type can be a parent or a child space.
-// Only the regular space of the `any` product can: every other type, and a derived space, which
-// carries the same header type, cannot.
-func canNest(spaceType SpaceType, headerType string) bool {
-	return spaceType == SpaceTypeRegular && headerType == anySpaceType
+// canParent reports whether a space of this class and header type can be a parent: an organization.
+func canParent(spaceType SpaceType, headerType string) bool {
+	return spaceType == SpaceTypeRegular && headerType == anyOrganizationType
+}
+
+// canChild reports whether a space of this class and header type can be a child: a space of an
+// organization.
+func canChild(spaceType SpaceType, headerType string) bool {
+	return spaceType == SpaceTypeRegular && headerType == anyOrganizationSpaceType
 }
 
 // CheckParent tells whether a space can be the parent of a space that is being signed: it is not
-// deleted, and it is a top-level space that can be nested.
+// deleted, and it is an organization.
 func CheckParent(parent StatusEntry) error {
 	if parent.Status != SpaceStatusCreated {
 		return coordinatorproto.ErrParentSpaceNotAvailable
 	}
-	if parent.ParentSpaceId != "" || !canNest(parent.Type, parent.HeaderType) {
+	if parent.ParentSpaceId != "" || !canParent(parent.Type, parent.HeaderType) {
 		return coordinatorproto.ErrParentSpaceInvalid
 	}
 	return nil
 }
 
 // HeaderParent returns the id of the parent space the header names, empty for a top-level space.
-// spaceType and headerType are what VerifySpaceHeader returned for the header. A header that names a
-// parent is refused unless it is a v1 header of a space that can be nested.
+// spaceType and headerType are what VerifySpaceHeader returned for the header. The type and the parent
+// agree: only a v1 header of a space of an organization names a parent, and such a space names one.
 func HeaderParent(headerBytes []byte, spaceType SpaceType, headerType string) (parentSpaceId string, err error) {
 	rawHeader := &spacesyncproto.RawSpaceHeader{}
 	if err = rawHeader.UnmarshalVT(headerBytes); err != nil {
@@ -94,9 +102,12 @@ func HeaderParent(headerBytes []byte, spaceType SpaceType, headerType string) (p
 		return
 	}
 	if header.ParentSpaceId == "" {
+		if headerType == anyOrganizationSpaceType {
+			return "", fmt.Errorf("space type %s requires a parent space", headerType)
+		}
 		return "", nil
 	}
-	if header.Version != spacesyncproto.SpaceHeaderVersion_SpaceHeaderVersion1 || !canNest(spaceType, headerType) {
+	if header.Version != spacesyncproto.SpaceHeaderVersion_SpaceHeaderVersion1 || !canChild(spaceType, headerType) {
 		return "", coordinatorproto.ErrParentSpaceInvalid
 	}
 	return header.ParentSpaceId, nil
@@ -192,7 +203,7 @@ func VerifySpaceHeader(identity crypto.PubKey, headerBytes []byte) (spaceType Sp
 	}
 
 	switch header.SpaceType {
-	case anySpaceType, anyTechSpaceType, anyOneToOneSpaceType:
+	case anySpaceType, anyTechSpaceType, anyOneToOneSpaceType, anyOrganizationType, anyOrganizationSpaceType:
 		// any.* spaces are files-v2 only
 		if header.FileprotoVersion != spacesyncproto.SpaceFileProtoVersion_SpaceFileProtoVersionV2 {
 			err = fmt.Errorf("space type %s requires fileproto version %d, got %d",
@@ -211,6 +222,12 @@ func VerifySpaceHeader(identity crypto.PubKey, headerBytes []byte) (spaceType Sp
 	case "", regularSpaceType, anySpaceType:
 		if header.Timestamp == 0 {
 			return SpaceTypePersonal, headerType, nil
+		}
+		return SpaceTypeRegular, headerType, nil
+	case anyOrganizationType, anyOrganizationSpaceType:
+		// a header without a timestamp is of a derived space, and neither type is derived
+		if header.Timestamp == 0 {
+			return 0, headerType, fmt.Errorf("space type %s requires a timestamp", header.SpaceType)
 		}
 		return SpaceTypeRegular, headerType, nil
 	default:
