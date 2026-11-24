@@ -77,6 +77,12 @@ func canChild(spaceType SpaceType, headerType string) bool {
 	return spaceType == SpaceTypeRegular && headerType == anyOrganizationSpaceType
 }
 
+// HasGuestRole reports whether a space with this header type has the guest role, the role of the
+// identity of a guest key. An organization and its spaces have none.
+func HasGuestRole(headerType string) bool {
+	return headerType != anyOrganizationType && headerType != anyOrganizationSpaceType
+}
+
 // CheckParent tells whether a space can be the parent of a space that is being signed: it is not
 // deleted, and it is an organization.
 func CheckParent(parent StatusEntry) error {

@@ -453,12 +453,18 @@ func (c *coordinator) AclAddRecord(ctx context.Context, spaceId string, payload 
 		}
 	}
 
+	hasGuestRole := spacestatus.HasGuestRole(statusEntry.HeaderType)
 	// the owner is taken from the state the record leads to: the cached acl takes the record in only
 	// when the consensus node sends it back, which can be after this call returns
 	var owner crypto.PubKey
 	afterValid := func(before, after *list.AclState) (err error) {
 		if owner, err = after.OwnerPubKey(); err != nil {
 			return err
+		}
+		if !hasGuestRole {
+			if err = checkNoNewGuest(before, after); err != nil {
+				return err
+			}
 		}
 		if child != nil {
 			return child.afterValid(before, after)
@@ -510,6 +516,16 @@ func (c *coordinator) AclAddRecord(ctx context.Context, spaceId string, payload 
 	}
 
 	return rawRecordWithId, nil
+}
+
+// checkNoNewGuest refuses a record that gives the guest role to an account that did not hold it.
+func checkNoNewGuest(before, after *list.AclState) error {
+	for _, account := range after.CurrentAccounts() {
+		if account.Permissions.IsGuest() && !before.Permissions(account.PubKey).IsGuest() {
+			return coordinatorproto.ErrGuestRoleNotAllowed
+		}
+	}
+	return nil
 }
 
 // SpaceChildren lists the children of a space for an Admin or the Owner of that space. A member below

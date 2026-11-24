@@ -7,6 +7,7 @@ import (
 	"github.com/anyproto/any-sync/acl"
 	"github.com/anyproto/any-sync/acl/mock_acl"
 	"github.com/anyproto/any-sync/app"
+	"github.com/anyproto/any-sync/commonspace/object/accountdata"
 	"github.com/anyproto/any-sync/commonspace/object/acl/list"
 	"github.com/anyproto/any-sync/consensus/consensusproto"
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
@@ -308,6 +309,65 @@ func TestCoordinator_AclAddRecordOwner(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, cachedOwner.Equals(owner.SignKey.GetPublic()))
 		assert.Equal(t, fx.consensus.log(spaceId)[2], changed)
+	})
+}
+
+// The guest role of a space follows its header type: an organization and its spaces have none.
+func TestCoordinator_AclAddRecordGuestRole(t *testing.T) {
+	const spaceId = "space.id"
+	owner := newAccount(t)
+
+	newSpace := func(t *testing.T, headerType string) *fixture {
+		fx := newAclFixture(t)
+		t.Cleanup(func() { fx.finish(t) })
+		fx.newAcl(t, spaceId, owner)
+		fx.expectSpace(spacestatus.StatusEntry{
+			SpaceId:     spaceId,
+			Identity:    owner.SignKey.GetPublic().Account(),
+			Type:        spacestatus.SpaceTypeRegular,
+			HeaderType:  headerType,
+			IsShareable: true,
+		})
+		fx.aclEventLog.EXPECT().AddLog(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		return fx
+	}
+	add := func(t *testing.T, fx *fixture, permissions list.AclPermissions, account *accountdata.AccountKeys) error {
+		rec, err := fx.aclOf(t, spaceId, owner).RecordBuilder().BuildAccountsAdd(list.AccountsAddPayload{Additions: []list.AccountAdd{{
+			Identity:    account.SignKey.GetPublic(),
+			Permissions: permissions,
+			Metadata:    []byte("metadata"),
+		}}})
+		_, err = fx.addRecord(t, spaceId, owner, rec, err)
+		return err
+	}
+
+	t.Run("an organization takes an account as a member, not as a guest", func(t *testing.T) {
+		fx := newSpace(t, testOrganizationType)
+		guest, reader := newAccount(t), newAccount(t)
+		require.ErrorIs(t, add(t, fx, list.AclPermissionsGuest, guest), coordinatorproto.ErrGuestRoleNotAllowed)
+		assert.Len(t, fx.consensus.log(spaceId), 1)
+		require.NoError(t, add(t, fx, list.AclPermissionsReader, reader))
+		assert.Equal(t, list.AclPermissionsReader, permissionsOf(fx.aclOf(t, spaceId, owner), reader))
+	})
+	t.Run("a guest that the acl of an organization holds does not hold up its records", func(t *testing.T) {
+		fx := newSpace(t, testOrganizationType)
+		held, guest, reader := newAccount(t), newAccount(t), newAccount(t)
+		fx.putMembers(t, spaceId, owner, list.AclPermissionsGuest, held)
+
+		require.NoError(t, add(t, fx, list.AclPermissionsReader, reader))
+		require.ErrorIs(t, add(t, fx, list.AclPermissionsGuest, guest), coordinatorproto.ErrGuestRoleNotAllowed)
+		rec, err := fx.aclOf(t, spaceId, owner).RecordBuilder().BuildAccountRemove(removePayload(t, held))
+		_, err = fx.addRecord(t, spaceId, owner, rec, err)
+		require.NoError(t, err)
+		assert.Equal(t, list.AclPermissionsNone, permissionsOf(fx.aclOf(t, spaceId, owner), held))
+	})
+	t.Run("a space of any other type takes a guest", func(t *testing.T) {
+		for _, headerType := range []string{testAnySpaceType, "anytype.space", "anytype.chatspace", ""} {
+			fx := newSpace(t, headerType)
+			guest := newAccount(t)
+			require.NoError(t, add(t, fx, list.AclPermissionsGuest, guest), headerType)
+			assert.Equal(t, list.AclPermissionsGuest, permissionsOf(fx.aclOf(t, spaceId, owner), guest), headerType)
+		}
 	})
 }
 

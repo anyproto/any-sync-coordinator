@@ -243,6 +243,15 @@ func TestHeaderParent(t *testing.T) {
 	})
 }
 
+func TestHasGuestRole(t *testing.T) {
+	for _, headerType := range []string{anyOrganizationType, anyOrganizationSpaceType} {
+		assert.False(t, HasGuestRole(headerType), headerType)
+	}
+	for _, headerType := range []string{"", regularSpaceType, chatSpaceType, oneToOneSpaceType, anySpaceType, anyOneToOneSpaceType, "other.space"} {
+		assert.True(t, HasGuestRole(headerType), headerType)
+	}
+}
+
 func TestCheckParent(t *testing.T) {
 	parent := func(change func(e *StatusEntry)) StatusEntry {
 		e := StatusEntry{SpaceId: "parent.id", Type: SpaceTypeRegular, HeaderType: anyOrganizationType, Status: SpaceStatusCreated}

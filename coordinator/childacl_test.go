@@ -154,33 +154,33 @@ func TestCoordinator_ChildAdmission(t *testing.T) {
 		assert.Equal(t, list.AclPermissionsNone, f.childPermissions(t, f.parentReader))
 		assert.Equal(t, list.AclPermissionsWriter, f.childPermissions(t, f.parentWriter))
 	})
-	t.Run("the identity of a guest key is added though it is not in the parent", func(t *testing.T) {
-		f := newFamily(t)
-		guest := newAccount(t)
-		require.NoError(t, f.add(t, list.AclPermissionsGuest, guest))
-		assert.Equal(t, list.AclPermissionsGuest, f.childPermissions(t, guest))
-	})
-	t.Run("only the owner of the child lets the identity of a guest key in from outside the parent", func(t *testing.T) {
+	t.Run("nobody is added as a guest, a member of the parent or not, whoever adds it", func(t *testing.T) {
 		f := newFamily(t)
 		require.NoError(t, f.add(t, list.AclPermissionsAdmin, f.parentAdmin))
-		guest := newAccount(t)
 
-		// the acl of the child lets its Admin add any identity as a guest
-		require.ErrorIs(t, f.addAs(t, f.parentAdmin, list.AclPermissionsGuest, guest), coordinatorproto.ErrNotParentMember)
-		assert.Equal(t, list.AclPermissionsNone, f.childPermissions(t, guest))
-		// a member of the parent is let in as a guest by an Admin of the child
-		require.NoError(t, f.addAs(t, f.parentAdmin, list.AclPermissionsGuest, f.parentReader))
-		assert.Equal(t, list.AclPermissionsGuest, f.childPermissions(t, f.parentReader))
-
-		require.NoError(t, f.add(t, list.AclPermissionsGuest, guest))
-		assert.Equal(t, list.AclPermissionsGuest, f.childPermissions(t, guest))
+		// the acl of the child lets its owner and its Admin add any identity as a guest
+		for name, author := range map[string]*accountdata.AccountKeys{
+			"the owner of the child": f.childOwner,
+			"an Admin of the child":  f.parentAdmin,
+		} {
+			for _, account := range []*accountdata.AccountKeys{f.parentReader, f.outsider} {
+				require.ErrorIs(t, f.addAs(t, author, list.AclPermissionsGuest, account), coordinatorproto.ErrGuestRoleNotAllowed, name)
+				assert.Equal(t, list.AclPermissionsNone, f.childPermissions(t, account), name)
+			}
+		}
+		// the guest role is what refuses a record that also makes an account from outside the parent a member
+		rec, err := f.childBuilder(t, f.childOwner).BuildAccountsAdd(list.AccountsAddPayload{Additions: []list.AccountAdd{
+			{Identity: f.outsider.SignKey.GetPublic(), Permissions: list.AclPermissionsReader, Metadata: []byte("metadata")},
+			{Identity: f.parentReader.SignKey.GetPublic(), Permissions: list.AclPermissionsGuest, Metadata: []byte("metadata")},
+		}})
+		require.ErrorIs(t, f.addToChild(t, f.childOwner, rec, err), coordinatorproto.ErrGuestRoleNotAllowed)
 	})
-	t.Run("the identity of a guest key of the parent does not become a member of the child", func(t *testing.T) {
+	t.Run("an identity that the acl of the parent holds as a guest is no member of the parent", func(t *testing.T) {
 		f := newFamily(t)
 		guest := newAccount(t)
 		f.putMembers(t, testParentId, f.parentOwner, list.AclPermissionsGuest, guest)
 		require.ErrorIs(t, f.add(t, list.AclPermissionsReader, guest), coordinatorproto.ErrNotParentMember)
-		require.NoError(t, f.add(t, list.AclPermissionsGuest, guest))
+		assert.Equal(t, list.AclPermissionsNone, f.childPermissions(t, guest))
 	})
 	t.Run("a join request is taken and accepted only from a member of the parent", func(t *testing.T) {
 		f := newFamily(t)
@@ -305,7 +305,8 @@ func TestCoordinator_ChildAdmission(t *testing.T) {
 		}
 
 		require.ErrorIs(t, add(list.AclPermissionsReader), coordinatorproto.ErrParentSpaceNotAvailable)
-		require.NoError(t, add(list.AclPermissionsGuest))
+		// the refusal of the guest role does not depend on the acl of the parent
+		require.ErrorIs(t, add(list.AclPermissionsGuest), coordinatorproto.ErrGuestRoleNotAllowed)
 		// nobody has the authority of a parent whose acl cannot be read
 		keyless, err := fx.aclOf(t, testChildId, added).RecordBuilder().BuildAccountRemoveNoRotate(pubKeys(member))
 		_, err = fx.addRecord(t, testChildId, added, keyless, err)
@@ -536,4 +537,11 @@ func TestRpcHandler_AclAddRecordChild(t *testing.T) {
 		Metadata:    []byte("metadata"),
 	}}})
 	assert.Equal(t, code(coordinatorproto.ErrorCodes_NotParentMember), send(f.childOwner, rec, err), "an account that is not in the parent added to the child")
+
+	rec, err = f.childBuilder(t, f.childOwner).BuildAccountsAdd(list.AccountsAddPayload{Additions: []list.AccountAdd{{
+		Identity:    f.parentAdmin.SignKey.GetPublic(),
+		Permissions: list.AclPermissionsGuest,
+		Metadata:    []byte("metadata"),
+	}}})
+	assert.Equal(t, code(coordinatorproto.ErrorCodes_GuestRoleNotAllowed), send(f.childOwner, rec, err), "a member of the parent added to the child as a guest")
 }

@@ -155,19 +155,99 @@ func TestChildScenario_DeletionByParentOwner(t *testing.T) {
 	})
 }
 
-// Only the owner of a child lets an account that is not in the parent in, as the identity of a guest
-// key.
-func TestChildScenario_GuestByChildAdmin(t *testing.T) {
-	n := newNetwork(t, roomyLimits)
-	o := n.newOrg()
-	child := n.mustCreateChild(o.writer, o.parent.id)
-	require.NoError(t, n.add(child.id, o.writer, list.AclPermissionsAdmin, o.admin))
+// guestEntry is one way into the guest role of a space: a record that gives the account the role
+type guestEntry struct {
+	name    string
+	account *accountdata.AccountKeys
+	// before is the role of the account when the record is sent
+	before list.AclPermissions
+	// with is an account that the same record adds as a Reader
+	with *accountdata.AccountKeys
+	// send builds the record as the author and sends it to the coordinator
+	send func() error
+}
 
-	guest := newAccount(t)
-	require.ErrorIs(t, n.add(child.id, o.admin, list.AclPermissionsGuest, guest), coordinatorproto.ErrNotParentMember)
-	assert.Equal(t, list.AclPermissionsNone, n.permissions(child.id, guest))
-	// a member of the parent is let in as a guest by an Admin of the child
-	require.NoError(t, n.add(child.id, o.admin, list.AclPermissionsGuest, o.reader))
+// guestEntries prepares every way into the guest role of the space, each with the author as the one
+// who writes the record. newMember gives an account that the space takes as a member.
+func (n *network) guestEntries(spaceId string, author *accountdata.AccountKeys, newMember func() *accountdata.AccountKeys) []guestEntry {
+	key, added, addedWith, joiner, reader := newAccount(n.t), newMember(), newMember(), newMember(), newMember()
+
+	invite, err := n.builder(spaceId, author).BuildInvite()
+	require.NoError(n.t, n.sendErr(spaceId, author, invite.InviteRec, err))
+	request, err := n.builder(spaceId, joiner).BuildRequestJoin(list.RequestJoinPayload{InviteKey: invite.InviteKey, Metadata: []byte("metadata")})
+	posted, err := n.send(spaceId, joiner, request, err)
+	require.NoError(n.t, err)
+	require.NoError(n.t, n.add(spaceId, author, list.AclPermissionsReader, reader))
+
+	addition := func(account *accountdata.AccountKeys, permissions list.AclPermissions) list.AccountAdd {
+		return list.AccountAdd{Identity: account.SignKey.GetPublic(), Permissions: permissions, Metadata: []byte("metadata")}
+	}
+	return []guestEntry{
+		{name: "a guest key: the identity of a new key is added as a guest", account: key, send: func() error {
+			return n.add(spaceId, author, list.AclPermissionsGuest, key)
+		}},
+		{name: "a direct add: an account is added as a guest, another as a Reader with it", account: added, with: addedWith, send: func() error {
+			rec, err := n.builder(spaceId, author).BuildAccountsAdd(list.AccountsAddPayload{Additions: []list.AccountAdd{
+				addition(addedWith, list.AclPermissionsReader),
+				addition(added, list.AclPermissionsGuest),
+			}})
+			return n.sendErr(spaceId, author, rec, err)
+		}},
+		{name: "an accepted request: the request to join is accepted as a guest", account: joiner, send: func() error {
+			rec, err := n.builder(spaceId, author).BuildRequestAccept(list.RequestAcceptPayload{RequestRecordId: posted.RecordId, Permissions: list.AclPermissionsGuest})
+			return n.sendErr(spaceId, author, rec, err)
+		}},
+		{name: "a permission change: a Reader is made a guest", account: reader, before: list.AclPermissionsReader, send: func() error {
+			return n.setPermissions(spaceId, author, reader, list.AclPermissionsGuest)
+		}},
+	}
+}
+
+// An organization and its spaces have no guest role: no record gives an account the role, whoever
+// writes it. A regular any.space has the role.
+func TestChildScenario_GuestRole(t *testing.T) {
+	// refused sends every way into the guest role as the author and expects each to change nothing
+	refused := func(t *testing.T, n *network, spaceId string, author *accountdata.AccountKeys, newMember func() *accountdata.AccountKeys) {
+		for _, entry := range n.guestEntries(spaceId, author, newMember) {
+			records := len(n.consensus.log(spaceId))
+			require.ErrorIs(t, entry.send(), coordinatorproto.ErrGuestRoleNotAllowed, entry.name)
+			assert.Len(t, n.consensus.log(spaceId), records, entry.name)
+			assert.Equal(t, entry.before, n.permissions(spaceId, entry.account), entry.name)
+			if entry.with != nil {
+				assert.Equal(t, list.AclPermissionsNone, n.permissions(spaceId, entry.with), entry.name)
+			}
+		}
+	}
+
+	t.Run("nobody enters an organization as a guest", func(t *testing.T) {
+		n := newNetwork(t, roomyLimits)
+		o := n.newOrg()
+		anyAccount := func() *accountdata.AccountKeys { return newAccount(t) }
+		refused(t, n, o.parent.id, o.owner, anyAccount)
+		refused(t, n, o.parent.id, o.admin, anyAccount)
+	})
+	t.Run("nobody enters a space of an organization as a guest", func(t *testing.T) {
+		n := newNetwork(t, roomyLimits)
+		o := n.newOrg()
+		child := n.mustCreateChild(o.writer, o.parent.id)
+		require.NoError(t, n.add(child.id, o.writer, list.AclPermissionsAdmin, o.admin))
+		// the identity of the guest key is not in the parent, the other accounts are its members
+		parentMember := func() *accountdata.AccountKeys { return n.newMembers(o, list.AclPermissionsReader, 1)[0] }
+		refused(t, n, child.id, o.writer, parentMember)
+		refused(t, n, child.id, o.admin, parentMember)
+	})
+	t.Run("a regular any.space has the guest role", func(t *testing.T) {
+		n := newNetwork(t, roomyLimits)
+		owner := newAccount(t)
+		s := n.newSharedSpace(owner)
+		for _, entry := range n.guestEntries(s.id, owner, func() *accountdata.AccountKeys { return newAccount(t) }) {
+			require.NoError(t, entry.send(), entry.name)
+			assert.Equal(t, list.AclPermissionsGuest, n.permissions(s.id, entry.account), entry.name)
+			if entry.with != nil {
+				assert.Equal(t, list.AclPermissionsReader, n.permissions(s.id, entry.with), entry.name)
+			}
+		}
+	})
 }
 
 // The new owner of a child is a member of the parent when the ownership changes.

@@ -972,13 +972,6 @@ func TestChildScenario_Admission(t *testing.T) {
 		require.NoError(t, join(o.reader))
 		assert.Equal(t, list.AclPermissionsWriter, n.permissions(child.id, o.reader))
 	})
-
-	t.Run("the owner of a child gives an outsider read access with a guest key", func(t *testing.T) {
-		n, o, child := newChild(t)
-		guest := newAccount(t)
-		require.NoError(t, n.add(child.id, o.writer, list.AclPermissionsGuest, guest))
-		assert.Equal(t, list.AclPermissionsGuest, n.permissions(child.id, guest))
-	})
 }
 
 func TestChildScenario_Governance(t *testing.T) {

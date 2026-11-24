@@ -150,18 +150,11 @@ func isMember(permissions list.AclPermissions) bool {
 
 // checkAdmission refuses a record that makes an account a member of the child, or posts its request
 // to join, when the account is not a member of the parent. A request is checked when it is posted and
-// again when it is accepted, as the account can leave the parent in between. The identity of a guest
-// key is a member of neither space: being in the parent it opens no child, and it gets into a child
-// from outside the parent only when the owner of the child lets it in.
+// again when it is accepted, as the account can leave the parent in between.
 func (r *childRecord) checkAdmission(before, after *list.AclState) error {
-	byOwner := before.Permissions(r.author).IsOwner()
 	var entering []crypto.PubKey
 	for _, account := range after.CurrentAccounts() {
-		was := before.Permissions(account.PubKey)
-		switch {
-		case isMember(account.Permissions) && !isMember(was):
-			entering = append(entering, account.PubKey)
-		case account.Permissions.IsGuest() && was.NoPermissions() && !byOwner:
+		if isMember(account.Permissions) && !isMember(before.Permissions(account.PubKey)) {
 			entering = append(entering, account.PubKey)
 		}
 	}
