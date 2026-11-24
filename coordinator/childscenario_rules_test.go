@@ -126,6 +126,109 @@ func TestChildScenario_AccountDeletion(t *testing.T) {
 	})
 }
 
+// A child does not outlive its parent: a child in deletion comes back only under a parent that is neither
+// deleted nor in deletion, whichever way its owner takes the deletion back.
+func TestChildScenario_RevivalNeedsParent(t *testing.T) {
+	// ownOrganization is an account with its tech space, an organization it owns and a child of it
+	ownOrganization := func(t *testing.T) (n *network, owner *accountdata.AccountKeys, tech, organization, child space) {
+		n = newNetwork(t, roomyLimits)
+		owner = newAccount(t)
+		tech = newTechSpace(t, owner)
+		require.NoError(t, n.sign(owner, tech, false))
+		organization = n.newOrganization(owner)
+		return n, owner, tech, organization, n.mustCreateChild(owner, organization.id)
+	}
+	pending, created, deleted := spacestatus.SpaceStatusDeletionPending, spacestatus.SpaceStatusCreated, spacestatus.SpaceStatusDeleted
+
+	t.Run("not by the deprecated status change", func(t *testing.T) {
+		n, owner, _, organization, child := ownOrganization(t)
+		require.NoError(t, n.deleteAccount(owner))
+
+		require.ErrorIs(t, n.revertDeletion(owner, child.id), coordinatorproto.ErrParentSpaceNotAvailable)
+		assert.Equal(t, pending, n.status(child.id).Status)
+		n.endDeletionPeriod(organization.id)
+		require.ErrorIs(t, n.revertDeletion(owner, child.id), coordinatorproto.ErrParentSpaceNotAvailable)
+		assert.Equal(t, pending, n.status(child.id).Status)
+	})
+	t.Run("not by a forced sign while the parent is in deletion", func(t *testing.T) {
+		n, owner, tech, organization, child := ownOrganization(t)
+		require.NoError(t, n.deleteAccount(owner))
+		// the account is out of its deletion, the organization is not
+		require.NoError(t, n.revertDeletion(owner, tech.id))
+
+		require.ErrorIs(t, n.sign(owner, child, true), coordinatorproto.ErrParentSpaceNotAvailable)
+		assert.Equal(t, pending, n.status(child.id).Status)
+		// the child follows its parent back
+		require.NoError(t, n.revertDeletion(owner, organization.id))
+		require.NoError(t, n.sign(owner, child, true))
+		assert.Equal(t, created, n.status(child.id).Status)
+	})
+	t.Run("not by a forced sign after the parent is deleted", func(t *testing.T) {
+		n, owner, tech, organization, child := ownOrganization(t)
+		// the deletion of the child ends after the one of the account
+		require.NoError(t, n.deleteSpace(owner, child.id))
+		require.NoError(t, n.deleteAccount(owner))
+		n.endDeletionPeriod(organization.id)
+		n.endDeletionPeriod(tech.id)
+
+		require.ErrorIs(t, n.sign(owner, child, true), coordinatorproto.ErrParentSpaceNotAvailable)
+		assert.Equal(t, pending, n.status(child.id).Status)
+	})
+	t.Run("not by reverting the deletion of the account, which comes back with its other spaces", func(t *testing.T) {
+		for name, tc := range map[string]struct {
+			refuse func(n *network, parent space)
+			parent int
+		}{
+			"the parent is deleted": {func(n *network, parent space) { n.endDeletionPeriod(parent.id) }, deleted},
+			// the document of the parent is the one of a regular any.space
+			"the parent is not an organization": {func(n *network, parent space) {
+				_, err := n.db.Db().Collection("spaces").UpdateOne(context.Background(),
+					bson.M{"_id": parent.id},
+					bson.M{"$set": bson.M{"headerType": testAnySpaceType}},
+				)
+				require.NoError(t, err)
+			}, created},
+		} {
+			n, owner, tech, organization, child := ownOrganization(t)
+			own := n.newSharedSpace(owner)
+			require.NoError(t, n.deleteAccount(owner), name)
+			tc.refuse(n, organization)
+
+			require.NoError(t, n.revertAccountDeletion(owner), name)
+			assert.Equal(t, created, n.status(tech.id).Status, name)
+			assert.Equal(t, created, n.status(own.id).Status, name)
+			assert.Equal(t, tc.parent, n.status(organization.id).Status, name)
+			assert.Equal(t, pending, n.status(child.id).Status, name)
+		}
+	})
+	t.Run("the deletion of the account reverted brings the parent and the child back", func(t *testing.T) {
+		n, owner, tech, organization, child := ownOrganization(t)
+		second := n.mustCreateChild(owner, organization.id)
+		require.NoError(t, n.deleteAccount(owner))
+		require.NoError(t, n.revertAccountDeletion(owner))
+		for _, s := range []space{tech, organization, child, second} {
+			assert.Equal(t, created, n.status(s.id).Status)
+		}
+	})
+	t.Run("a child under a parent that is not in deletion comes back by each way", func(t *testing.T) {
+		n := newNetwork(t, roomyLimits)
+		o := n.newOrg()
+		require.NoError(t, n.sign(o.writer, newTechSpace(t, o.writer), false))
+		child := n.mustCreateChild(o.writer, o.parent.id)
+		for name, undo := range map[string]func() error{
+			"the deprecated status change": func() error { return n.revertDeletion(o.writer, child.id) },
+			"a forced sign":                func() error { return n.sign(o.writer, child, true) },
+		} {
+			require.NoError(t, n.deleteSpace(o.writer, child.id), name)
+			require.NoError(t, undo(), name)
+			assert.Equal(t, created, n.status(child.id).Status, name)
+		}
+		require.NoError(t, n.deleteAccount(o.writer))
+		require.NoError(t, n.revertAccountDeletion(o.writer))
+		assert.Equal(t, created, n.status(child.id).Status)
+	})
+}
+
 // The owner of a child does not take back a deletion that the Owner of the parent made.
 func TestChildScenario_DeletionByParentOwner(t *testing.T) {
 	// deletedByParent is a child that the Owner of the parent deleted; its owner has a tech space

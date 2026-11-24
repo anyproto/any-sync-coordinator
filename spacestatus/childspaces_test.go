@@ -151,13 +151,26 @@ func TestSpaceStatus_NewChildStatus(t *testing.T) {
 		require.NoError(t, fx.newChild(childId, creator, parentId))
 		fx.finalDelete(t, parentId, SpaceStatusCreated)
 		require.NoError(t, fx.newChild(childId, creator, parentId))
-
-		// also one whose deletion is pending, which a forced sign takes back
+	})
+	t.Run("a forced sign takes a child back from its deletion only under a parent that is neither deleted nor in deletion", func(t *testing.T) {
+		fx := newChildFixture(t)
+		fx.newParent(t, parentId, owner)
+		require.NoError(t, fx.newChild(childId, creator, parentId))
+		status := func() int {
+			child, err := fx.Status(ctx, childId)
+			require.NoError(t, err)
+			return child.Status
+		}
 		fx.setPending(t, childId, creator)
 		require.NoError(t, fx.forceChild(childId, creator, parentId))
-		child, err := fx.Status(ctx, childId)
-		require.NoError(t, err)
-		assert.Equal(t, SpaceStatusCreated, child.Status)
+		assert.Equal(t, SpaceStatusCreated, status())
+
+		fx.setPending(t, childId, creator)
+		fx.setPending(t, parentId, owner)
+		require.ErrorIs(t, fx.forceChild(childId, creator, parentId), coordinatorproto.ErrParentSpaceNotAvailable)
+		fx.finalDelete(t, parentId, SpaceStatusDeletionPending)
+		require.ErrorIs(t, fx.forceChild(childId, creator, parentId), coordinatorproto.ErrParentSpaceNotAvailable)
+		assert.Equal(t, SpaceStatusDeletionPending, status())
 	})
 	t.Run("a deleted child answers that it is deleted before any check of its parent", func(t *testing.T) {
 		fx := newChildFixture(t)

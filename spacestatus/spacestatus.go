@@ -4,6 +4,7 @@ package spacestatus
 import (
 	"context"
 	"errors"
+	"sort"
 	"time"
 
 	"github.com/anyproto/any-sync/app"
@@ -103,12 +104,11 @@ type configProvider interface {
 
 type SpaceStatus interface {
 	NewStatus(ctx context.Context, spaceId string, identity crypto.PubKey, spaceType SpaceType, headerType string, force bool) (err error)
-	// NewChildStatus registers a space as NewStatus does, as a child of parentSpaceId. A child is
-	// shareable. A sign that takes a place (see TakesChildPlace) needs a parent that passes CheckParent
-	// and room in the childSpacesLimit of the account that owns the parent, which limit tells. Any
-	// other sign of a child is answered as the sign of a top-level space is. creatorChecked tells that
-	// the caller found the sign to take a place and checked its creator against the parent; a sign that
-	// takes a place without that check answers ErrChildTakesPlace.
+	// NewChildStatus registers a space as NewStatus does, as a shareable child of parentSpaceId. A sign
+	// that takes a place (see TakesChildPlace) needs a parent that passes CheckParent, room in the
+	// childSpacesLimit of the parent's owner, which limit tells, and creatorChecked, the caller's check
+	// of the creator against the parent, without which it answers ErrChildTakesPlace. A forced sign
+	// that takes a child back from its deletion needs the parent only.
 	NewChildStatus(ctx context.Context, spaceId string, identity crypto.PubKey, spaceType SpaceType, headerType string, force bool, parentSpaceId string, limit ChildSpacesLimit, creatorChecked bool) (err error)
 	// ChangeStatus is deprecated, use only for backwards compatibility
 	ChangeStatus(ctx context.Context, change StatusChange) (entry StatusEntry, err error)
@@ -288,8 +288,21 @@ func (s *spaceStatus) AccountRevertDeletion(ctx context.Context, payload Account
 			return unexpectedOrTransient(err)
 		}
 
-		// Iterate through the spaces and call setStatusTx
+		// Iterate through the spaces and call setStatusTx. The top-level spaces come first, so a child
+		// finds a parent that came back with it. A child that its parent refuses stays in deletion.
+		sort.SliceStable(spaces, func(i, j int) bool {
+			return spaces[i].ParentSpaceId == "" && spaces[j].ParentSpaceId != ""
+		})
 		for _, space := range spaces {
+			if space.ParentSpaceId != "" {
+				if _, err := s.parentTx(txCtx, space.ParentSpaceId); err != nil {
+					// an error of the database is not a refusal
+					if db.IsTransientTransactionError(err) || errors.Is(err, coordinatorproto.ErrUnexpected) {
+						return err
+					}
+					continue
+				}
+			}
 			change := StatusChange{
 				Identity:  payload.Identity,
 				PeerId:    payload.PeerId,
@@ -373,6 +386,12 @@ func (s *spaceStatus) ChangeStatus(ctx context.Context, change StatusChange) (en
 			}
 			if entry, err = s.setStatusTx(txCtx, change, SpaceStatusDeletionPending); err != nil {
 				return err
+			}
+			// a child comes back only under a parent that is neither deleted nor in deletion
+			if entry.ParentSpaceId != "" {
+				if _, err = s.parentTx(txCtx, entry.ParentSpaceId); err != nil {
+					return err
+				}
 			}
 			return s.checkLimitTx(txCtx, change.Identity)
 		})
@@ -595,9 +614,9 @@ func TakesChildPlace(registered bool, child StatusEntry, force bool) bool {
 	return !registered || (force && child.Status == SpaceStatusDeleted && !child.DeletedByParentOwner)
 }
 
-// parentTx returns the parent of a space that is being registered, if it can take the child. Its
-// write makes the transaction conflict with a deletion of the parent and with another registration
-// under it, so each of them sees the other.
+// parentTx returns the parent of a child that is being registered or taken back from its deletion, if
+// it can take the child. Its write makes the transaction conflict with a deletion of the parent and
+// with another registration under it, so each of them sees the other.
 func (s *spaceStatus) parentTx(txCtx mongo.SessionContext, parentSpaceId string) (parent StatusEntry, err error) {
 	err = s.spaces.FindOneAndUpdate(txCtx,
 		bson.M{"_id": parentSpaceId},
@@ -678,13 +697,16 @@ func (s *spaceStatus) newStatus(ctx context.Context, spaceId string, identity cr
 			// save back compatibility
 			return nil
 		}
-		// only a child that takes a place is checked against the parent and the limit
+		// only a child that takes a place is checked against the limit
 		takesPlace := isChild && TakesChildPlace(!notFound, entry, force)
 		if takesPlace && !creatorChecked {
 			return ErrChildTakesPlace
 		}
+		// a child that takes a place needs its parent, and so does one that a forced sign takes back from
+		// its deletion: a child comes back only under a parent that is neither deleted nor in deletion
+		takesBack := isChild && !notFound && force && !entry.DeletedByParentOwner
 		var parent StatusEntry
-		if takesPlace {
+		if takesPlace || takesBack {
 			if parent, err = s.parentTx(txCtx, parentSpaceId); err != nil {
 				return err
 			}

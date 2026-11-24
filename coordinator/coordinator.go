@@ -299,11 +299,9 @@ func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader
 	return
 }
 
-// newChildStatus registers a space whose header names a parent. A sign that takes a place, of a new
-// child or a forced one of a finally deleted child, needs a parent that can take the child, a creator
-// who is a Writer or above in the parent now, and room in the childSpacesLimit of the account that
-// owns the parent. Any other sign is answered as the sign of a top-level space is, whatever changed in
-// the parent since: a registered child is signed again, a deleted one answers that it is deleted.
+// newChildStatus registers a space whose header names a parent. For a sign that takes a place, of a
+// new child or a forced one of a finally deleted child, it first checks the creator against the
+// parent. Any other sign goes to the registration as it is.
 func (c *coordinator) newChildStatus(ctx context.Context, spaceId string, creator crypto.PubKey, spaceType spacestatus.SpaceType, headerType string, force bool, parentSpaceId string) (err error) {
 	// The deletion of a child can become final between the read of its status and the registration.
 	// The registration then refuses a sign that takes a place unchecked, and the sign is decided again
