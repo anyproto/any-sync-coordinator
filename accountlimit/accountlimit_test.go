@@ -12,6 +12,7 @@ import (
 	"github.com/anyproto/any-sync/nodeconf/mock_nodeconf"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.uber.org/mock/gomock"
 
 	"github.com/anyproto/any-sync-coordinator/db"
@@ -36,6 +37,7 @@ func TestAccountLimit_SetLimits(t *testing.T) {
 		SpaceMembersRead:  100,
 		SpaceMembersWrite: 200,
 		SharedSpacesLimit: 3,
+		ChildSpacesLimit:  7,
 	}
 
 	// set
@@ -57,6 +59,47 @@ func TestAccountLimit_SetLimits(t *testing.T) {
 
 }
 
+func TestAccountLimit_ChildSpacesLimit(t *testing.T) {
+	fx := newFixture(t)
+	defer fx.finish(t)
+	fx.nodeConf.EXPECT().FilePeers().Return([]string{"filePeer"}).AnyTimes()
+	peer := mock_peer.NewMockPeer(fx.ctrl)
+	peer.EXPECT().Id().Return("filePeer").AnyTimes()
+	peer.EXPECT().DoDrpc(ctx, gomock.Any()).AnyTimes()
+	fx.pool.AddPeer(ctx, peer)
+	const defaultLimit = uint32(4)
+	childSpacesLimit := func(identity string) uint32 {
+		limits, err := fx.GetLimits(ctx, identity)
+		require.NoError(t, err)
+		return limits.ChildSpacesLimit
+	}
+
+	t.Run("limits set without it take the default", func(t *testing.T) {
+		require.NoError(t, fx.SetLimits(ctx, Limits{Identity: "unset", SharedSpacesLimit: 3}))
+		assert.Equal(t, defaultLimit, childSpacesLimit("unset"))
+	})
+	t.Run("a document written without the field takes the default", func(t *testing.T) {
+		coll := fx.a.MustComponent(db.CName).(db.Database).Db().Collection(collName)
+		_, err := coll.InsertOne(ctx, bson.M{"_id": "old", "sharedSpacesLimit": 3})
+		require.NoError(t, err)
+		assert.Equal(t, defaultLimit, childSpacesLimit("old"))
+		limits, err := fx.GetLimits(ctx, "old")
+		require.NoError(t, err)
+		assert.Equal(t, uint32(3), limits.SharedSpacesLimit)
+	})
+	t.Run("an update without it keeps the stored value", func(t *testing.T) {
+		require.NoError(t, fx.SetLimits(ctx, Limits{Identity: "set", SharedSpacesLimit: 3, ChildSpacesLimit: 9}))
+		assert.Equal(t, uint32(9), childSpacesLimit("set"))
+		require.NoError(t, fx.SetLimits(ctx, Limits{Identity: "set", SharedSpacesLimit: 5}))
+		limits, err := fx.GetLimits(ctx, "set")
+		require.NoError(t, err)
+		assert.Equal(t, uint32(5), limits.SharedSpacesLimit)
+		assert.Equal(t, uint32(9), limits.ChildSpacesLimit)
+		require.NoError(t, fx.SetLimits(ctx, Limits{Identity: "set", SharedSpacesLimit: 5, ChildSpacesLimit: 2}))
+		assert.Equal(t, uint32(2), childSpacesLimit("set"))
+	})
+}
+
 func TestAccountLimit_GetLimits(t *testing.T) {
 	fx := newFixture(t)
 	defer fx.finish(t)
@@ -66,6 +109,7 @@ func TestAccountLimit_GetLimits(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, uint32(5), limits.SpaceMembersWrite)
 	assert.Equal(t, uint32(10), limits.SpaceMembersRead)
+	assert.Equal(t, uint32(4), limits.ChildSpacesLimit)
 }
 
 func TestAccountLimit_GetLimitsBySpace(t *testing.T) {
@@ -185,5 +229,6 @@ func (c *testConfig) GetAccountLimit() SpaceLimits {
 		SpaceMembersRead:  10,
 		SpaceMembersWrite: 5,
 		SharedSpacesLimit: 3,
+		ChildSpacesLimit:  4,
 	}
 }

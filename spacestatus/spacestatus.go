@@ -4,6 +4,7 @@ package spacestatus
 import (
 	"context"
 	"errors"
+	"sort"
 	"time"
 
 	"github.com/anyproto/any-sync/app"
@@ -36,6 +37,8 @@ type StatusChange struct {
 	PeerId               string
 	SpaceId              string
 	NetworkId            string
+	// ByParentOwner tells that a deletion is made by the owner of the parent of the space
+	ByParentOwner bool
 }
 
 type AccountInfo struct {
@@ -55,6 +58,9 @@ type SpaceDeletion struct {
 	DeletionPayloadId string
 	SpaceId           string
 	DeletionPeriod    time.Duration
+	// OwnerOfParent is the space the coordinator found the account to be the owner of. The owner of
+	// a parent deletes its children as their owners do; it is ignored for any other space.
+	OwnerOfParent string
 	AccountInfo
 }
 
@@ -77,9 +83,20 @@ const (
 
 var (
 	ErrStatusExists = errors.New("space status exists")
+	// ErrChildTakesPlace is answered to a sign of a child that takes a place when its caller found it to
+	// take none: the deletion of the child became final after the caller read its status. The caller
+	// reads the status again and decides anew.
+	ErrChildTakesPlace = errors.New("the sign of the child space takes a place")
 )
 
 const collName = "spaces"
+
+// childLocksCollName names the collection with a document for each account that owns the parent of a
+// child space. Every registration that takes a place of the account writes to its document.
+const childLocksCollName = "childSpacesLock"
+
+// ChildSpacesLimit returns the childSpacesLimit of an account
+type ChildSpacesLimit func(ctx context.Context, identity string) (limit uint32, err error)
 
 type configProvider interface {
 	GetSpaceStatus() Config
@@ -87,6 +104,12 @@ type configProvider interface {
 
 type SpaceStatus interface {
 	NewStatus(ctx context.Context, spaceId string, identity crypto.PubKey, spaceType SpaceType, headerType string, force bool) (err error)
+	// NewChildStatus registers a space as NewStatus does, as a shareable child of parentSpaceId. A sign
+	// that takes a place (see TakesChildPlace) needs a parent that passes CheckParent, room in the
+	// childSpacesLimit of the parent's owner, which limit tells, and creatorChecked, the caller's check
+	// of the creator against the parent, without which it answers ErrChildTakesPlace. A forced sign
+	// that takes a child back from its deletion needs the parent only.
+	NewChildStatus(ctx context.Context, spaceId string, identity crypto.PubKey, spaceType SpaceType, headerType string, force bool, parentSpaceId string, limit ChildSpacesLimit, creatorChecked bool) (err error)
 	// ChangeStatus is deprecated, use only for backwards compatibility
 	ChangeStatus(ctx context.Context, change StatusChange) (entry StatusEntry, err error)
 	ChangeOwner(ctx context.Context, spaceId, newOwnerId string) (err error)
@@ -94,6 +117,8 @@ type SpaceStatus interface {
 	AccountDelete(ctx context.Context, payload AccountDeletion) (toBeDeleted int64, err error)
 	AccountRevertDeletion(ctx context.Context, payload AccountInfo) (err error)
 	Status(ctx context.Context, spaceId string) (entry StatusEntry, err error)
+	// Children returns the children of a space, each until its deletion is final
+	Children(ctx context.Context, parentSpaceId string) (children []StatusEntry, err error)
 
 	MakeShareable(ctx context.Context, spaceId string, spaceType SpaceType, limit uint32) (err error)
 	MakeUnshareable(ctx context.Context, spaceId string) (err error)
@@ -113,6 +138,7 @@ func New() SpaceStatus {
 type spaceStatus struct {
 	conf             Config
 	spaces           *mongo.Collection
+	childLocks       *mongo.Collection
 	verifier         ChangeVerifier
 	deleter          SpaceDeleter
 	db               db.Database
@@ -154,6 +180,7 @@ type modifyStatusOp struct {
 		DeletionPayload      *[]byte                               `bson:"deletionPayload,omitempty"`
 		DeletionTimestamp    *int64                                `bson:"deletionTimestamp,omitempty"`
 		ToBeDeletedTimestamp *int64                                `bson:"toBeDeletedTimestamp,omitempty"`
+		DeletedByParentOwner *bool                                 `bson:"deletedByParentOwner,omitempty"`
 	} `bson:"$set"`
 }
 
@@ -164,6 +191,8 @@ type insertNewSpaceOp struct {
 	HeaderType  string    `bson:"headerType,omitempty"`
 	IsShareable bool      `bson:"isShareable"`
 	SpaceId     string    `bson:"_id"`
+	// ParentSpaceId is set for a child space
+	ParentSpaceId string `bson:"parentSpaceId,omitempty"`
 }
 
 func (s *spaceStatus) AccountDelete(ctx context.Context, payload AccountDeletion) (toBeDeleted int64, err error) {
@@ -205,6 +234,9 @@ func (s *spaceStatus) AccountDelete(ctx context.Context, payload AccountDeletion
 		if err = cursor.All(txCtx, &spaces); err != nil {
 			return unexpectedOrTransient(err)
 		}
+		if err = s.checkNoChildrenOfOthersTx(txCtx, identity, spaces); err != nil {
+			return err
+		}
 
 		// Iterate through the spaces and call setStatusTx
 		for _, space := range spaces {
@@ -241,11 +273,12 @@ func (s *spaceStatus) AccountRevertDeletion(ctx context.Context, payload Account
 		if !s.accountStatusFindTx(txCtx, identity, SpaceStatusDeletionPending) {
 			return coordinatorproto.ErrUnexpected
 		}
-		status := SpaceStatusDeletionPending
-		// Find all spaces with SpaceStatusDeletionPending status for the given identity
-		cursor, err := s.spaces.Find(txCtx, findStatusQuery{
-			Status:   &status,
-			Identity: identity,
+		// Find all spaces with SpaceStatusDeletionPending status for the given identity. A child that
+		// the owner of its parent deleted is not among them: its owner does not take that deletion back.
+		cursor, err := s.spaces.Find(txCtx, bson.M{
+			"status":               SpaceStatusDeletionPending,
+			"identity":             identity,
+			"deletedByParentOwner": bson.M{"$ne": true},
 		})
 		if err != nil {
 			return unexpectedOrTransient(err)
@@ -255,8 +288,21 @@ func (s *spaceStatus) AccountRevertDeletion(ctx context.Context, payload Account
 			return unexpectedOrTransient(err)
 		}
 
-		// Iterate through the spaces and call setStatusTx
+		// Iterate through the spaces and call setStatusTx. The top-level spaces come first, so a child
+		// finds a parent that came back with it. A child that its parent refuses stays in deletion.
+		sort.SliceStable(spaces, func(i, j int) bool {
+			return spaces[i].ParentSpaceId == "" && spaces[j].ParentSpaceId != ""
+		})
 		for _, space := range spaces {
+			if space.ParentSpaceId != "" {
+				if _, err := s.parentTx(txCtx, space.ParentSpaceId); err != nil {
+					// an error of the database is not a refusal
+					if db.IsTransientTransactionError(err) || errors.Is(err, coordinatorproto.ErrUnexpected) {
+						return err
+					}
+					continue
+				}
+			}
 			change := StatusChange{
 				Identity:  payload.Identity,
 				PeerId:    payload.PeerId,
@@ -279,14 +325,14 @@ func (s *spaceStatus) SpaceDelete(ctx context.Context, payload SpaceDeletion) (t
 		toBeDeletedTimestamp = tm.Add(payload.DeletionPeriod).Unix()
 	)
 	err = s.db.Tx(ctx, func(txCtx mongo.SessionContext) error {
-		spType, err := s.getSpaceTypeTx(txCtx, payload.SpaceId)
+		entry, err := s.getEntryTx(txCtx, payload.SpaceId)
 		if err != nil {
 			if db.IsTransientTransactionError(err) {
 				return err
 			}
 			return coordinatorproto.ErrSpaceNotExists
 		}
-		switch spType {
+		switch entry.Type {
 		case SpaceTypeOneToOne:
 			log.Debug("cannot delete onetoone space", zap.Error(err), zap.String("spaceId", payload.SpaceId))
 			return coordinatorproto.ErrUnexpected
@@ -294,20 +340,34 @@ func (s *spaceStatus) SpaceDelete(ctx context.Context, payload SpaceDeletion) (t
 			log.Debug("cannot delete tech space", zap.Error(err), zap.String("spaceId", payload.SpaceId))
 			return coordinatorproto.ErrUnexpected
 		}
+		identity := payload.Identity
+		oldStatus := SpaceStatusCreated
+		byParentOwner := entry.ParentSpaceId != "" && entry.ParentSpaceId == payload.OwnerOfParent
+		if byParentOwner {
+			// without an identity the document is matched whoever owns the child
+			identity = nil
+			// a deletion that the owner of the child made becomes the one of the owner of the parent
+			if entry.Status == SpaceStatusDeletionPending && !entry.DeletedByParentOwner {
+				oldStatus = SpaceStatusDeletionPending
+			}
+		}
 		change := StatusChange{
 			DeletionPayloadType:  coordinatorproto.DeletionPayloadType_Confirm,
 			DeletionPayload:      payload.DeletionPayload,
 			DeletionPayloadId:    payload.DeletionPayloadId,
-			Identity:             payload.Identity,
+			Identity:             identity,
 			PeerId:               payload.PeerId,
 			NetworkId:            payload.NetworkId,
 			Status:               SpaceStatusDeletionPending,
 			ToBeDeletedTimestamp: toBeDeletedTimestamp,
 			DeletionTimestamp:    deletionTimestamp,
 			SpaceId:              payload.SpaceId,
+			ByParentOwner:        byParentOwner,
 		}
-		_, err = s.setStatusTx(txCtx, change, SpaceStatusCreated)
-		return err
+		if _, err = s.setStatusTx(txCtx, change, oldStatus); err != nil {
+			return err
+		}
+		return s.checkNoChildrenTx(txCtx, payload.SpaceId)
 	})
 	if err != nil {
 		return
@@ -319,8 +379,19 @@ func (s *spaceStatus) ChangeStatus(ctx context.Context, change StatusChange) (en
 	switch change.Status {
 	case SpaceStatusCreated:
 		err = s.db.Tx(ctx, func(txCtx mongo.SessionContext) error {
+			// the owner of a child does not take back a deletion that the owner of the parent made
+			if current, err := s.getEntryTx(txCtx, change.SpaceId); err == nil && current.DeletedByParentOwner &&
+				change.Identity != nil && current.Identity == change.Identity.Account() {
+				return coordinatorproto.ErrParentPermissionDenied
+			}
 			if entry, err = s.setStatusTx(txCtx, change, SpaceStatusDeletionPending); err != nil {
 				return err
+			}
+			// a child comes back only under a parent that is neither deleted nor in deletion
+			if entry.ParentSpaceId != "" {
+				if _, err = s.parentTx(txCtx, entry.ParentSpaceId); err != nil {
+					return err
+				}
 			}
 			return s.checkLimitTx(txCtx, change.Identity)
 		})
@@ -334,7 +405,13 @@ func (s *spaceStatus) ChangeStatus(ctx context.Context, change StatusChange) (en
 			log.Debug("failed to verify payload", zap.Error(err))
 			return StatusEntry{}, coordinatorproto.ErrUnexpected
 		}
-		return s.setStatus(ctx, change, SpaceStatusCreated)
+		err = s.db.Tx(ctx, func(txCtx mongo.SessionContext) error {
+			if entry, err = s.setStatusTx(txCtx, change, SpaceStatusCreated); err != nil {
+				return err
+			}
+			return s.checkNoChildrenTx(txCtx, change.SpaceId)
+		})
+		return
 	default:
 		return StatusEntry{}, coordinatorproto.ErrUnexpected
 	}
@@ -394,6 +471,9 @@ func (s *spaceStatus) modifyStatus(ctx context.Context, change StatusChange, old
 		op.Set.DeletionPayloadType = &change.DeletionPayloadType
 		op.Set.DeletionTimestamp = &change.DeletionTimestamp
 		op.Set.ToBeDeletedTimestamp = &change.ToBeDeletedTimestamp
+		if change.ByParentOwner {
+			op.Set.DeletedByParentOwner = &change.ByParentOwner
+		}
 	case SpaceStatusCreated:
 		// setting deletion data to empty values
 		emptyPayload := []byte(nil)
@@ -445,6 +525,17 @@ func (s *spaceStatus) Status(ctx context.Context, spaceId string) (entry StatusE
 	return
 }
 
+func (s *spaceStatus) Children(ctx context.Context, parentSpaceId string) (children []StatusEntry, err error) {
+	cur, err := s.spaces.Find(ctx, childrenQuery(parentSpaceId), options.Find().SetSort(bson.M{"_id": 1}))
+	if err != nil {
+		return nil, unexpectedOrTransient(err)
+	}
+	if err = cur.All(ctx, &children); err != nil {
+		return nil, unexpectedOrTransient(err)
+	}
+	return children, nil
+}
+
 func (s *spaceStatus) accountStatusFindTx(txCtx mongo.SessionContext, identity string, status int) (found bool) {
 	err := s.spaces.FindOne(txCtx, newTechAccountQuery(identity, status)).Err()
 	if err == nil {
@@ -453,22 +544,150 @@ func (s *spaceStatus) accountStatusFindTx(txCtx mongo.SessionContext, identity s
 	return false
 }
 
-func (s *spaceStatus) getSpaceTypeTx(txCtx mongo.SessionContext, spaceId string) (spaceType SpaceType, err error) {
-	var entry StatusEntry
+func (s *spaceStatus) getEntryTx(txCtx mongo.SessionContext, spaceId string) (entry StatusEntry, err error) {
 	err = s.spaces.FindOne(txCtx, findStatusQuery{
 		SpaceId: spaceId,
 	}).Decode(&entry)
-	if err != nil {
-		return
+	return
+}
+
+// childrenQuery matches the children of a space. A child is one until its deletion is final.
+func childrenQuery(parentSpaceId string) bson.M {
+	return bson.M{
+		"parentSpaceId": parentSpaceId,
+		"status":        bson.M{"$ne": SpaceStatusDeleted},
 	}
-	return entry.Type, nil
+}
+
+// checkNoChildrenTx refuses the deletion of a space that still has children: they would be left
+// without the owner that answers for them. It runs after the deletion passed its own checks, so only
+// an account that may delete the space learns that it has children.
+func (s *spaceStatus) checkNoChildrenTx(txCtx mongo.SessionContext, spaceId string) error {
+	count, err := s.spaces.CountDocuments(txCtx, childrenQuery(spaceId), options.Count().SetLimit(1))
+	if err != nil {
+		return unexpectedOrTransient(err)
+	}
+	if count > 0 {
+		return coordinatorproto.ErrSpaceHasChildren
+	}
+	return nil
+}
+
+// checkNoChildrenOfOthersTx refuses the deletion of an account while a space it owns has a child of
+// another account: the child would be left without a parent. The children the account owns itself are
+// deleted with it.
+func (s *spaceStatus) checkNoChildrenOfOthersTx(txCtx mongo.SessionContext, identity string, owned []StatusEntry) error {
+	parentIds := make([]string, 0, len(owned))
+	for _, space := range owned {
+		parentIds = append(parentIds, space.SpaceId)
+	}
+	count, err := s.spaces.CountDocuments(txCtx, bson.M{
+		"parentSpaceId": bson.M{"$in": parentIds},
+		"status":        bson.M{"$ne": SpaceStatusDeleted},
+		"identity":      bson.M{"$ne": identity},
+	}, options.Count().SetLimit(1))
+	if err != nil {
+		return unexpectedOrTransient(err)
+	}
+	if count > 0 {
+		return coordinatorproto.ErrSpaceHasChildren
+	}
+	return nil
 }
 
 func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity crypto.PubKey, spaceType SpaceType, headerType string, force bool) error {
+	return s.newStatus(ctx, spaceId, identity, spaceType, headerType, force, "", nil, false)
+}
+
+func (s *spaceStatus) NewChildStatus(ctx context.Context, spaceId string, identity crypto.PubKey, spaceType SpaceType, headerType string, force bool, parentSpaceId string, limit ChildSpacesLimit, creatorChecked bool) error {
+	if parentSpaceId == "" {
+		return coordinatorproto.ErrParentSpaceInvalid
+	}
+	return s.newStatus(ctx, spaceId, identity, spaceType, headerType, force, parentSpaceId, limit, creatorChecked)
+}
+
+// TakesChildPlace tells whether a sign registers a child anew and so takes a place, under its parent
+// and in the limit of the parent's owner: the child is not registered, or its deletion is final and
+// the sign is forced, which takes it back. A registered child holds its place until its deletion is
+// final, and a sign of it takes none. No sign takes back a child that the owner of its parent deleted.
+func TakesChildPlace(registered bool, child StatusEntry, force bool) bool {
+	return !registered || (force && child.Status == SpaceStatusDeleted && !child.DeletedByParentOwner)
+}
+
+// parentTx returns the parent of a child that is being registered or taken back from its deletion, if
+// it can take the child. Its write makes the transaction conflict with a deletion of the parent and
+// with another registration under it, so each of them sees the other.
+func (s *spaceStatus) parentTx(txCtx mongo.SessionContext, parentSpaceId string) (parent StatusEntry, err error) {
+	err = s.spaces.FindOneAndUpdate(txCtx,
+		bson.M{"_id": parentSpaceId},
+		bson.M{"$inc": bson.M{"childRev": 1}},
+	).Decode(&parent)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return StatusEntry{}, coordinatorproto.ErrParentSpaceNotAvailable
+		}
+		return StatusEntry{}, unexpectedOrTransient(err)
+	}
+	return parent, CheckParent(parent)
+}
+
+// checkChildSpacesLimitTx refuses a child that takes the owner of its parent over the owner's
+// childSpacesLimit. It runs after the child is stored, so the count includes it.
+func (s *spaceStatus) checkChildSpacesLimitTx(txCtx mongo.SessionContext, owner string, limit ChildSpacesLimit) error {
+	// Two transactions that register a child for one owner under different parents do not see each
+	// other's child. The write to the owner's document makes them conflict, so the later one runs
+	// again and counts the child of the first.
+	_, err := s.childLocks.UpdateOne(txCtx,
+		bson.M{"_id": owner},
+		bson.M{"$inc": bson.M{"rev": 1}},
+		options.Update().SetUpsert(true),
+	)
+	if err != nil {
+		return unexpectedOrTransient(err)
+	}
+	allowed, err := limit(txCtx, owner)
+	if err != nil {
+		return err
+	}
+	count, err := s.countChildrenOfOwnerTx(txCtx, owner)
+	if err != nil {
+		return unexpectedOrTransient(err)
+	}
+	if count > int64(allowed) {
+		return coordinatorproto.ErrChildSpacesLimitReached
+	}
+	return nil
+}
+
+// countChildrenOfOwnerTx counts the children of every space the account owns now, so the children
+// of a parent follow a change of its owner. A child counts until its deletion is final.
+func (s *spaceStatus) countChildrenOfOwnerTx(txCtx mongo.SessionContext, owner string) (count int64, err error) {
+	cur, err := s.spaces.Find(txCtx, bson.M{"identity": owner}, options.Find().SetProjection(bson.M{"_id": 1}))
+	if err != nil {
+		return 0, err
+	}
+	var owned []struct {
+		SpaceId string `bson:"_id"`
+	}
+	if err = cur.All(txCtx, &owned); err != nil {
+		return 0, err
+	}
+	parentIds := make([]string, 0, len(owned))
+	for _, space := range owned {
+		parentIds = append(parentIds, space.SpaceId)
+	}
+	return s.spaces.CountDocuments(txCtx, bson.M{
+		"parentSpaceId": bson.M{"$in": parentIds},
+		"status":        bson.M{"$ne": SpaceStatusDeleted},
+	})
+}
+
+func (s *spaceStatus) newStatus(ctx context.Context, spaceId string, identity crypto.PubKey, spaceType SpaceType, headerType string, force bool, parentSpaceId string, limit ChildSpacesLimit, creatorChecked bool) error {
 	return s.db.Tx(ctx, func(txCtx mongo.SessionContext) error {
 		if s.accountStatusFindTx(txCtx, identity.Account(), SpaceStatusDeletionPending) {
 			return coordinatorproto.ErrAccountIsDeleted
 		}
+		isChild := parentSpaceId != ""
 		entry, err := s.Status(txCtx, spaceId)
 		notFound := err == coordinatorproto.ErrSpaceNotExists
 		if err != nil && !notFound {
@@ -478,14 +697,30 @@ func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity cr
 			// save back compatibility
 			return nil
 		}
+		// only a child that takes a place is checked against the limit
+		takesPlace := isChild && TakesChildPlace(!notFound, entry, force)
+		if takesPlace && !creatorChecked {
+			return ErrChildTakesPlace
+		}
+		// a child that takes a place needs its parent, and so does one that a forced sign takes back from
+		// its deletion: a child comes back only under a parent that is neither deleted nor in deletion
+		takesBack := isChild && !notFound && force && !entry.DeletedByParentOwner
+		var parent StatusEntry
+		if takesPlace || takesBack {
+			if parent, err = s.parentTx(txCtx, parentSpaceId); err != nil {
+				return err
+			}
+		}
 		var inserted bool
 		if notFound {
 			if _, err = s.spaces.InsertOne(txCtx, insertNewSpaceOp{
-				Identity:   identity.Account(),
-				Status:     SpaceStatusCreated,
-				SpaceId:    spaceId,
-				Type:       spaceType,
-				HeaderType: headerType,
+				Identity:      identity.Account(),
+				Status:        SpaceStatusCreated,
+				SpaceId:       spaceId,
+				Type:          spaceType,
+				HeaderType:    headerType,
+				ParentSpaceId: parentSpaceId,
+				IsShareable:   isChild,
 			}); err != nil {
 				return err
 			} else {
@@ -493,7 +728,8 @@ func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity cr
 			}
 		}
 		if !inserted {
-			if force {
+			// a forced sign takes a deleted space back, but not a child that the owner of its parent deleted
+			if force && !entry.DeletedByParentOwner {
 				_, err = s.setStatusTx(txCtx, StatusChange{
 					Identity: identity,
 					Status:   SpaceStatusCreated,
@@ -505,6 +741,9 @@ func (s *spaceStatus) NewStatus(ctx context.Context, spaceId string, identity cr
 		}
 		if err = s.checkLimitTx(txCtx, identity); err != nil {
 			return err
+		}
+		if takesPlace {
+			return s.checkChildSpacesLimitTx(txCtx, parent.Identity, limit)
 		}
 		return nil
 	})
@@ -520,17 +759,21 @@ func (s *spaceStatus) MakeShareable(ctx context.Context, spaceId string, spaceTy
 		if entry.IsShareable {
 			return nil
 		}
-		count, err := s.spaces.CountDocuments(txCtx, bson.D{
-			{"identity", entry.Identity},
-			{"type", spaceType},
-			{"status", SpaceStatusCreated},
-			{"isShareable", true},
-		})
-		if err != nil {
-			return err
-		}
-		if uint32(count) >= limit {
-			return coordinatorproto.ErrSpaceLimitReached
+		// a child space is outside the shared spaces limit: it neither counts against it nor is held by it
+		if entry.ParentSpaceId == "" {
+			count, err := s.spaces.CountDocuments(txCtx, bson.M{
+				"identity":      entry.Identity,
+				"type":          spaceType,
+				"status":        SpaceStatusCreated,
+				"isShareable":   true,
+				"parentSpaceId": bson.M{"$exists": false},
+			})
+			if err != nil {
+				return err
+			}
+			if uint32(count) >= limit {
+				return coordinatorproto.ErrSpaceLimitReached
+			}
 		}
 		_, err = s.spaces.UpdateOne(txCtx, bson.D{{"_id", spaceId}}, bson.D{{"$set", bson.D{{"isShareable", true}}}})
 		return err
@@ -587,6 +830,7 @@ func (s *spaceStatus) ChangeOwner(ctx context.Context, spaceId, ownerId string) 
 func (s *spaceStatus) Init(a *app.App) (err error) {
 	s.db = a.MustComponent(db.CName).(db.Database)
 	s.spaces = s.db.Db().Collection(collName)
+	s.childLocks = s.db.Db().Collection(childLocksCollName)
 	s.verifier = getChangeVerifier()
 	s.conf = a.MustComponent("config").(configProvider).GetSpaceStatus()
 	s.deletionPeriod = time.Duration(s.conf.DeletionPeriodDays*24) * time.Hour
@@ -601,6 +845,14 @@ func (s *spaceStatus) Name() (name string) {
 
 func (s *spaceStatus) Run(ctx context.Context) (err error) {
 	_ = s.spaces.Database().CreateCollection(ctx, collName)
+	_ = s.spaces.Database().CreateCollection(ctx, childLocksCollName)
+	// serves the children of a parent; top-level spaces have no such field and stay out of it
+	if _, err = s.spaces.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "parentSpaceId", Value: 1}},
+		Options: options.Index().SetSparse(true),
+	}); err != nil {
+		return err
+	}
 	s.deleter.Run(s.spaces, func(ctx context.Context, spaceId string) error {
 		_, err = s.setStatus(
 			ctx,

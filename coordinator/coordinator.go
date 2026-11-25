@@ -15,6 +15,7 @@ import (
 	"github.com/anyproto/any-sync/commonspace/spacepayloads"
 	"github.com/anyproto/any-sync/commonspace/spacesyncproto"
 	"github.com/anyproto/any-sync/consensus/consensusproto"
+	"github.com/anyproto/any-sync/consensus/consensusproto/consensuserr"
 	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
 	"github.com/anyproto/any-sync/metric"
 	"github.com/anyproto/any-sync/net/peer"
@@ -181,17 +182,49 @@ func (c *coordinator) SpaceDelete(ctx context.Context, spaceId string, deletionD
 	if err != nil {
 		return
 	}
+	ownerOfParent, err := c.ownerOfParent(ctx, spaceId, accountPubKey)
+	if err != nil {
+		return
+	}
 	return c.spaceStatus.SpaceDelete(ctx, spacestatus.SpaceDeletion{
 		DeletionPayload:   payload,
 		DeletionPayloadId: payloadId,
 		SpaceId:           spaceId,
 		DeletionPeriod:    time.Duration(deletionDurationSecs) * time.Minute,
+		OwnerOfParent:     ownerOfParent,
 		AccountInfo: spacestatus.AccountInfo{
 			Identity:  accountPubKey,
 			PeerId:    peerId,
 			NetworkId: c.nodeConf.Configuration().NetworkId,
 		},
 	})
+}
+
+// ownerOfParent returns the parent of a child space for an account that deletes the child as the
+// owner of that parent, and nothing for the owner of the child or for another space. An account that
+// owns neither the child nor its parent is refused.
+func (c *coordinator) ownerOfParent(ctx context.Context, spaceId string, account crypto.PubKey) (parentSpaceId string, err error) {
+	entry, err := c.spaceStatus.Status(ctx, spaceId)
+	if err != nil {
+		if errors.Is(err, coordinatorproto.ErrSpaceNotExists) {
+			return "", nil
+		}
+		return "", err
+	}
+	if entry.ParentSpaceId == "" || entry.Identity == account.Account() {
+		return "", nil
+	}
+	parentOwner, err := c.acl.OwnerPubKey(ctx, entry.ParentSpaceId)
+	if err != nil {
+		if errors.Is(err, consensuserr.ErrLogNotFound) {
+			return "", coordinatorproto.ErrParentSpaceNotAvailable
+		}
+		return "", err
+	}
+	if !parentOwner.Equals(account) {
+		return "", coordinatorproto.ErrParentPermissionDenied
+	}
+	return entry.ParentSpaceId, nil
 }
 
 // StatusChange is deprecated use only for backwards compatibility
@@ -237,13 +270,24 @@ func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader
 	}
 	_, err = spacepayloads.ValidateSpaceHeader(&spacesyncproto.RawSpaceHeaderWithId{RawHeader: spaceHeader, Id: spaceId}, accountPubKey, nil, nil)
 	if err != nil {
+		if errors.Is(err, spacepayloads.ErrChildNeedsHeaderV1) {
+			err = coordinatorproto.ErrParentSpaceInvalid
+		}
 		return
 	}
 	spaceType, headerType, err := spacestatus.VerifySpaceHeader(accountPubKey, spaceHeader)
 	if err != nil {
 		return
 	}
-	err = c.spaceStatus.NewStatus(ctx, spaceId, accountPubKey, spaceType, headerType, force)
+	parentSpaceId, err := spacestatus.HeaderParent(spaceHeader, spaceType, headerType)
+	if err != nil {
+		return
+	}
+	if parentSpaceId == "" {
+		err = c.spaceStatus.NewStatus(ctx, spaceId, accountPubKey, spaceType, headerType, force)
+	} else {
+		err = c.newChildStatus(ctx, spaceId, accountPubKey, spaceType, headerType, force, parentSpaceId)
+	}
 	if err != nil {
 		return
 	}
@@ -253,6 +297,68 @@ func (c *coordinator) SpaceSign(ctx context.Context, spaceId string, spaceHeader
 	}
 	c.addCoordinatorLog(ctx, spaceId, peerId, accountPubKey, signedReceipt)
 	return
+}
+
+// newChildStatus registers a space whose header names a parent. For a sign that takes a place, of a
+// new child or a forced one of a finally deleted child, it first checks the creator against the
+// parent. Any other sign goes to the registration as it is.
+func (c *coordinator) newChildStatus(ctx context.Context, spaceId string, creator crypto.PubKey, spaceType spacestatus.SpaceType, headerType string, force bool, parentSpaceId string) (err error) {
+	// The deletion of a child can become final between the read of its status and the registration.
+	// The registration then refuses a sign that takes a place unchecked, and the sign is decided again
+	// from the new status. That happens once: a finally deleted child stays so until it is signed.
+	for attempt := 0; attempt < 3; attempt++ {
+		child, err := c.spaceStatus.Status(ctx, spaceId)
+		registered := err == nil
+		if err != nil && !errors.Is(err, coordinatorproto.ErrSpaceNotExists) {
+			return err
+		}
+		takesPlace := spacestatus.TakesChildPlace(registered, child, force)
+		if takesPlace {
+			if err = c.checkChildCreator(ctx, creator, parentSpaceId); err != nil {
+				return err
+			}
+		}
+		err = c.spaceStatus.NewChildStatus(ctx, spaceId, creator, spaceType, headerType, force, parentSpaceId, c.childSpacesLimit, takesPlace)
+		if !errors.Is(err, spacestatus.ErrChildTakesPlace) {
+			return err
+		}
+	}
+	return coordinatorproto.ErrUnexpected
+}
+
+// checkChildCreator tells whether the parent can take a child from this creator: the parent passes
+// CheckParent and the creator is a Writer or above in its acl.
+func (c *coordinator) checkChildCreator(ctx context.Context, creator crypto.PubKey, parentSpaceId string) (err error) {
+	parent, err := c.spaceStatus.Status(ctx, parentSpaceId)
+	if err != nil {
+		if errors.Is(err, coordinatorproto.ErrSpaceNotExists) {
+			return coordinatorproto.ErrParentSpaceNotAvailable
+		}
+		return err
+	}
+	if err = spacestatus.CheckParent(parent); err != nil {
+		return err
+	}
+	permissions, err := c.acl.Permissions(ctx, creator, parentSpaceId)
+	if err != nil {
+		if errors.Is(err, consensuserr.ErrLogNotFound) {
+			// the parent is signed, but its acl has not reached the network yet
+			return coordinatorproto.ErrParentSpaceNotAvailable
+		}
+		return err
+	}
+	if !permissions.CanWrite() {
+		return coordinatorproto.ErrParentPermissionDenied
+	}
+	return nil
+}
+
+func (c *coordinator) childSpacesLimit(ctx context.Context, identity string) (limit uint32, err error) {
+	limits, err := c.accountLimit.GetLimits(ctx, identity)
+	if err != nil {
+		return 0, err
+	}
+	return limits.ChildSpacesLimit, nil
 }
 
 func (c *coordinator) addCoordinatorLog(ctx context.Context, spaceId, peerId string, accountPubKey crypto.PubKey, signedReceipt *coordinatorproto.SpaceReceiptWithSignature) {
@@ -301,6 +407,7 @@ func (c *coordinator) AccountLimitsSet(ctx context.Context, req *coordinatorprot
 		SpaceMembersRead:  req.SpaceMembersRead,
 		SpaceMembersWrite: req.SpaceMembersWrite,
 		SharedSpacesLimit: req.SharedSpacesLimit,
+		ChildSpacesLimit:  req.ChildSpacesLimit,
 	})
 }
 
@@ -336,13 +443,48 @@ func (c *coordinator) AclAddRecord(ctx context.Context, spaceId string, payload 
 		return nil, err
 	}
 
+	// a record of a child space is also checked against the parent of the space
+	var child *childRecord
+	if statusEntry.ParentSpaceId != "" {
+		if child, err = c.newChildRecord(ctx, statusEntry.ParentSpaceId, rec); err != nil {
+			return nil, err
+		}
+	}
+
+	hasGuestRole := spacestatus.HasGuestRole(statusEntry.HeaderType)
+	// the owner is taken from the state the record leads to: the cached acl takes the record in only
+	// when the consensus node sends it back, which can be after this call returns
+	var owner crypto.PubKey
+	afterValid := func(before, after *list.AclState) (err error) {
+		if owner, err = after.OwnerPubKey(); err != nil {
+			return err
+		}
+		if !hasGuestRole {
+			if err = checkNoNewGuest(before, after); err != nil {
+				return err
+			}
+		}
+		if child != nil {
+			return child.afterValid(before, after)
+		}
+		return nil
+	}
+
+	opts := []acl.AddRecordOption{acl.WithAfterValid(afterValid)}
+	if child != nil {
+		// a top-level space has no parent to give anyone authority in it
+		opts = append(opts, acl.WithParentAuthorizer(child.authorize))
+	}
+
 	rawRecordWithId, err := c.acl.AddRecord(ctx, spaceId, rec, acl.Limits{
 		ReadMembers:  limits.SpaceMembersRead,
 		WriteMembers: limits.SpaceMembersWrite,
-	})
+	}, opts...)
 	if err != nil {
 		if errors.Is(err, acl.ErrLimitExceed) {
 			err = coordinatorproto.ErrSpaceLimitReached
+		} else if child != nil {
+			err = child.refusal(err)
 		}
 		return
 	}
@@ -361,13 +503,9 @@ func (c *coordinator) AclAddRecord(ctx context.Context, spaceId string, payload 
 		return
 	}
 
-	ownerPubKey, err := c.acl.OwnerPubKey(ctx, spaceId)
-	if err != nil {
-		return
-	}
-	if ownerPubKey.Account() != statusEntry.Identity {
-		log.InfoCtx(ctx, "owner change detected", zap.String("spaceId", spaceId), zap.String("newOwner", ownerPubKey.Account()), zap.String("oldOwner", statusEntry.Identity))
-		if err = c.spaceStatus.ChangeOwner(ctx, spaceId, ownerPubKey.Account()); err != nil {
+	if owner != nil && owner.Account() != statusEntry.Identity {
+		log.InfoCtx(ctx, "owner change detected", zap.String("spaceId", spaceId), zap.String("newOwner", owner.Account()), zap.String("oldOwner", statusEntry.Identity))
+		if err = c.spaceStatus.ChangeOwner(ctx, spaceId, owner.Account()); err != nil {
 			return
 		}
 		if _, err = c.deletionLog.AddOwnershipChange(ctx, spaceId, statusEntry.Identity, rawRecordWithId.Id); err != nil {
@@ -376,6 +514,44 @@ func (c *coordinator) AclAddRecord(ctx context.Context, spaceId string, payload 
 	}
 
 	return rawRecordWithId, nil
+}
+
+// checkNoNewGuest refuses a record that gives the guest role to an account that did not hold it.
+func checkNoNewGuest(before, after *list.AclState) error {
+	for _, account := range after.CurrentAccounts() {
+		if account.Permissions.IsGuest() && !before.Permissions(account.PubKey).IsGuest() {
+			return coordinatorproto.ErrGuestRoleNotAllowed
+		}
+	}
+	return nil
+}
+
+// SpaceChildren lists the children of a space for an Admin or the Owner of that space. A member below
+// that sees only the children it belongs to, in its own list of spaces.
+func (c *coordinator) SpaceChildren(ctx context.Context, spaceId string) (children []spacestatus.StatusEntry, err error) {
+	accountPubKey, err := peer.CtxPubKey(ctx)
+	if err != nil {
+		return
+	}
+	statusEntry, err := c.spaceStatus.Status(ctx, spaceId)
+	if err != nil {
+		return
+	}
+	if statusEntry.Status != spacestatus.SpaceStatusCreated {
+		return nil, coordinatorproto.ErrSpaceIsDeleted
+	}
+	permissions, err := c.acl.Permissions(ctx, accountPubKey, spaceId)
+	if err != nil {
+		if errors.Is(err, consensuserr.ErrLogNotFound) {
+			// the space is signed, but its acl has not reached the network yet
+			return nil, coordinatorproto.ErrParentSpaceNotAvailable
+		}
+		return
+	}
+	if !permissions.CanManageAccounts() {
+		return nil, coordinatorproto.ErrParentPermissionDenied
+	}
+	return c.spaceStatus.Children(ctx, spaceId)
 }
 
 func (c *coordinator) AclGetRecords(ctx context.Context, spaceId, aclHead string) (result []*consensusproto.RawRecordWithId, err error) {

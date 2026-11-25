@@ -929,6 +929,7 @@ func (fx *fixture) Finish(t *testing.T) {
 	if fx.deleteColl {
 		coll := fx.SpaceStatus.(*spaceStatus).spaces
 		t.Log(coll.Drop(ctx))
+		require.NoError(t, fx.SpaceStatus.(*spaceStatus).childLocks.Drop(ctx))
 	}
 	assert.NoError(t, fx.a.Close(ctx))
 }

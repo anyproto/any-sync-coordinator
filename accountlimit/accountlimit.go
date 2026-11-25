@@ -39,11 +39,16 @@ type SpaceLimits struct {
 	SpaceMembersRead  uint32 `yaml:"spaceMembersRead" bson:"spaceMembersRead"`
 	SpaceMembersWrite uint32 `yaml:"spaceMembersWrite" bson:"spaceMembersWrite"`
 	SharedSpacesLimit uint32 `yaml:"sharedSpacesLimit" bson:"sharedSpacesLimit"`
+	// ChildSpacesLimit caps the child spaces of all the spaces an account owns
+	ChildSpacesLimit uint32 `yaml:"childSpacesLimit" bson:"childSpacesLimit"`
 	// FileStorageLimitBytes is the default account file-storage pool for
 	// identities without an explicit accountLimit document (files v2).
 	FileStorageLimitBytes uint64 `yaml:"fileStorageLimitBytes" bson:"fileStorageLimitBytes"`
 }
 
+// Limits are the limits of an account as its document stores them. ChildSpacesLimit is stored only when
+// it is set: a document without it takes the default, and an update that carries no value keeps the
+// stored one.
 type Limits struct {
 	Identity          string    `bson:"_id"`
 	Reason            string    `bson:"reason"`
@@ -51,6 +56,7 @@ type Limits struct {
 	SpaceMembersRead  uint32    `bson:"spaceMembersRead"`
 	SpaceMembersWrite uint32    `bson:"spaceMembersWrite"`
 	SharedSpacesLimit uint32    `bson:"sharedSpacesLimit"`
+	ChildSpacesLimit  uint32    `bson:"childSpacesLimit,omitempty"`
 	UpdatedTime       time.Time `bson:"updatedTime"`
 }
 
@@ -120,6 +126,9 @@ func (al *accountLimit) updateFileLimits(ctx context.Context, limits Limits) (er
 
 func (al *accountLimit) GetLimits(ctx context.Context, identity string) (limits Limits, err error) {
 	err = al.coll.FindOne(ctx, bson.D{{"_id", identity}}).Decode(&limits)
+	if err == nil && limits.ChildSpacesLimit == 0 {
+		limits.ChildSpacesLimit = al.defaultLimits.ChildSpacesLimit
+	}
 	if err == nil || !errors.Is(err, mongo.ErrNoDocuments) {
 		return
 	}
@@ -129,6 +138,7 @@ func (al *accountLimit) GetLimits(ctx context.Context, identity string) (limits 
 		SpaceMembersRead:  al.defaultLimits.SpaceMembersRead,
 		SpaceMembersWrite: al.defaultLimits.SpaceMembersWrite,
 		SharedSpacesLimit: al.defaultLimits.SharedSpacesLimit,
+		ChildSpacesLimit:  al.defaultLimits.ChildSpacesLimit,
 		FileStorageBytes:  al.defaultLimits.FileStorageLimitBytes,
 		UpdatedTime:       time.Now(),
 	}, nil

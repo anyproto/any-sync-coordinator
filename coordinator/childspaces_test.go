@@ -1,0 +1,612 @@
+package coordinator
+
+import (
+	"context"
+	"strconv"
+	"testing"
+	"time"
+
+	"github.com/anyproto/any-sync/commonspace/object/accountdata"
+	"github.com/anyproto/any-sync/commonspace/object/acl/list"
+	"github.com/anyproto/any-sync/commonspace/object/acl/recordverifier"
+	"github.com/anyproto/any-sync/commonspace/spacepayloads"
+	"github.com/anyproto/any-sync/commonspace/spacesyncproto"
+	"github.com/anyproto/any-sync/consensus/consensusproto"
+	"github.com/anyproto/any-sync/consensus/consensusproto/consensuserr"
+	"github.com/anyproto/any-sync/coordinator/coordinatorproto"
+	"github.com/anyproto/any-sync/net/peer"
+	"github.com/anyproto/any-sync/net/rpc/rpcerr"
+	"github.com/anyproto/any-sync/nodeconf"
+	"github.com/anyproto/any-sync/util/cidutil"
+	"github.com/anyproto/any-sync/util/crypto"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
+
+	"github.com/anyproto/any-sync-coordinator/accountlimit"
+	"github.com/anyproto/any-sync-coordinator/spacestatus"
+)
+
+const (
+	testParentId              = "parent.id"
+	testAnySpaceType          = "any.space"
+	testOrganizationType      = "any.organization"
+	testOrganizationSpaceType = "any.organization.space"
+)
+
+// accountCtx is the context of a request made by the account
+func accountCtx(t *testing.T, identity crypto.PubKey) context.Context {
+	raw, err := identity.Marshall()
+	require.NoError(t, err)
+	return peer.CtxWithPeerId(peer.CtxWithIdentity(context.Background(), raw), "peer.id")
+}
+
+// newChildHeader builds the header any-sync gives a space of an organization created under a parent
+func newChildHeader(t *testing.T, creator *accountdata.AccountKeys, parentSpaceId string) (spaceId string, header []byte) {
+	masterKey, _, err := crypto.GenerateRandomEd25519KeyPair()
+	require.NoError(t, err)
+	metadataKey, _, err := crypto.GenerateRandomEd25519KeyPair()
+	require.NoError(t, err)
+	readKey, err := crypto.NewRandomAES()
+	require.NoError(t, err)
+	payload, err := spacepayloads.StoragePayloadForSpaceCreateV1(spacepayloads.SpaceCreatePayload{
+		SigningKey:       creator.SignKey,
+		SpaceType:        testOrganizationSpaceType,
+		ReplicationKey:   42,
+		MasterKey:        masterKey,
+		ReadKey:          readKey,
+		MetadataKey:      metadataKey,
+		Metadata:         []byte("metadata"),
+		FileProtoVersion: spacesyncproto.SpaceFileProtoVersion_SpaceFileProtoVersionV2,
+		ParentSpaceId:    parentSpaceId,
+	})
+	require.NoError(t, err)
+	return payload.SpaceHeaderWithId.Id, payload.SpaceHeaderWithId.RawHeader
+}
+
+// newAclRoot builds the root of the acl of a space that the author creates
+func newAclRoot(t *testing.T, author crypto.PrivKey) *consensusproto.RawRecordWithId {
+	metadataKey, _, err := crypto.GenerateRandomEd25519KeyPair()
+	require.NoError(t, err)
+	readKey, err := crypto.NewRandomAES()
+	require.NoError(t, err)
+	root, err := list.NewAclRecordBuilder("", crypto.NewKeyStorage(), nil, recordverifier.NewValidateFull()).BuildRoot(list.RootContent{
+		PrivKey:   author,
+		MasterKey: author,
+		Change:    list.ReadKeyChangePayload{MetadataKey: metadataKey, ReadKey: readKey},
+		Metadata:  []byte("metadata"),
+	})
+	require.NoError(t, err)
+	return root
+}
+
+// newRawHeader signs the header of a space of an organization, after change adjusted it
+func newRawHeader(t *testing.T, creator *accountdata.AccountKeys, change func(h *spacesyncproto.SpaceHeader)) (spaceId string, header []byte) {
+	identity, err := creator.SignKey.GetPublic().Marshall()
+	require.NoError(t, err)
+	spaceHeader := &spacesyncproto.SpaceHeader{
+		Identity:         identity,
+		Timestamp:        time.Now().Unix(),
+		SpaceType:        testOrganizationSpaceType,
+		ReplicationKey:   42,
+		FileprotoVersion: spacesyncproto.SpaceFileProtoVersion_SpaceFileProtoVersionV2,
+		ParentSpaceId:    testParentId,
+		AclPayload:       newAclRoot(t, creator.SignKey).Payload,
+		Version:          spacesyncproto.SpaceHeaderVersion_SpaceHeaderVersion1,
+	}
+	change(spaceHeader)
+	headerBytes, err := spaceHeader.MarshalVT()
+	require.NoError(t, err)
+	signature, err := creator.SignKey.Sign(headerBytes)
+	require.NoError(t, err)
+	header, err = (&spacesyncproto.RawSpaceHeader{SpaceHeader: headerBytes, Signature: signature}).MarshalVT()
+	require.NoError(t, err)
+	id, err := cidutil.NewCidFromBytes(header)
+	require.NoError(t, err)
+	return id + "." + strconv.FormatUint(spaceHeader.ReplicationKey, 36), header
+}
+
+// isKey matches the public key of the account, whichever instance carries it
+func isKey(key crypto.PubKey) gomock.Matcher {
+	return gomock.Cond(func(x crypto.PubKey) bool { return x.Equals(key) })
+}
+
+// newSignFixture is a fixture whose coordinator has the network key that signs receipts
+func newSignFixture(t *testing.T) *fixture {
+	fx := newFixture(t)
+	networkKeys, err := accountdata.NewRandom()
+	require.NoError(t, err)
+	fx.account = networkKeys
+	return fx
+}
+
+func parentEntry(change func(e *spacestatus.StatusEntry)) spacestatus.StatusEntry {
+	entry := spacestatus.StatusEntry{
+		SpaceId:    testParentId,
+		Identity:   "parent.owner",
+		Type:       spacestatus.SpaceTypeRegular,
+		HeaderType: testOrganizationType,
+		Status:     spacestatus.SpaceStatusCreated,
+	}
+	if change != nil {
+		change(&entry)
+	}
+	return entry
+}
+
+func TestCoordinator_SpaceSignChild(t *testing.T) {
+	creator, err := accountdata.NewRandom()
+	require.NoError(t, err)
+	creatorKey := creator.SignKey.GetPublic()
+	signCtx := accountCtx(t, creatorKey)
+	childId, childHeader := newChildHeader(t, creator, testParentId)
+
+	expectReceipt := func(fx *fixture) {
+		fx.coordLog.EXPECT().SpaceReceipt(signCtx, gomock.Any()).Return(nil)
+		fx.aclEventLog.EXPECT().AddLog(signCtx, gomock.Any()).Return(nil)
+	}
+	// expectFirstSign makes the child one that is not registered yet
+	expectFirstSign := func(fx *fixture) {
+		fx.spaceStatus.EXPECT().Status(signCtx, childId).Return(spacestatus.StatusEntry{}, coordinatorproto.ErrSpaceNotExists)
+	}
+	registered := func(status int) spacestatus.StatusEntry {
+		return spacestatus.StatusEntry{
+			SpaceId:       childId,
+			Identity:      creatorKey.Account(),
+			Type:          spacestatus.SpaceTypeRegular,
+			HeaderType:    testOrganizationSpaceType,
+			Status:        status,
+			IsShareable:   true,
+			ParentSpaceId: testParentId,
+		}
+	}
+
+	t.Run("a Writer or above in the parent signs a child", func(t *testing.T) {
+		for _, permissions := range []list.AclPermissions{list.AclPermissionsWriter, list.AclPermissionsAdmin, list.AclPermissionsOwner} {
+			fx := newSignFixture(t)
+			expectFirstSign(fx)
+			fx.spaceStatus.EXPECT().Status(signCtx, testParentId).Return(parentEntry(nil), nil)
+			fx.acl.EXPECT().Permissions(signCtx, isKey(creatorKey), testParentId).Return(permissions, nil)
+			fx.spaceStatus.EXPECT().NewChildStatus(signCtx, childId, isKey(creatorKey), spacestatus.SpaceTypeRegular, testOrganizationSpaceType, false, testParentId, gomock.Any(), true).Return(nil)
+			expectReceipt(fx)
+
+			receipt, headerType, err := fx.SpaceSign(signCtx, childId, childHeader, false)
+			require.NoError(t, err)
+			require.NotNil(t, receipt)
+			assert.Equal(t, testOrganizationSpaceType, headerType)
+			fx.finish(t)
+		}
+	})
+	t.Run("a registered child is signed again whatever changed in the parent", func(t *testing.T) {
+		// neither the parent nor the creator's role in it is looked at
+		for _, tc := range []struct {
+			status int
+			force  bool
+		}{
+			{spacestatus.SpaceStatusCreated, false},
+			{spacestatus.SpaceStatusCreated, true},
+			{spacestatus.SpaceStatusDeletionPending, true},
+		} {
+			fx := newSignFixture(t)
+			fx.spaceStatus.EXPECT().Status(signCtx, childId).Return(registered(tc.status), nil)
+			fx.spaceStatus.EXPECT().NewChildStatus(signCtx, childId, isKey(creatorKey), spacestatus.SpaceTypeRegular, testOrganizationSpaceType, tc.force, testParentId, gomock.Any(), false).Return(nil)
+			expectReceipt(fx)
+
+			receipt, _, err := fx.SpaceSign(signCtx, childId, childHeader, tc.force)
+			require.NoError(t, err)
+			require.NotNil(t, receipt)
+			fx.finish(t)
+		}
+	})
+	t.Run("a deleted child answers that it is deleted, with no look at the parent", func(t *testing.T) {
+		for _, status := range []int{spacestatus.SpaceStatusDeleted, spacestatus.SpaceStatusDeletionPending} {
+			fx := newSignFixture(t)
+			fx.spaceStatus.EXPECT().Status(signCtx, childId).Return(registered(status), nil)
+			fx.spaceStatus.EXPECT().NewChildStatus(signCtx, childId, isKey(creatorKey), spacestatus.SpaceTypeRegular, testOrganizationSpaceType, false, testParentId, gomock.Any(), false).
+				Return(coordinatorproto.ErrSpaceIsDeleted)
+
+			receipt, _, err := fx.SpaceSign(signCtx, childId, childHeader, false)
+			require.ErrorIs(t, err, coordinatorproto.ErrSpaceIsDeleted)
+			assert.Nil(t, receipt)
+			fx.finish(t)
+		}
+	})
+	t.Run("a forced sign of a finally deleted child takes it back and is checked as a new one", func(t *testing.T) {
+		fx := newSignFixture(t)
+		defer fx.finish(t)
+		fx.spaceStatus.EXPECT().Status(signCtx, childId).Return(registered(spacestatus.SpaceStatusDeleted), nil)
+		fx.spaceStatus.EXPECT().Status(signCtx, testParentId).Return(parentEntry(nil), nil)
+		fx.acl.EXPECT().Permissions(signCtx, isKey(creatorKey), testParentId).Return(list.AclPermissionsReader, nil)
+
+		_, _, err := fx.SpaceSign(signCtx, childId, childHeader, true)
+		require.ErrorIs(t, err, coordinatorproto.ErrParentPermissionDenied)
+	})
+	t.Run("a child whose deletion becomes final during a forced sign is checked as a new one", func(t *testing.T) {
+		fx := newSignFixture(t)
+		defer fx.finish(t)
+		gomock.InOrder(
+			// the deletion is pending when the sign starts and final when the child is registered
+			fx.spaceStatus.EXPECT().Status(signCtx, childId).Return(registered(spacestatus.SpaceStatusDeletionPending), nil),
+			fx.spaceStatus.EXPECT().NewChildStatus(signCtx, childId, isKey(creatorKey), spacestatus.SpaceTypeRegular, testOrganizationSpaceType, true, testParentId, gomock.Any(), false).
+				Return(spacestatus.ErrChildTakesPlace),
+			fx.spaceStatus.EXPECT().Status(signCtx, childId).Return(registered(spacestatus.SpaceStatusDeleted), nil),
+			fx.spaceStatus.EXPECT().Status(signCtx, testParentId).Return(parentEntry(nil), nil),
+			fx.acl.EXPECT().Permissions(signCtx, isKey(creatorKey), testParentId).Return(list.AclPermissionsReader, nil),
+		)
+
+		receipt, _, err := fx.SpaceSign(signCtx, childId, childHeader, true)
+		require.ErrorIs(t, err, coordinatorproto.ErrParentPermissionDenied)
+		assert.Nil(t, receipt)
+	})
+	t.Run("a forced first sign passes the same checks", func(t *testing.T) {
+		fx := newSignFixture(t)
+		defer fx.finish(t)
+		expectFirstSign(fx)
+		fx.spaceStatus.EXPECT().Status(signCtx, testParentId).Return(parentEntry(nil), nil)
+		fx.acl.EXPECT().Permissions(signCtx, isKey(creatorKey), testParentId).Return(list.AclPermissionsWriter, nil)
+		fx.spaceStatus.EXPECT().NewChildStatus(signCtx, childId, isKey(creatorKey), spacestatus.SpaceTypeRegular, testOrganizationSpaceType, true, testParentId, gomock.Any(), true).Return(nil)
+		expectReceipt(fx)
+
+		_, _, err := fx.SpaceSign(signCtx, childId, childHeader, true)
+		require.NoError(t, err)
+	})
+	t.Run("the limit is the childSpacesLimit of the account asked for", func(t *testing.T) {
+		fx := newSignFixture(t)
+		defer fx.finish(t)
+		expectFirstSign(fx)
+		fx.spaceStatus.EXPECT().Status(signCtx, testParentId).Return(parentEntry(nil), nil)
+		fx.acl.EXPECT().Permissions(signCtx, isKey(creatorKey), testParentId).Return(list.AclPermissionsWriter, nil)
+		fx.accountLimit.EXPECT().GetLimits(signCtx, "parent.owner").Return(accountlimit.Limits{SharedSpacesLimit: 3, ChildSpacesLimit: 7}, nil)
+		fx.spaceStatus.EXPECT().NewChildStatus(signCtx, childId, isKey(creatorKey), spacestatus.SpaceTypeRegular, testOrganizationSpaceType, false, testParentId, gomock.Any(), true).
+			DoAndReturn(func(ctx context.Context, _ string, _ crypto.PubKey, _ spacestatus.SpaceType, _ string, _ bool, _ string, limit spacestatus.ChildSpacesLimit, _ bool) error {
+				max, err := limit(ctx, "parent.owner")
+				require.NoError(t, err)
+				assert.Equal(t, uint32(7), max)
+				return coordinatorproto.ErrChildSpacesLimitReached
+			})
+
+		receipt, _, err := fx.SpaceSign(signCtx, childId, childHeader, false)
+		require.ErrorIs(t, err, coordinatorproto.ErrChildSpacesLimitReached)
+		assert.Nil(t, receipt)
+	})
+	t.Run("the creator is below Writer in the parent", func(t *testing.T) {
+		for _, permissions := range []list.AclPermissions{list.AclPermissionsNone, list.AclPermissionsGuest, list.AclPermissionsReader} {
+			fx := newSignFixture(t)
+			expectFirstSign(fx)
+			fx.spaceStatus.EXPECT().Status(signCtx, testParentId).Return(parentEntry(nil), nil)
+			fx.acl.EXPECT().Permissions(signCtx, isKey(creatorKey), testParentId).Return(permissions, nil)
+
+			receipt, _, err := fx.SpaceSign(signCtx, childId, childHeader, false)
+			require.ErrorIs(t, err, coordinatorproto.ErrParentPermissionDenied)
+			assert.Nil(t, receipt)
+			fx.finish(t)
+		}
+	})
+	t.Run("the parent does not exist", func(t *testing.T) {
+		fx := newSignFixture(t)
+		defer fx.finish(t)
+		expectFirstSign(fx)
+		fx.spaceStatus.EXPECT().Status(signCtx, testParentId).Return(spacestatus.StatusEntry{}, coordinatorproto.ErrSpaceNotExists)
+
+		_, _, err := fx.SpaceSign(signCtx, childId, childHeader, false)
+		require.ErrorIs(t, err, coordinatorproto.ErrParentSpaceNotAvailable)
+	})
+	t.Run("the parent is deleted or its deletion is pending", func(t *testing.T) {
+		for _, status := range []int{spacestatus.SpaceStatusDeletionPending, spacestatus.SpaceStatusDeleted} {
+			fx := newSignFixture(t)
+			expectFirstSign(fx)
+			fx.spaceStatus.EXPECT().Status(signCtx, testParentId).Return(parentEntry(func(e *spacestatus.StatusEntry) { e.Status = status }), nil)
+
+			_, _, err := fx.SpaceSign(signCtx, childId, childHeader, false)
+			require.ErrorIs(t, err, coordinatorproto.ErrParentSpaceNotAvailable)
+			fx.finish(t)
+		}
+	})
+	t.Run("the acl of the parent is not on the network", func(t *testing.T) {
+		fx := newSignFixture(t)
+		defer fx.finish(t)
+		expectFirstSign(fx)
+		fx.spaceStatus.EXPECT().Status(signCtx, testParentId).Return(parentEntry(nil), nil)
+		fx.acl.EXPECT().Permissions(signCtx, isKey(creatorKey), testParentId).Return(list.AclPermissionsNone, consensuserr.ErrLogNotFound)
+
+		_, _, err := fx.SpaceSign(signCtx, childId, childHeader, false)
+		require.ErrorIs(t, err, coordinatorproto.ErrParentSpaceNotAvailable)
+	})
+	t.Run("the parent is not an organization", func(t *testing.T) {
+		for name, change := range map[string]func(e *spacestatus.StatusEntry){
+			"a space of an organization": func(e *spacestatus.StatusEntry) {
+				e.ParentSpaceId, e.HeaderType = "grandparent.id", testOrganizationSpaceType
+			},
+			"a regular any.space": func(e *spacestatus.StatusEntry) { e.HeaderType = testAnySpaceType },
+			"a tech space":        func(e *spacestatus.StatusEntry) { e.Type, e.HeaderType = spacestatus.SpaceTypeTech, "any.techspace" },
+			"a 1-1 space":         func(e *spacestatus.StatusEntry) { e.Type, e.HeaderType = spacestatus.SpaceTypeOneToOne, "any.onetoone" },
+			"a derived space": func(e *spacestatus.StatusEntry) {
+				e.Type, e.HeaderType = spacestatus.SpaceTypePersonal, testAnySpaceType
+			},
+			"an anytype space": func(e *spacestatus.StatusEntry) { e.HeaderType = "anytype.space" },
+		} {
+			fx := newSignFixture(t)
+			expectFirstSign(fx)
+			fx.spaceStatus.EXPECT().Status(signCtx, testParentId).Return(parentEntry(change), nil)
+
+			_, _, err := fx.SpaceSign(signCtx, childId, childHeader, false)
+			require.ErrorIs(t, err, coordinatorproto.ErrParentSpaceInvalid, name)
+			fx.finish(t)
+		}
+	})
+	t.Run("a header that names a parent is not a v1 header of a space of an organization", func(t *testing.T) {
+		for name, change := range map[string]func(h *spacesyncproto.SpaceHeader){
+			"not v1":              func(h *spacesyncproto.SpaceHeader) { h.Version = spacesyncproto.SpaceHeaderVersion_SpaceHeaderVersion0 },
+			"an organization":     func(h *spacesyncproto.SpaceHeader) { h.SpaceType = testOrganizationType },
+			"a regular any.space": func(h *spacesyncproto.SpaceHeader) { h.SpaceType = testAnySpaceType },
+			"a derived any.space": func(h *spacesyncproto.SpaceHeader) { h.SpaceType, h.Timestamp = testAnySpaceType, 0 },
+			"a tech space":        func(h *spacesyncproto.SpaceHeader) { h.SpaceType = "any.techspace" },
+			"an anytype space":    func(h *spacesyncproto.SpaceHeader) { h.SpaceType = "anytype.space" },
+			"a chat space":        func(h *spacesyncproto.SpaceHeader) { h.SpaceType = "anytype.chatspace" },
+			"an untyped space":    func(h *spacesyncproto.SpaceHeader) { h.SpaceType = "" },
+		} {
+			fx := newSignFixture(t)
+			spaceId, header := newRawHeader(t, creator, change)
+
+			_, _, err := fx.SpaceSign(signCtx, spaceId, header, false)
+			require.ErrorIs(t, err, coordinatorproto.ErrParentSpaceInvalid, name)
+			fx.finish(t)
+		}
+	})
+	t.Run("a header that the type of an organization or of its space does not allow", func(t *testing.T) {
+		noFileProto := spacesyncproto.SpaceFileProtoVersion_SpaceFileProtoVersionUnspecified
+		organization := func(h *spacesyncproto.SpaceHeader) { h.SpaceType, h.ParentSpaceId = testOrganizationType, "" }
+		for name, tc := range map[string]struct {
+			change func(h *spacesyncproto.SpaceHeader)
+			err    string
+		}{
+			"a space of an organization that names no parent": {func(h *spacesyncproto.SpaceHeader) { h.ParentSpaceId = "" }, "requires a parent space"},
+			"a space of an organization without fileproto v2": {func(h *spacesyncproto.SpaceHeader) { h.FileprotoVersion = noFileProto }, "requires fileproto version"},
+			"a space of an organization without a timestamp":  {func(h *spacesyncproto.SpaceHeader) { h.Timestamp = 0 }, "requires a timestamp"},
+			"an organization without fileproto v2": {func(h *spacesyncproto.SpaceHeader) {
+				organization(h)
+				h.FileprotoVersion = noFileProto
+			}, "requires fileproto version"},
+			"an organization without a timestamp": {func(h *spacesyncproto.SpaceHeader) {
+				organization(h)
+				h.Timestamp = 0
+			}, "requires a timestamp"},
+		} {
+			fx := newSignFixture(t)
+			spaceId, header := newRawHeader(t, creator, tc.change)
+
+			receipt, _, err := fx.SpaceSign(signCtx, spaceId, header, false)
+			require.ErrorContains(t, err, tc.err, name)
+			// the error is not one of the coordinator's
+			assert.Zero(t, rpcerr.Code(err), name)
+			assert.Nil(t, receipt, name)
+			fx.finish(t)
+		}
+	})
+	t.Run("an organization and a regular any.space are signed as top-level regular spaces", func(t *testing.T) {
+		for _, spaceType := range []string{testOrganizationType, testAnySpaceType} {
+			fx := newSignFixture(t)
+			spaceId, header := newRawHeader(t, creator, func(h *spacesyncproto.SpaceHeader) { h.SpaceType, h.ParentSpaceId = spaceType, "" })
+			fx.spaceStatus.EXPECT().NewStatus(signCtx, spaceId, isKey(creatorKey), spacestatus.SpaceTypeRegular, spaceType, false).Return(nil)
+			expectReceipt(fx)
+
+			receipt, headerType, err := fx.SpaceSign(signCtx, spaceId, header, false)
+			require.NoError(t, err, spaceType)
+			require.NotNil(t, receipt, spaceType)
+			assert.Equal(t, spaceType, headerType)
+			fx.finish(t)
+		}
+	})
+}
+
+func TestCoordinator_SpaceDeleteChild(t *testing.T) {
+	const networkId = "network.id"
+	caller := newAccount(t).SignKey.GetPublic()
+	other := newAccount(t).SignKey.GetPublic()
+	deleteCtx := accountCtx(t, caller)
+	childEntry := func(owner crypto.PubKey) spacestatus.StatusEntry {
+		return spacestatus.StatusEntry{
+			SpaceId:       testChildId,
+			Identity:      owner.Account(),
+			Type:          spacestatus.SpaceTypeRegular,
+			HeaderType:    testOrganizationSpaceType,
+			ParentSpaceId: testParentId,
+		}
+	}
+	// expectDelete expects the deletion to reach the space status as the owner of the given parent
+	expectDelete := func(fx *fixture, spaceId, ownerOfParent string, err error) {
+		fx.nodeConf.EXPECT().Configuration().Return(nodeconf.Configuration{NetworkId: networkId})
+		fx.spaceStatus.EXPECT().SpaceDelete(deleteCtx, gomock.Cond(func(d spacestatus.SpaceDeletion) bool {
+			return d.SpaceId == spaceId && d.OwnerOfParent == ownerOfParent && d.Identity.Equals(caller) && d.NetworkId == networkId
+		})).Return(int64(100), err)
+	}
+
+	t.Run("the owner of a child deletes it as the owner of any space does", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+		fx.spaceStatus.EXPECT().Status(deleteCtx, testChildId).Return(childEntry(caller), nil)
+		expectDelete(fx, testChildId, "", nil)
+
+		toBeDeleted, err := fx.SpaceDelete(deleteCtx, testChildId, 60, []byte("payload"), "payload.id")
+		require.NoError(t, err)
+		assert.Equal(t, int64(100), toBeDeleted)
+	})
+	t.Run("the Owner of the parent deletes a child", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+		fx.spaceStatus.EXPECT().Status(deleteCtx, testChildId).Return(childEntry(other), nil)
+		fx.acl.EXPECT().OwnerPubKey(deleteCtx, testParentId).Return(caller, nil)
+		expectDelete(fx, testChildId, testParentId, nil)
+
+		_, err := fx.SpaceDelete(deleteCtx, testChildId, 60, []byte("payload"), "payload.id")
+		require.NoError(t, err)
+	})
+	t.Run("an account that owns neither the child nor the parent deletes nothing", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+		fx.spaceStatus.EXPECT().Status(deleteCtx, testChildId).Return(childEntry(other), nil)
+		fx.acl.EXPECT().OwnerPubKey(deleteCtx, testParentId).Return(other, nil)
+
+		_, err := fx.SpaceDelete(deleteCtx, testChildId, 60, []byte("payload"), "payload.id")
+		require.ErrorIs(t, err, coordinatorproto.ErrParentPermissionDenied)
+	})
+	t.Run("the acl of the parent is not on the network", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+		fx.spaceStatus.EXPECT().Status(deleteCtx, testChildId).Return(childEntry(other), nil)
+		fx.acl.EXPECT().OwnerPubKey(deleteCtx, testParentId).Return(nil, consensuserr.ErrLogNotFound)
+
+		_, err := fx.SpaceDelete(deleteCtx, testChildId, 60, []byte("payload"), "payload.id")
+		require.ErrorIs(t, err, coordinatorproto.ErrParentSpaceNotAvailable)
+	})
+	t.Run("a top-level space is deleted without a look at any parent", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+		fx.spaceStatus.EXPECT().Status(deleteCtx, testParentId).Return(parentEntry(nil), nil)
+		expectDelete(fx, testParentId, "", coordinatorproto.ErrSpaceHasChildren)
+
+		_, err := fx.SpaceDelete(deleteCtx, testParentId, 60, []byte("payload"), "payload.id")
+		require.ErrorIs(t, err, coordinatorproto.ErrSpaceHasChildren)
+	})
+	t.Run("a space that does not exist is answered by the space status", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+		fx.spaceStatus.EXPECT().Status(deleteCtx, testChildId).Return(spacestatus.StatusEntry{}, coordinatorproto.ErrSpaceNotExists)
+		expectDelete(fx, testChildId, "", coordinatorproto.ErrSpaceNotExists)
+
+		_, err := fx.SpaceDelete(deleteCtx, testChildId, 60, []byte("payload"), "payload.id")
+		require.ErrorIs(t, err, coordinatorproto.ErrSpaceNotExists)
+	})
+}
+
+func TestRpcHandler_SpaceChildren(t *testing.T) {
+	caller := newAccount(t).SignKey.GetPublic()
+	listCtx := accountCtx(t, caller)
+	req := &coordinatorproto.SpaceChildrenRequest{SpaceId: testParentId}
+
+	t.Run("an Admin or the Owner of the space gets its children with their status", func(t *testing.T) {
+		for _, permissions := range []list.AclPermissions{list.AclPermissionsAdmin, list.AclPermissionsOwner} {
+			fx := newFixture(t)
+			fx.spaceStatus.EXPECT().Status(listCtx, testParentId).Return(parentEntry(nil), nil)
+			fx.acl.EXPECT().Permissions(listCtx, isKey(caller), testParentId).Return(permissions, nil)
+			fx.spaceStatus.EXPECT().Children(listCtx, testParentId).Return([]spacestatus.StatusEntry{
+				{SpaceId: "child.1", Status: spacestatus.SpaceStatusCreated, ParentSpaceId: testParentId},
+				{SpaceId: "child.2", Status: spacestatus.SpaceStatusDeletionPending, ParentSpaceId: testParentId},
+			}, nil)
+
+			resp, err := fx.drpcHandler.SpaceChildren(listCtx, req)
+			require.NoError(t, err)
+			require.Len(t, resp.Children, 2)
+			assert.Equal(t, "child.1", resp.Children[0].SpaceId)
+			assert.Equal(t, coordinatorproto.SpaceStatus_SpaceStatusCreated, resp.Children[0].Status)
+			assert.Equal(t, "child.2", resp.Children[1].SpaceId)
+			assert.Equal(t, coordinatorproto.SpaceStatus_SpaceStatusPendingDeletion, resp.Children[1].Status)
+			fx.finish(t)
+		}
+	})
+	t.Run("a space without children answers with an empty list", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+		fx.spaceStatus.EXPECT().Status(listCtx, testParentId).Return(parentEntry(nil), nil)
+		fx.acl.EXPECT().Permissions(listCtx, isKey(caller), testParentId).Return(list.AclPermissionsOwner, nil)
+		fx.spaceStatus.EXPECT().Children(listCtx, testParentId).Return(nil, nil)
+
+		resp, err := fx.drpcHandler.SpaceChildren(listCtx, req)
+		require.NoError(t, err)
+		assert.Empty(t, resp.Children)
+	})
+	t.Run("an account below Admin gets no list", func(t *testing.T) {
+		for _, permissions := range []list.AclPermissions{list.AclPermissionsWriter, list.AclPermissionsReader, list.AclPermissionsGuest, list.AclPermissionsNone} {
+			fx := newFixture(t)
+			fx.spaceStatus.EXPECT().Status(listCtx, testParentId).Return(parentEntry(nil), nil)
+			fx.acl.EXPECT().Permissions(listCtx, isKey(caller), testParentId).Return(permissions, nil)
+
+			resp, err := fx.drpcHandler.SpaceChildren(listCtx, req)
+			require.ErrorIs(t, err, coordinatorproto.ErrParentPermissionDenied)
+			assert.Nil(t, resp)
+			fx.finish(t)
+		}
+	})
+	t.Run("a space whose acl is not on the network yet answers that it is not available", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+		fx.spaceStatus.EXPECT().Status(listCtx, testParentId).Return(parentEntry(nil), nil)
+		fx.acl.EXPECT().Permissions(listCtx, isKey(caller), testParentId).Return(list.AclPermissionsNone, consensuserr.ErrLogNotFound)
+
+		resp, err := fx.drpcHandler.SpaceChildren(listCtx, req)
+		require.ErrorIs(t, err, coordinatorproto.ErrParentSpaceNotAvailable)
+		assert.Equal(t, uint64(coordinatorproto.ErrorCodes_ErrorOffset)+uint64(coordinatorproto.ErrorCodes_ParentSpaceNotAvailable), rpcerr.Code(err))
+		assert.Nil(t, resp)
+	})
+	t.Run("a space that is deleted or does not exist has no list", func(t *testing.T) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+		fx.spaceStatus.EXPECT().Status(listCtx, testParentId).Return(parentEntry(func(e *spacestatus.StatusEntry) {
+			e.Status = spacestatus.SpaceStatusDeletionPending
+		}), nil)
+		_, err := fx.drpcHandler.SpaceChildren(listCtx, req)
+		require.ErrorIs(t, err, coordinatorproto.ErrSpaceIsDeleted)
+
+		fx.spaceStatus.EXPECT().Status(listCtx, testParentId).Return(spacestatus.StatusEntry{}, coordinatorproto.ErrSpaceNotExists)
+		_, err = fx.drpcHandler.SpaceChildren(listCtx, req)
+		require.ErrorIs(t, err, coordinatorproto.ErrSpaceNotExists)
+	})
+}
+
+// The status of a child tells the caller's own place in the child, as for any space: an account is
+// the owner there only when it owns the child itself.
+func TestRpcHandler_SpaceStatusCheckChild(t *testing.T) {
+	childOwner := newAccount(t).SignKey.GetPublic()
+	parentOwner := newAccount(t).SignKey.GetPublic()
+	child := spacestatus.StatusEntry{
+		SpaceId:       testChildId,
+		Identity:      childOwner.Account(),
+		Type:          spacestatus.SpaceTypeRegular,
+		HeaderType:    testOrganizationSpaceType,
+		IsShareable:   true,
+		ParentSpaceId: testParentId,
+	}
+	parent := parentEntry(func(e *spacestatus.StatusEntry) { e.Identity = parentOwner.Account() })
+	limits := accountlimit.Limits{SpaceMembersRead: 4, SpaceMembersWrite: 3, SharedSpacesLimit: 2, ChildSpacesLimit: 7}
+
+	// check returns what the single and the batch status check tell the account about the space
+	check := func(t *testing.T, account crypto.PubKey, entry spacestatus.StatusEntry) (single, batch *coordinatorproto.SpaceStatusPayload) {
+		fx := newFixture(t)
+		defer fx.finish(t)
+		checkCtx := accountCtx(t, account)
+		fx.spaceStatus.EXPECT().Status(checkCtx, entry.SpaceId).Return(entry, nil).Times(2)
+		fx.accountLimit.EXPECT().GetLimits(checkCtx, account.Account()).Return(limits, nil).AnyTimes()
+
+		one, err := fx.drpcHandler.SpaceStatusCheck(checkCtx, &coordinatorproto.SpaceStatusCheckRequest{SpaceId: entry.SpaceId})
+		require.NoError(t, err)
+		many, err := fx.drpcHandler.SpaceStatusCheckMany(checkCtx, &coordinatorproto.SpaceStatusCheckManyRequest{SpaceIds: []string{entry.SpaceId}})
+		require.NoError(t, err)
+		require.Len(t, many.Payloads, 1)
+		assert.Equal(t, uint32(7), many.AccountLimits.ChildSpacesLimit)
+		assert.Equal(t, uint32(2), many.AccountLimits.SharedSpacesLimit)
+		return one.Payload, many.Payloads[0]
+	}
+
+	t.Run("the Owner of the parent is not the owner of a child it does not own", func(t *testing.T) {
+		single, batch := check(t, parentOwner, child)
+		for _, payload := range []*coordinatorproto.SpaceStatusPayload{single, batch} {
+			assert.Equal(t, coordinatorproto.SpacePermissions_SpacePermissionsUnknown, payload.Permissions)
+			assert.Nil(t, payload.Limits)
+			assert.True(t, payload.IsShared)
+		}
+	})
+	t.Run("the owner of the child is its owner", func(t *testing.T) {
+		single, batch := check(t, childOwner, child)
+		for _, payload := range []*coordinatorproto.SpaceStatusPayload{single, batch} {
+			assert.Equal(t, coordinatorproto.SpacePermissions_SpacePermissionsOwner, payload.Permissions)
+			require.NotNil(t, payload.Limits)
+			assert.Equal(t, uint32(4), payload.Limits.ReadMembers)
+		}
+	})
+	t.Run("the Owner of the parent is the owner of the parent", func(t *testing.T) {
+		single, batch := check(t, parentOwner, parent)
+		for _, payload := range []*coordinatorproto.SpaceStatusPayload{single, batch} {
+			assert.Equal(t, coordinatorproto.SpacePermissions_SpacePermissionsOwner, payload.Permissions)
+		}
+	})
+}

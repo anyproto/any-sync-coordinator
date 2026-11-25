@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/ahmetb/govvv v0.3.0
-	github.com/anyproto/any-sync v0.13.8
+	github.com/anyproto/any-sync v0.13.9-0.20261124143616-74c5dbf419cd
 	github.com/anyproto/go-chash v0.1.0
 	github.com/gogo/protobuf v1.3.2
 	github.com/ipfs/go-cid v0.6.2
@@ -19,7 +19,7 @@ require (
 
 require (
 	filippo.io/edwards25519 v1.2.0 // indirect
-	github.com/anyproto/any-store v1.0.2 // indirect
+	github.com/anyproto/any-store v1.0.3 // indirect
 	github.com/anyproto/go-bip39 v1.0.0 // indirect
 	github.com/anyproto/go-slip10 v1.0.1 // indirect
 	github.com/anyproto/go-slip21 v1.0.0 // indirect
